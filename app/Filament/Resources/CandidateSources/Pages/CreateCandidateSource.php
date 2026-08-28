@@ -1,0 +1,11 @@
+<?php
+
+namespace App\Filament\Resources\CandidateSources\Pages;
+
+use App\Filament\Resources\CandidateSources\CandidateSourceResource;
+use Filament\Resources\Pages\CreateRecord;
+
+class CreateCandidateSource extends CreateRecord
+{
+    protected static string $resource = CandidateSourceResource::class;
+}
