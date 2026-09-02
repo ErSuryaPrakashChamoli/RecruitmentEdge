@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             OrganizationSeeder::class,
             AdminUserSeeder::class,
             RecruitmentReferenceDataSeeder::class,
+            AiEvaluationSeeder::class,
         ]);
     }
 }

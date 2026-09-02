@@ -19,6 +19,7 @@ class RolePermissionSeeder extends Seeder
      */
     private const array PERMISSIONS = [
         'hierarchy.view-all',
+        'hierarchy.reassign',
         'requisitions.viewAny',
         'requisitions.create',
         'requisitions.update',
@@ -42,12 +43,14 @@ class RolePermissionSeeder extends Seeder
         'incentives.approve',
         'incentives.view',
         'incentives.pay',
+        'reports.export',
         'users.manage',
         'roles.manage',
         'settings.manage',
         'audit.view',
         'ai.query',
         'ai.manage',
+        'ai.actions.execute',
     ];
 
     /**
@@ -62,28 +65,28 @@ class RolePermissionSeeder extends Seeder
             'interviews.manage', 'offers.manage', 'offers.release', 'joining.confirm',
             'targets.configure', 'performance.configure', 'performance.view',
             'incentives.configureRules', 'incentives.calculate', 'incentives.approve', 'incentives.view',
-            'audit.view', 'ai.query', 'ai.manage',
+            'audit.view', 'reports.export', 'hierarchy.reassign', 'ai.query', 'ai.manage', 'ai.actions.execute',
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
             'candidates.viewAny', 'candidates.create', 'candidates.update', 'candidates.reassign',
             'pipeline.transition', 'activities.log', 'followups.manage',
             'interviews.manage', 'offers.manage', 'offers.release', 'joining.confirm',
-            'targets.configure', 'performance.view', 'incentives.view', 'ai.query',
+            'targets.configure', 'performance.view', 'incentives.view', 'reports.export', 'ai.query', 'ai.actions.execute',
         ],
         'assistant_manager' => [
             'requisitions.viewAny',
             'candidates.viewAny', 'candidates.update',
             'pipeline.transition', 'activities.log', 'followups.manage',
             'interviews.manage', 'offers.manage', 'joining.confirm',
-            'performance.view', 'incentives.view', 'ai.query',
+            'performance.view', 'incentives.view', 'reports.export', 'ai.query',
         ],
         'recruiter' => [
             'requisitions.viewAny',
             'candidates.viewAny', 'candidates.create', 'candidates.update',
             'pipeline.transition', 'activities.log', 'followups.manage',
             'interviews.manage', 'offers.manage', 'joining.confirm',
-            'performance.view', 'incentives.view', 'ai.query',
+            'performance.view', 'incentives.view', 'reports.export', 'ai.query',
         ],
     ];
 

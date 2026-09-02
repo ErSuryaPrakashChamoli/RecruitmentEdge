@@ -26,6 +26,11 @@
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
+        <!-- Never let the test suite make real AI provider calls, regardless of what's in .env —
+             ProviderIndependenceTest.php etc. mock every external call via Http::fake() instead. -->
+        <env name="GEMINI_API_KEY" value=""/>
+        <env name="OPENAI_API_KEY" value=""/>
+        <env name="AI_WEB_SEARCH_ENABLED" value="false"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

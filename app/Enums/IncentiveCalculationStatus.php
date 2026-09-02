@@ -30,4 +30,17 @@ enum IncentiveCalculationStatus: string
             self::Reversed => 'Reversed',
         };
     }
+
+    /**
+     * The single source of truth for this status's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Paid => 'success',
+            self::Payable, self::Approved => 'info',
+            self::PendingVerification, self::Calculated => 'warning',
+            self::Rejected, self::Reversed => 'danger',
+        };
+    }
 }

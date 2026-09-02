@@ -53,6 +53,27 @@ class Leaderboard extends Page implements HasForms, HasTable
         ]);
     }
 
+    /**
+     * @return array{total: int, scored: int, average: float|null, topName: string|null, topScore: float|null}
+     */
+    public function getSummary(): array
+    {
+        $periodStart = now()->startOfMonth()->toDateString();
+        $periodEnd = now()->endOfMonth()->toDateString();
+
+        $rows = $this->baseQuery($periodStart, $periodEnd)->get();
+        $scored = $rows->filter(fn (Employee $employee) => $employee->score !== null);
+        $top = $scored->sortByDesc(fn (Employee $employee) => (float) $employee->score)->first();
+
+        return [
+            'total' => $rows->count(),
+            'scored' => $scored->count(),
+            'average' => $scored->isEmpty() ? null : round($scored->avg(fn (Employee $employee) => (float) $employee->score), 1),
+            'topName' => $top?->fullName(),
+            'topScore' => $top !== null ? round((float) $top->score, 1) : null,
+        ];
+    }
+
     public function table(Table $table): Table
     {
         $periodStart = now()->startOfMonth()->toDateString();
@@ -110,8 +131,8 @@ class Leaderboard extends Page implements HasForms, HasTable
             ->whereIn('id', $recruiterIds)
             ->leftJoinSub(
                 RecruiterPerformanceSnapshot::query()
-                    ->where('period_start', $periodStart)
-                    ->where('period_end', $periodEnd)
+                    ->whereDate('period_start', $periodStart)
+                    ->whereDate('period_end', $periodEnd)
                     ->select('employee_id', 'score', 'breakdown'),
                 'current_snapshot',
                 'current_snapshot.employee_id',

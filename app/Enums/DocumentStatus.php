@@ -18,4 +18,17 @@ enum DocumentStatus: string
             self::Rejected => 'Rejected',
         };
     }
+
+    /**
+     * The single source of truth for this status's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Verified => 'success',
+            self::Submitted => 'info',
+            self::Rejected => 'danger',
+            self::Pending => 'gray',
+        };
+    }
 }

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 #[Fillable([
     'candidate_id',
@@ -29,6 +30,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'reports_to_id',
     'date_of_joining',
     'status',
+    'category',
+    'level',
+    'photo_path',
 ])]
 #[ObservedBy(EmployeeObserver::class)]
 class Employee extends Model
@@ -47,6 +51,11 @@ class Employee extends Model
     public function fullName(): string
     {
         return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    public function photoUrl(): ?string
+    {
+        return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
     }
 
     /**

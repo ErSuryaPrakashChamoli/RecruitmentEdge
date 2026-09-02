@@ -6,8 +6,10 @@ use App\Enums\OfferStatus;
 use App\Events\OfferAccepted;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\Employee;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\User;
 use App\Services\OfferService;
 use Illuminate\Support\Facades\Event;
 
@@ -76,4 +78,16 @@ test('accepting an offer creates a candidate joining record automatically', func
     expect($joining)->not->toBeNull()
         ->and($joining->offer_id)->toBe($offer->id)
         ->and($joining->expected_doj->toDateString())->toBe($offer->expected_joining_date->toDateString());
+});
+
+test('releasing an offer notifies the recruiter', function (): void {
+    $recruiter = Employee::factory()->create();
+    $user = User::factory()->create(['employee_id' => $recruiter->id]);
+    $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $offer = Offer::factory()->create(['candidate_application_id' => $application->id, 'status' => OfferStatus::Initiated]);
+
+    $this->service->moveTo($offer, OfferStatus::Released);
+
+    expect($user->notifications()->count())->toBe(1)
+        ->and($user->notifications()->first()->data['title'])->toBe('[Offers] Offer released');
 });

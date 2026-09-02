@@ -27,6 +27,8 @@ class RecruitmentRequisitionsTable
         return $table
             ->columns([
                 TextColumn::make('code')
+                    ->weight('semibold')
+                    ->description(fn (RecruitmentRequisition $record) => $record->designation?->name)
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('department.name')
@@ -34,32 +36,23 @@ class RecruitmentRequisitionsTable
                     ->sortable(),
                 TextColumn::make('designation.name')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('openings')
                     ->sortable(),
                 TextColumn::make('remaining')
                     ->label('Remaining')
-                    ->state(fn (RecruitmentRequisition $record) => $record->remainingOpenings()),
+                    ->badge()
+                    ->state(fn (RecruitmentRequisition $record) => $record->remainingOpenings())
+                    ->color(fn (RecruitmentRequisition $record) => $record->remainingOpenings() > 0 ? 'warning' : 'success'),
                 TextColumn::make('priority')
                     ->badge()
                     ->formatStateUsing(fn (Priority $state) => $state->label())
-                    ->color(fn (Priority $state) => match ($state) {
-                        Priority::Low => 'gray',
-                        Priority::Medium => 'info',
-                        Priority::High => 'warning',
-                        Priority::Urgent => 'danger',
-                    }),
+                    ->color(fn (Priority $state) => $state->color()),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (RequisitionStatus $state) => $state->label())
-                    ->color(fn (RequisitionStatus $state) => match ($state) {
-                        RequisitionStatus::Draft => 'gray',
-                        RequisitionStatus::PendingApproval => 'warning',
-                        RequisitionStatus::Approved, RequisitionStatus::Open => 'success',
-                        RequisitionStatus::OnHold => 'warning',
-                        RequisitionStatus::Closed => 'gray',
-                        RequisitionStatus::Cancelled => 'danger',
-                    }),
+                    ->color(fn (RequisitionStatus $state) => $state->color()),
                 TextColumn::make('ageing')
                     ->label('Ageing (days)')
                     ->state(fn (RecruitmentRequisition $record) => $record->ageingInDays()),
@@ -69,6 +62,9 @@ class RecruitmentRequisitionsTable
                     ->relationship('department', 'name'),
                 SelectFilter::make('status')
                     ->options(collect(RequisitionStatus::cases())->mapWithKeys(fn (RequisitionStatus $s) => [$s->value => $s->label()])),
+                SelectFilter::make('manager')
+                    ->relationship('manager', 'first_name')
+                    ->searchable(),
                 TrashedFilter::make(),
             ])
             ->recordActions([
@@ -81,7 +77,10 @@ class RecruitmentRequisitionsTable
                     ForceDeleteBulkAction::make(),
                     RestoreBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No requisitions found')
+            ->emptyStateDescription('Try changing your filters, or create a new requisition to start hiring.')
+            ->emptyStateIcon('heroicon-o-briefcase');
     }
 
     private static function changeStatusAction(): Action

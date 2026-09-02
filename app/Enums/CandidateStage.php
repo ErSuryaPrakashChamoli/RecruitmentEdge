@@ -61,4 +61,21 @@ enum CandidateStage: string
     {
         return array_search($this, self::cases(), strict: true);
     }
+
+    /**
+     * The single source of truth for this stage's badge color (Section 32). Rejection/dropout is
+     * a separate ApplicationStatus, not a stage, so there is deliberately no "danger" stage here —
+     * every stage represents forward progress, just at different levels of confidence.
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Sourced, self::ContactAttempted, self::Connected => 'gray',
+            self::Interested, self::Screened, self::Shortlisted => 'info',
+            self::InterviewScheduled, self::Interview1, self::Interview2, self::FinalInterview => 'warning',
+            self::OfferInitiated, self::OfferReleased => 'warning',
+            self::Selected, self::OfferAccepted, self::JoiningConfirmed, self::Joined,
+            self::DocumentsCompleted, self::OnboardingCompleted => 'success',
+        };
+    }
 }

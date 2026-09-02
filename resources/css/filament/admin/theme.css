@@ -1,0 +1,483 @@
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+@source '../../../../app/Filament/**/*';
+@source '../../../../app/Livewire/**/*';
+@source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/components/**/*';
+@source '../../../../resources/views/livewire/**/*';
+
+/*
+ * Section 6/33's five-color semantic KPI system, named once here so components can reference one
+ * source instead of re-deriving match() arms independently. Deliberately a plain :root block, not
+ * @theme: an @theme block here (a secondary viteTheme entry, not the app's main Tailwind entry)
+ * was silently dropped by Tailwind's theme-layer merging during a real build — verified by
+ * grepping the compiled output — so these stay usable via var(--color-kpi-*) in custom CSS/blade
+ * components without depending on that. Blade components still use literal palette classes
+ * (text-emerald-600 etc.) for anything Tailwind needs to scan — see kpi-stat.blade.php.
+ */
+:root {
+    --color-kpi-activity: var(--color-blue-600);
+    --color-kpi-outcome: var(--color-emerald-600);
+    --color-kpi-attention: var(--color-amber-600);
+    --color-kpi-risk: var(--color-rose-600);
+    --color-kpi-analytics: var(--color-indigo-600);
+}
+
+/*
+ * Ambient corporate background (Section 1, boosted): a light neutral base with visible radial
+ * primary-color washes pinned to the corners, applied once at the shell level so every page
+ * inherits it. Driven by var(--primary-*) (not a hardcoded hex) so it re-tints automatically with
+ * whichever of the 3 theme presets below is active — no per-theme duplicate block needed for the
+ * base wash; only the two alternate presets override it further down for a distinct hue.
+ * Plain CSS, not Tailwind utilities, so it isn't subject to @source content-scanning.
+ */
+.fi-body {
+    background-color: #f8fafc;
+    background-image:
+        radial-gradient(ellipse 1000px 650px at 0% 0%, color-mix(in oklab, var(--primary-500) 16%, transparent), transparent 60%),
+        radial-gradient(ellipse 1000px 650px at 100% 0%, color-mix(in oklab, var(--primary-400) 12%, transparent), transparent 60%),
+        radial-gradient(ellipse 1200px 750px at 50% 100%, color-mix(in oklab, var(--primary-500) 10%, transparent), transparent 60%);
+    background-attachment: fixed;
+}
+
+/* Filament toggles dark mode via a plain .dark class on <html> (see dark-mode.js), not
+   data-theme — matched here rather than the data-theme convention used by standalone artifacts. */
+.dark .fi-body {
+    background-color: var(--color-gray-950);
+    background-image:
+        radial-gradient(ellipse 1000px 650px at 0% 0%, color-mix(in oklab, var(--primary-500) 18%, transparent), transparent 60%),
+        radial-gradient(ellipse 1000px 650px at 100% 0%, color-mix(in oklab, var(--primary-400) 14%, transparent), transparent 60%);
+}
+
+/*
+ * Scrollbar: Filament never gives .fi-main its own scroll container (see layout.css — .fi-body is
+ * just min-h-dvh, so the *document* scrolls, one native scrollbar for the whole page). Left at
+ * browser defaults, that scrollbar renders as a stark system-gray track/thumb running the full
+ * page height — including alongside the new dark sidebar/topbar and colorful header — which reads
+ * as an unstyled, out-of-place strip against the redesigned surfaces. Matched to the light content
+ * background instead (`scrollbar-color` covers Firefox; `::-webkit-scrollbar-*` covers Chromium/
+ * Safari) so it recedes into the page rather than standing out as a raw OS element.
+ */
+html {
+    scrollbar-color: var(--color-gray-300) #f8fafc;
+    scrollbar-width: thin;
+}
+
+.dark html {
+    scrollbar-color: var(--color-gray-700) var(--color-gray-950);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f8fafc;
+}
+
+.dark ::-webkit-scrollbar-track {
+    background: var(--color-gray-950);
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--color-gray-300);
+    border-radius: 9999px;
+    border: 2px solid #f8fafc;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background-color: var(--color-gray-700);
+    border: 2px solid var(--color-gray-950);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-gray-400);
+}
+
+/*
+ * .fi-sidebar-nav scrolls independently from the page (Filament gives it its own `overflow: hidden
+ * auto` + `scrollbar-gutter: stable` — see layout — so it has its own scrollbar, separate from the
+ * document one styled above). Left matched to the *document*'s light track, that scrollbar rendered
+ * as a bright light-colored strip running the sidebar's full height against the new dark sidebar —
+ * exactly the "scrollbar looks like it's covering the page" complaint. Scoped here to a translucent
+ * white track/thumb that recedes into the dark sidebar instead.
+ */
+.fi-sidebar-nav {
+    scrollbar-color: rgb(255 255 255 / 25%) transparent;
+}
+
+.fi-sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.fi-sidebar-nav::-webkit-scrollbar-thumb {
+    background-color: rgb(255 255 255 / 25%);
+    border-color: transparent;
+}
+
+.fi-sidebar-nav::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(255 255 255 / 40%);
+}
+
+/*
+ * Sidebar: a solid primary-color gradient (not the previous white-with-a-2px-border treatment) —
+ * the single biggest, always-on-screen surface, so this is what makes a theme switch actually read
+ * as "a different, colorful theme" rather than a barely-visible accent change. Intentionally always
+ * dark regardless of the panel's own light/dark mode toggle (a deliberate, common enterprise-SaaS
+ * pattern: a permanently dark nav rail against a light or dark content area) — every text/icon
+ * color below is force-set to a light value for that reason, not left to inherit gray-950/white
+ * defaults which would be unreadable here.
+ */
+.fi-sidebar {
+    background: linear-gradient(165deg, var(--primary-900) 0%, #05070d 100%);
+    border-inline-end: none;
+    box-shadow: 4px 0 24px -8px rgb(0 0 0 / 25%);
+}
+
+.fi-sidebar-header {
+    border-color: rgb(255 255 255 / 12%);
+}
+
+.fi-sidebar-header-ctn,
+.fi-sidebar-close-sidebar-btn,
+.fi-sidebar-open-collapse-sidebar-btn,
+.fi-sidebar-close-collapse-sidebar-btn {
+    color: rgb(255 255 255 / 85%);
+}
+
+.fi-sidebar-header * {
+    color: #fff !important;
+}
+
+.fi-sidebar-group-label,
+.fi-sidebar-group-collapse-btn {
+    color: rgb(255 255 255 / 55%);
+}
+
+/*
+ * Filament sets an explicit `color` directly on .fi-sidebar-item-label and the item's .fi-icon
+ * (gray-700/gray-400, tuned for a white sidebar) rather than letting them inherit from
+ * .fi-sidebar-item-btn — an explicit color on a descendant always wins over an ancestor's color,
+ * inheritance never even enters into it, so overriding only the parent .fi-sidebar-item-btn (as an
+ * earlier pass here did) left every label/icon exactly as unreadable as Filament's default gray on
+ * this dark background. Every rule below targets the actual label/icon elements directly.
+ */
+.fi-sidebar-item-btn {
+    color: rgb(255 255 255 / 92%);
+}
+
+/*
+ * Bolder, larger, higher-contrast than Filament's default font-weight-medium/text-sm/78%-opacity —
+ * the earlier pass made the label merely readable against the dark sidebar; this makes it stand out
+ * clearly rather than just being legible.
+ */
+.fi-sidebar-item-label {
+    color: rgb(255 255 255 / 92%) !important;
+    font-size: 0.9375rem !important;
+    font-weight: 700 !important;
+}
+
+.fi-sidebar-item-btn > .fi-icon {
+    color: rgb(255 255 255 / 92%) !important;
+}
+
+.fi-sidebar-item-btn:hover,
+.fi-sidebar-item-btn:hover .fi-sidebar-item-label,
+.fi-sidebar-item-btn:hover > .fi-icon {
+    color: #fff !important;
+}
+
+.fi-sidebar-item-btn:hover {
+    background-color: rgb(255 255 255 / 8%);
+}
+
+/*
+ * Active nav item: a solid, saturated accent-color pill (not a translucent white overlay + thin
+ * border) — matching the reference pattern the user supplied, where the active item is a bold
+ * filled rounded-rect in the brand accent color, not a subtle highlight.
+ */
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn {
+    background-color: var(--primary-500);
+    color: #fff;
+    box-shadow: 0 4px 12px -4px color-mix(in oklab, var(--primary-500) 60%, transparent);
+}
+
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn .fi-sidebar-item-label,
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn > .fi-icon {
+    color: #fff !important;
+}
+
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn .fi-sidebar-item-grouped-border-part {
+    background-color: #fff !important;
+}
+
+.fi-sidebar-item-has-active-child-items > .fi-sidebar-item-btn,
+.fi-sidebar-item-has-active-child-items > .fi-sidebar-item-btn .fi-sidebar-item-label,
+.fi-sidebar-item-has-active-child-items > .fi-sidebar-item-btn > .fi-icon {
+    color: #fff !important;
+}
+
+.fi-sidebar-item-badge-ctn {
+    color: rgb(255 255 255 / 90%) !important;
+}
+
+.fi-sidebar-footer {
+    border-color: rgb(255 255 255 / 12%);
+}
+
+.fi-sidebar-database-notifications-btn {
+    color: rgb(255 255 255 / 78%);
+}
+
+.fi-sidebar-database-notifications-btn:hover {
+    background-color: rgb(255 255 255 / 8%);
+    color: #fff;
+}
+
+/*
+ * Table pagination: the active page number as a solid accent-color pill rather than a plain
+ * light-gray highlight inside the bordered button row — same "bold solid fill for the active
+ * state" pattern as the sidebar above, applied to the other place a page shows an active/current
+ * selection.
+ */
+.fi-pagination-item.fi-active .fi-pagination-item-btn {
+    background-color: var(--primary-500) !important;
+    border-radius: 9999px;
+}
+
+.fi-pagination-item.fi-active .fi-pagination-item-label {
+    color: #fff !important;
+}
+
+/*
+ * Topbar: the actual top navigation strip (search/notifications/user menu/theme picker) — a
+ * different element from .fi-header below (that's the per-page heading band). Matched to the same
+ * dark chrome as the sidebar for one continuous dark nav frame around the light content area.
+ * .fi-icon-btn's icon inherits via `stroke="currentColor"` with no explicit child color (unlike the
+ * sidebar's label/icon, see the comment above), so overriding the button itself is sufficient here.
+ */
+.fi-topbar {
+    background: linear-gradient(90deg, var(--primary-900) 0%, #05070d 100%);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+.fi-topbar .fi-icon-btn {
+    color: rgb(255 255 255 / 75%);
+}
+
+.fi-topbar .fi-icon-btn:hover {
+    color: #fff;
+    background-color: rgb(255 255 255 / 10%);
+}
+
+/*
+ * Page header: every page's heading/subheading/actions row gets a bold gradient band instead of
+ * plain white — the second-biggest always-visible surface, reinforcing the same theme color across
+ * every module (Dashboard, Pipeline, Candidate 360, every resource list/view), not just the
+ * sidebar. Header actions keep their own opaque button backgrounds (Filament renders them as
+ * solid/bordered buttons, never bare text), so they stay legible over the gradient unchanged.
+ */
+.fi-header {
+    background: linear-gradient(135deg, var(--primary-600) 0%, var(--primary-800) 100%);
+    border-radius: 0.75rem;
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 12px 30px -14px color-mix(in oklab, var(--primary-900) 60%, transparent);
+}
+
+.fi-header-heading {
+    color: #fff;
+}
+
+.fi-header-subheading {
+    color: rgb(255 255 255 / 82%);
+}
+
+.fi-header .fi-breadcrumbs,
+.fi-header .fi-breadcrumbs a,
+.fi-header .fi-breadcrumbs span {
+    color: rgb(255 255 255 / 70%);
+}
+
+.fi-header .fi-breadcrumbs a:hover {
+    color: #fff;
+}
+
+/*
+ * Theme engine — 8 brand presets (App\Enums\AppTheme is the source of truth for the key/label/
+ * description list; this file is the source of truth for the actual color values). The picker UI
+ * lives on the Profile page ("Appearance" section) and the Theme Gallery
+ * (App\Filament\Pages\ThemeGallery, Administration nav group); resources/views/filament/components/
+ * theme-anti-fouc.blade.php reads the persisted choice before first paint so there's no flash.
+ *
+ * Filament renders `--primary-{shade}` as inline :root CSS custom properties per request (see
+ * filament::assets/AssetManager::renderStyles(), sourced from AdminPanelProvider's ->colors()) —
+ * every `text-primary-*`/`bg-primary-*` utility and every component that reads `var(--primary-*)`
+ * derives from those. `:root[data-app-theme="x"]` has higher specificity than the plain `:root`
+ * Filament emits, so these overrides win regardless of source order, with zero Livewire round-trip.
+ * Shade values were generated with Filament\Support\Colors\Color::generatePalette() from each
+ * preset's seed hex so every theme keeps identical perceptual lightness/chroma steps — only hue
+ * differs — matching Filament's own palette-generation approach exactly, not an invented curve.
+ *
+ * Deliberately scoped to the primary/brand color only, not `success`/`warning`/`danger`/`info`:
+ * those stay fixed across every theme so status semantics (green = success, red = danger) never
+ * change meaning depending on which theme is active — status badges everywhere already pair color
+ * with a text label (CandidateStage::color()/label() and friends), so meaning never rides on hue
+ * alone. `--gray-*` (the neutral/surface scale) also stays fixed for 6 of the 8 themes, since the
+ * existing cool Slate neutral suits them; Minimal Beige overrides it to warm Stone further down,
+ * because a "warm, elegant, distraction-free" theme paired with cool blue-gray surfaces would just
+ * be a color swap, not a different feeling — the one place this file intentionally goes beyond a
+ * single-token change.
+ *
+ * The ambient corner wash on .fi-body above already reads var(--primary-500)/var(--primary-400)
+ * directly via color-mix(), so it re-tints for every theme below with no per-theme duplicate rule
+ * needed — only Graphite's sidebar/topbar (which must stay neutral graphite, not blue-tinted; see
+ * its own comment below) needs an explicit override.
+ */
+:root[data-app-theme="navy"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 259.665);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 259.665);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 259.665);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 259.665);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 259.665);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 259.665);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 259.665);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 259.665);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 259.665);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 259.665);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 259.665);
+}
+
+:root[data-app-theme="indigo"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 276.966);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 276.966);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 276.966);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 276.966);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 276.966);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 276.966);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 276.966);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 276.966);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 276.966);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 276.966);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 276.966);
+}
+
+:root[data-app-theme="teal"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 184.704);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 184.704);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 184.704);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 184.704);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 184.704);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 184.704);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 184.704);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 184.704);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 184.704);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 184.704);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 184.704);
+}
+
+:root[data-app-theme="graphite"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 262.881);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 262.881);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 262.881);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 262.881);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 262.881);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 262.881);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 262.881);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 262.881);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 262.881);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 262.881);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 262.881);
+}
+
+:root[data-app-theme="coral"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 36.041);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 36.041);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 36.041);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 36.041);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 36.041);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 36.041);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 36.041);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 36.041);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 36.041);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 36.041);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 36.041);
+}
+
+:root[data-app-theme="emerald"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 163.225);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 163.225);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 163.225);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 163.225);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 163.225);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 163.225);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 163.225);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 163.225);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 163.225);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 163.225);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 163.225);
+}
+
+:root[data-app-theme="purple"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 323.949);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 323.949);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 323.949);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 323.949);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 323.949);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 323.949);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 323.949);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 323.949);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 323.949);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 323.949);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 323.949);
+}
+
+:root[data-app-theme="beige"] {
+    --primary-50: oklch(0.97717647058824 0.01395454545455 75.606);
+    --primary-100: oklch(0.95035294117647 0.03272727272727 75.606);
+    --primary-200: oklch(0.90547058823529 0.06318181818182 75.606);
+    --primary-300: oklch(0.84047058823529 0.10604545454546 75.606);
+    --primary-400: oklch(0.75352941176471 0.15027272727273 75.606);
+    --primary-500: oklch(0.68270588235294 0.17009090909091 75.606);
+    --primary-600: oklch(0.59782352941176 0.16913636363636 75.606);
+    --primary-700: oklch(0.51494117647059 0.14940909090909 75.606);
+    --primary-800: oklch(0.44611764705882 0.12331818181818 75.606);
+    --primary-900: oklch(0.39458823529412 0.09963636363636 75.606);
+    --primary-950: oklch(0.27788235294118 0.07136363636364 75.606);
+
+    /*
+     * Minimal Beige's whole neutral scale shifts warm (Tailwind's own Stone palette, already
+     * compiled and available as --color-stone-*) instead of the default cool Slate — every surface,
+     * border, and secondary-text token in the app reads --gray-*, so this one override is what makes
+     * cards/tables/borders feel like warm cream-and-taupe rather than "Slate with a brown button."
+     * Dark mode intentionally lands on warm charcoal/brown, not literal beige-inverted-to-navy.
+     */
+    --gray-50: var(--color-stone-50);
+    --gray-100: var(--color-stone-100);
+    --gray-200: var(--color-stone-200);
+    --gray-300: var(--color-stone-300);
+    --gray-400: var(--color-stone-400);
+    --gray-500: var(--color-stone-500);
+    --gray-600: var(--color-stone-600);
+    --gray-700: var(--color-stone-700);
+    --gray-800: var(--color-stone-800);
+    --gray-900: var(--color-stone-900);
+    --gray-950: var(--color-stone-950);
+}
+
+/*
+ * Graphite & Electric Blue: the brief calls for a neutral graphite/charcoal structural chrome with
+ * electric blue reserved for accents (active nav, buttons, links) — not a blue-tinted sidebar like
+ * every other theme gets by default from var(--primary-900). Overridden here to plain --gray-800/
+ * near-black instead, so the sidebar/topbar read as true graphite while .fi-sidebar-item.fi-active
+ * and every primary-colored control (unmodified, inherited from the rules above) still pop in
+ * electric blue against it — "command-center," not "gaming dashboard."
+ */
+:root[data-app-theme="graphite"] .fi-sidebar {
+    background: linear-gradient(165deg, var(--gray-800) 0%, #05070d 100%);
+}
+
+:root[data-app-theme="graphite"] .fi-topbar {
+    background: linear-gradient(90deg, var(--gray-800) 0%, #05070d 100%);
+}

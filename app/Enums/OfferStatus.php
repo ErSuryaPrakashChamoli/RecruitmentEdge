@@ -24,4 +24,17 @@ enum OfferStatus: string
             self::Withdrawn => 'Withdrawn',
         };
     }
+
+    /**
+     * The single source of truth for this status's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Accepted => 'success',
+            self::Rejected, self::Expired, self::Withdrawn => 'danger',
+            self::Initiated, self::Released => 'warning',
+            self::Draft => 'gray',
+        };
+    }
 }

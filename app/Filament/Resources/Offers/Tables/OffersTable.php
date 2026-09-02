@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Offers\Tables;
 
 use App\Enums\OfferStatus;
+use App\Filament\Exports\OfferExporter;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\OfferService;
@@ -10,6 +11,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ExportAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -29,6 +31,11 @@ class OffersTable
                     ->sortable(),
                 TextColumn::make('candidateApplication.candidate.full_name')
                     ->label('Candidate')
+                    ->html()
+                    ->formatStateUsing(fn ($record) => view('filament.tables.columns.person-name', [
+                        'name' => $record->candidateApplication->candidate->full_name,
+                        'subtitle' => $record->designation?->name,
+                    ]))
                     ->searchable(),
                 TextColumn::make('offered_ctc')
                     ->money('INR')
@@ -41,17 +48,17 @@ class OffersTable
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (OfferStatus $state) => $state->label())
-                    ->color(fn (OfferStatus $state) => match ($state) {
-                        OfferStatus::Accepted => 'success',
-                        OfferStatus::Rejected, OfferStatus::Withdrawn, OfferStatus::Expired => 'danger',
-                        OfferStatus::Draft => 'gray',
-                        default => 'warning',
-                    }),
+                    ->color(fn (OfferStatus $state) => $state->color()),
             ])
             ->defaultSort('offer_date', 'desc')
             ->filters([
                 SelectFilter::make('status')
                     ->options(collect(OfferStatus::cases())->mapWithKeys(fn (OfferStatus $s) => [$s->value => $s->label()])),
+            ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(OfferExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
             ])
             ->recordActions([
                 self::changeStatusAction(),
@@ -61,7 +68,10 @@ class OffersTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No offers yet')
+            ->emptyStateDescription('Offers released to selected candidates will appear here.')
+            ->emptyStateIcon('heroicon-o-document-text');
     }
 
     private static function changeStatusAction(): Action

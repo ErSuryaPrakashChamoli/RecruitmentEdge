@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Employees\Schemas;
 use App\Enums\EmployeeStatus;
 use App\Models\Employee;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
@@ -57,6 +58,16 @@ class EmployeeForm
                     ->options(self::statusOptions())
                     ->default(EmployeeStatus::Active)
                     ->required(),
+                TextInput::make('category')
+                    ->maxLength(255),
+                TextInput::make('level')
+                    ->maxLength(255),
+                FileUpload::make('photo_path')
+                    ->label('Photo')
+                    ->image()
+                    ->avatar()
+                    ->disk('public')
+                    ->directory('employee-photos'),
             ]);
     }
 

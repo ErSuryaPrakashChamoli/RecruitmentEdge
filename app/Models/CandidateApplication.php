@@ -117,4 +117,20 @@ class CandidateApplication extends Model
     {
         return $this->hasOne(CandidateJoining::class);
     }
+
+    /**
+     * @return HasMany<RecruitmentDailyActivity, $this>
+     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(RecruitmentDailyActivity::class)->latest('activity_datetime');
+    }
+
+    /**
+     * @return HasMany<RecruitmentFollowup, $this>
+     */
+    public function followups(): HasMany
+    {
+        return $this->hasMany(RecruitmentFollowup::class)->latest('followup_date');
+    }
 }

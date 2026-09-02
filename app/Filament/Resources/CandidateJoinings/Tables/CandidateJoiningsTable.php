@@ -4,6 +4,7 @@ namespace App\Filament\Resources\CandidateJoinings\Tables;
 
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
+use App\Filament\Exports\CandidateJoiningExporter;
 use App\Models\CandidateJoining;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\CandidateJoiningService;
@@ -12,6 +13,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ExportAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
@@ -28,6 +30,11 @@ class CandidateJoiningsTable
             ->columns([
                 TextColumn::make('candidateApplication.candidate.full_name')
                     ->label('Candidate')
+                    ->html()
+                    ->formatStateUsing(fn ($record) => view('filament.tables.columns.person-name', [
+                        'name' => $record->candidateApplication->candidate->full_name,
+                        'subtitle' => $record->candidateApplication->requisition?->designation?->name,
+                    ]))
                     ->searchable(),
                 TextColumn::make('candidateApplication.requisition.code')
                     ->label('Position')
@@ -43,25 +50,32 @@ class CandidateJoiningsTable
                     ->label('Actual DOJ')
                     ->date()
                     ->placeholder('—'),
+                TextColumn::make('confirmed_at')
+                    ->label('Confirmation')
+                    ->dateTime()
+                    ->placeholder('Not confirmed'),
                 TextColumn::make('risk')
                     ->label('Risk')
-                    ->state(fn (CandidateJoining $record) => match ($record->riskLevel()) {
-                        'green' => '🟢 Confirmed',
-                        'yellow' => '🟡 Needs Follow-up',
-                        default => '🔴 High Risk',
+                    ->badge()
+                    ->state(fn (CandidateJoining $record) => $record->riskLevel())
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        'green' => 'On Track',
+                        'yellow' => 'Needs Follow-up',
+                        default => 'High Risk',
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'green' => 'success',
+                        'yellow' => 'warning',
+                        default => 'danger',
                     }),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (JoiningStatus $state) => $state->label())
-                    ->color(fn (JoiningStatus $state) => match ($state) {
-                        JoiningStatus::Joined => 'success',
-                        JoiningStatus::Confirmed => 'info',
-                        JoiningStatus::NoShow, JoiningStatus::Dropout => 'danger',
-                        JoiningStatus::Expected => 'gray',
-                    }),
+                    ->color(fn (JoiningStatus $state) => $state->color()),
                 TextColumn::make('documents_status')
                     ->badge()
-                    ->formatStateUsing(fn (DocumentStatus $state) => $state->label()),
+                    ->formatStateUsing(fn (DocumentStatus $state) => $state->label())
+                    ->color(fn (DocumentStatus $state) => $state->color()),
             ])
             ->defaultSort('expected_doj')
             ->filters([
@@ -87,6 +101,11 @@ class CandidateJoiningsTable
                         };
                     }),
             ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(CandidateJoiningExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+            ])
             ->recordActions([
                 self::confirmAction(),
                 self::markJoinedAction(),
@@ -99,7 +118,10 @@ class CandidateJoiningsTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No joinings tracked')
+            ->emptyStateDescription('Joining records are created automatically once an offer is accepted.')
+            ->emptyStateIcon('heroicon-o-user-plus');
     }
 
     private static function confirmAction(): Action

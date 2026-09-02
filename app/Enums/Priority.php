@@ -22,4 +22,17 @@ enum Priority: string
             self::Urgent => 'Urgent',
         };
     }
+
+    /**
+     * The single source of truth for this priority's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Low => 'gray',
+            self::Medium => 'info',
+            self::High => 'warning',
+            self::Urgent => 'danger',
+        };
+    }
 }

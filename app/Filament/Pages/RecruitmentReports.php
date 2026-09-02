@@ -7,6 +7,7 @@ use App\Models\CandidateSource;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\CostPerHireService;
+use App\Services\Export\ReportExportService;
 use App\Services\RecruitmentAnalyticsService;
 use BackedEnum;
 use Carbon\Carbon;
@@ -19,6 +20,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use UnitEnum;
 
 /**
@@ -89,12 +91,15 @@ class RecruitmentReports extends Page implements HasForms
         return app(RecruitmentAnalyticsService::class)->funnel($start, $end, $user);
     }
 
-    /** @return Collection<int, array{source: CandidateSource, sourced: int, interviewed: int, selected: int, joined: int}> */
+    /** @return Collection<int, array{source: CandidateSource, spend: float, sourced: int, connected: int, interested: int, interviewed: int, selected: int, offers: int, joined: int, conversion_percent: float|null, cost_per_interview: float|null, cost_per_selection: float|null, cost_per_join: float|null}> */
     public function getSourceAnalytics(): Collection
     {
         [$start, $end] = $this->period();
 
-        return app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end);
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
+        return app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $user);
     }
 
     /** @return Collection<int, array{requisition: RecruitmentRequisition, ageing_days: int, is_overdue: bool}> */
@@ -121,5 +126,72 @@ class RecruitmentReports extends Page implements HasForms
         [$start, $end] = $this->period();
 
         return app(CostPerHireService::class)->costPerHire($start, $end);
+    }
+
+    public function canExport(): bool
+    {
+        return (bool) Filament::auth()->user()?->can('reports.export');
+    }
+
+    public function exportFunnel(): StreamedResponse
+    {
+        abort_unless($this->canExport(), 403);
+
+        $rows = $this->getFunnel()->map(fn (array $row) => [
+            $row['stage']->label(),
+            $row['count'],
+            $row['conversion_from_sourced'] !== null ? $row['conversion_from_sourced'].'%' : '',
+        ]);
+
+        return app(ReportExportService::class)->streamCsv(
+            'recruitment-funnel.csv',
+            ['Stage', 'Count', 'Conversion from Sourced'],
+            $rows,
+        );
+    }
+
+    public function exportSourceRoi(): StreamedResponse
+    {
+        abort_unless($this->canExport(), 403);
+
+        $rows = $this->getSourceAnalytics()->map(fn (array $row) => [
+            $row['source']->name,
+            $row['spend'],
+            $row['sourced'],
+            $row['connected'],
+            $row['interested'],
+            $row['interviewed'],
+            $row['selected'],
+            $row['offers'],
+            $row['joined'],
+            $row['conversion_percent'] !== null ? $row['conversion_percent'].'%' : '',
+            $row['cost_per_interview'] ?? '',
+            $row['cost_per_selection'] ?? '',
+            $row['cost_per_join'] ?? '',
+        ]);
+
+        return app(ReportExportService::class)->streamCsv(
+            'source-roi.csv',
+            ['Source', 'Spend', 'Sourced', 'Connected', 'Interested', 'Interviewed', 'Selected', 'Offers', 'Joined', 'Conversion %', 'Cost per Interview', 'Cost per Selection', 'Cost per Join'],
+            $rows,
+        );
+    }
+
+    public function exportVacancyAgeing(): StreamedResponse
+    {
+        abort_unless($this->canExport(), 403);
+
+        $rows = $this->getVacancyAgeing()->map(fn (array $row) => [
+            $row['requisition']->code,
+            $row['requisition']->designation?->name,
+            $row['ageing_days'],
+            $row['is_overdue'] ? 'Yes' : 'No',
+        ]);
+
+        return app(ReportExportService::class)->streamCsv(
+            'vacancy-ageing.csv',
+            ['Requisition', 'Designation', 'Ageing (days)', 'Overdue'],
+            $rows,
+        );
     }
 }

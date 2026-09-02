@@ -46,12 +46,7 @@ class DocumentsRelationManager extends RelationManager
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (DocumentStatus $state) => $state->label())
-                    ->color(fn (DocumentStatus $state) => match ($state) {
-                        DocumentStatus::Verified => 'success',
-                        DocumentStatus::Rejected => 'danger',
-                        DocumentStatus::Submitted => 'warning',
-                        DocumentStatus::Pending => 'gray',
-                    }),
+                    ->color(fn (DocumentStatus $state) => $state->color()),
                 TextColumn::make('verifiedBy.first_name')
                     ->label('Verified By')
                     ->formatStateUsing(fn ($record) => $record->verifiedBy?->fullName() ?? '—'),

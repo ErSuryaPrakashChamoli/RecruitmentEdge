@@ -3,9 +3,11 @@
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Tables;
 
 use App\Enums\IncentiveCalculationStatus;
+use App\Filament\Exports\RecruiterIncentiveCalculationExporter;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Services\IncentiveApprovalService;
 use Filament\Actions\Action;
+use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -47,17 +49,17 @@ class RecruiterIncentiveCalculationsTable
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (IncentiveCalculationStatus $state) => $state->label())
-                    ->color(fn (IncentiveCalculationStatus $state) => match ($state) {
-                        IncentiveCalculationStatus::Paid => 'success',
-                        IncentiveCalculationStatus::Payable, IncentiveCalculationStatus::Approved => 'info',
-                        IncentiveCalculationStatus::PendingVerification, IncentiveCalculationStatus::Calculated => 'warning',
-                        IncentiveCalculationStatus::Rejected, IncentiveCalculationStatus::Reversed => 'danger',
-                    }),
+                    ->color(fn (IncentiveCalculationStatus $state) => $state->color()),
             ])
             ->defaultSort('calculated_at', 'desc')
             ->filters([
                 SelectFilter::make('status')
                     ->options(collect(IncentiveCalculationStatus::cases())->mapWithKeys(fn (IncentiveCalculationStatus $s) => [$s->value => $s->label()])),
+            ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(RecruiterIncentiveCalculationExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
             ])
             ->recordActions([
                 ViewAction::make(),
@@ -65,7 +67,10 @@ class RecruiterIncentiveCalculationsTable
                 self::adjustAction(),
                 self::payAction(),
             ])
-            ->toolbarActions([]);
+            ->toolbarActions([])
+            ->emptyStateHeading('No incentive calculations yet')
+            ->emptyStateDescription('Calculations are generated automatically when a candidate joins.')
+            ->emptyStateIcon('heroicon-o-banknotes');
     }
 
     private static function changeStatusAction(): Action

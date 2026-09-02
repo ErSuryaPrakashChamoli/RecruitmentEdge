@@ -2,14 +2,17 @@
 
 namespace App\Filament\Resources\RecruiterPerformanceSnapshots\Tables;
 
+use App\Filament\Exports\RecruiterPerformanceSnapshotExporter;
 use App\Models\RecruiterPerformanceSnapshot;
 use App\Services\PerformanceEngine;
 use Filament\Actions\Action;
+use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class RecruiterPerformanceSnapshotsTable
@@ -42,6 +45,16 @@ class RecruiterPerformanceSnapshotsTable
                     ->sortable(),
             ])
             ->defaultSort('period_start', 'desc')
+            ->filters([
+                SelectFilter::make('employee')
+                    ->relationship('employee', 'first_name')
+                    ->searchable(),
+            ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(RecruiterPerformanceSnapshotExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+            ])
             ->recordActions([
                 self::viewBreakdownAction(),
                 self::recalculateAction(),

@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Jobs\AI\ReindexKnowledgeArticleJob;
 use Database\Factories\AiKnowledgeArticleFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
 
 #[Fillable(['title', 'slug', 'category', 'content', 'is_published', 'created_by'])]
@@ -29,6 +31,12 @@ class AiKnowledgeArticle extends Model
                 $article->slug = Str::slug($article->title).'-'.Str::random(6);
             }
         });
+
+        static::saved(function (self $article): void {
+            if ($article->is_published) {
+                ReindexKnowledgeArticleJob::dispatch($article->id);
+            }
+        });
     }
 
     /**
@@ -37,5 +45,16 @@ class AiKnowledgeArticle extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * RAG chunks embedded from this article's content — see AiDocument::chunks() for the sibling
+     * relation and App\Services\AI\Rag\DocumentIngestionService for how these get populated.
+     *
+     * @return HasMany<AiDocumentChunk, $this>
+     */
+    public function chunks(): HasMany
+    {
+        return $this->hasMany(AiDocumentChunk::class, 'source_id')->where('source_type', 'knowledge_article');
     }
 }

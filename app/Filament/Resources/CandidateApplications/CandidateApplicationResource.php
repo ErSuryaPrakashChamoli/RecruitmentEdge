@@ -5,8 +5,13 @@ namespace App\Filament\Resources\CandidateApplications;
 use App\Filament\Resources\CandidateApplications\Pages\CreateCandidateApplication;
 use App\Filament\Resources\CandidateApplications\Pages\EditCandidateApplication;
 use App\Filament\Resources\CandidateApplications\Pages\ListCandidateApplications;
+use App\Filament\Resources\CandidateApplications\Pages\ViewCandidateApplication;
+use App\Filament\Resources\CandidateApplications\RelationManagers\ActivitiesRelationManager;
+use App\Filament\Resources\CandidateApplications\RelationManagers\InterviewsRelationManager;
+use App\Filament\Resources\CandidateApplications\RelationManagers\OffersRelationManager;
 use App\Filament\Resources\CandidateApplications\RelationManagers\StageHistoryRelationManager;
 use App\Filament\Resources\CandidateApplications\Schemas\CandidateApplicationForm;
+use App\Filament\Resources\CandidateApplications\Schemas\CandidateApplicationInfolist;
 use App\Filament\Resources\CandidateApplications\Tables\CandidateApplicationsTable;
 use App\Models\CandidateApplication;
 use App\Models\User;
@@ -18,6 +23,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use UnitEnum;
 
@@ -43,6 +49,11 @@ class CandidateApplicationResource extends Resource
         return CandidateApplicationsTable::configure($table);
     }
 
+    public static function infolist(Schema $schema): Schema
+    {
+        return CandidateApplicationInfolist::configure($schema);
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
@@ -59,6 +70,9 @@ class CandidateApplicationResource extends Resource
     {
         return [
             StageHistoryRelationManager::class,
+            InterviewsRelationManager::class,
+            OffersRelationManager::class,
+            ActivitiesRelationManager::class,
         ];
     }
 
@@ -67,6 +81,7 @@ class CandidateApplicationResource extends Resource
         return [
             'index' => ListCandidateApplications::route('/'),
             'create' => CreateCandidateApplication::route('/create'),
+            'view' => ViewCandidateApplication::route('/{record}'),
             'edit' => EditCandidateApplication::route('/{record}/edit'),
         ];
     }
@@ -77,5 +92,37 @@ class CandidateApplicationResource extends Resource
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);
+    }
+
+    /**
+     * Powers the panel's global search (Cmd/Ctrl+K) — inherits hierarchy scoping for free since it
+     * builds on getEloquentQuery() by default (see getGlobalSearchEloquentQuery() below).
+     *
+     * @return array<int, string>
+     */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['application_code'];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return "{$record->candidate->full_name} — {$record->application_code}";
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return [
+            'Stage' => $record->current_stage->label(),
+            'Requisition' => $record->requisition?->code ?? '—',
+        ];
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['candidate', 'requisition']);
     }
 }

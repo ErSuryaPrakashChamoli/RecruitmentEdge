@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\Candidates\Tables;
 
+use App\Filament\Exports\CandidateExporter;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ExportAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -23,10 +26,17 @@ class CandidatesTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('full_name')
+                    ->label('Candidate')
+                    ->html()
+                    ->formatStateUsing(fn ($record) => view('filament.tables.columns.person-name', [
+                        'name' => $record->full_name,
+                        'subtitle' => $record->mobile,
+                    ]))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('mobile')
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('email')
                     ->searchable()
                     ->toggleable(),
@@ -50,7 +60,13 @@ class CandidatesTable
                     ->relationship('source', 'name'),
                 TrashedFilter::make(),
             ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(CandidateExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+            ])
             ->recordActions([
+                ViewAction::make(),
                 EditAction::make(),
             ])
             ->toolbarActions([
@@ -59,6 +75,9 @@ class CandidatesTable
                     ForceDeleteBulkAction::make(),
                     RestoreBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No candidates found')
+            ->emptyStateDescription('Try changing your filters, or add a new candidate.')
+            ->emptyStateIcon('heroicon-o-identification');
     }
 }

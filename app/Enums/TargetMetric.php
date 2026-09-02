@@ -13,6 +13,7 @@ enum TargetMetric: string
     case ConnectedCalls = 'connected_calls';
     case InterestedCandidates = 'interested_candidates';
     case Screening = 'screening';
+    case Shortlisted = 'shortlisted';
     case Interviews = 'interviews';
     case Selections = 'selections';
     case Offers = 'offers';
@@ -26,6 +27,7 @@ enum TargetMetric: string
             self::ConnectedCalls => 'Connected Calls',
             self::InterestedCandidates => 'Interested Candidates',
             self::Screening => 'Screening',
+            self::Shortlisted => 'Shortlisted',
             self::Interviews => 'Interviews',
             self::Selections => 'Selections',
             self::Offers => 'Offers',

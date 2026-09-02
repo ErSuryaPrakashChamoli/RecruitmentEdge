@@ -43,6 +43,7 @@ class RecruiterDailyMetricsService
             TargetMetric::ConnectedCalls => $this->activityCount($recruiter, ActivityType::Call, $range, ActivityOutcome::Connected),
             TargetMetric::InterestedCandidates => $this->stageReachedCount($recruiter, CandidateStage::Interested, $range),
             TargetMetric::Screening => $this->stageReachedCount($recruiter, CandidateStage::Screened, $range),
+            TargetMetric::Shortlisted => $this->stageReachedCount($recruiter, CandidateStage::Shortlisted, $range),
             TargetMetric::Selections => $this->stageReachedCount($recruiter, CandidateStage::Selected, $range),
             TargetMetric::Interviews => Interview::query()
                 ->whereHas('candidateApplication', fn (Builder $q) => $q->where('recruiter_id', $recruiter->id))

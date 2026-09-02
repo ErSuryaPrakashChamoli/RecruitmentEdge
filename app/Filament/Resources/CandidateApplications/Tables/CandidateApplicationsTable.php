@@ -5,6 +5,7 @@ namespace App\Filament\Resources\CandidateApplications\Tables;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
+use App\Filament\Exports\CandidateApplicationExporter;
 use App\Models\CandidateApplication;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\StageTransitionService;
@@ -12,8 +13,10 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Actions\ExportAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
@@ -34,6 +37,11 @@ class CandidateApplicationsTable
                     ->sortable(),
                 TextColumn::make('candidate.full_name')
                     ->label('Candidate')
+                    ->html()
+                    ->formatStateUsing(fn ($record) => view('filament.tables.columns.person-name', [
+                        'name' => $record->candidate->full_name,
+                        'subtitle' => $record->candidate->mobile,
+                    ]))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('requisition.code')
@@ -46,18 +54,16 @@ class CandidateApplicationsTable
                     ->searchable(['first_name', 'last_name']),
                 TextColumn::make('current_stage')
                     ->badge()
-                    ->formatStateUsing(fn (CandidateStage $state) => $state->label()),
+                    ->formatStateUsing(fn (CandidateStage $state) => $state->label())
+                    ->color(fn (CandidateStage $state) => $state->color()),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (ApplicationStatus $state) => $state->label())
-                    ->color(fn (ApplicationStatus $state) => match ($state) {
-                        ApplicationStatus::Active => 'success',
-                        ApplicationStatus::Rejected, ApplicationStatus::Dropout => 'danger',
-                        ApplicationStatus::OnHold => 'warning',
-                    }),
+                    ->color(fn (ApplicationStatus $state) => $state->color()),
                 TextColumn::make('priority')
                     ->badge()
-                    ->formatStateUsing(fn (Priority $state) => $state->label()),
+                    ->formatStateUsing(fn (Priority $state) => $state->label())
+                    ->color(fn (Priority $state) => $state->color()),
                 TextColumn::make('next_followup_at')
                     ->label('Next Follow-up')
                     ->date()
@@ -70,9 +76,18 @@ class CandidateApplicationsTable
                     ->options(collect(ApplicationStatus::cases())->mapWithKeys(fn (ApplicationStatus $s) => [$s->value => $s->label()])),
                 SelectFilter::make('requisition')
                     ->relationship('requisition', 'code'),
+                SelectFilter::make('recruiter')
+                    ->relationship('recruiter', 'first_name')
+                    ->searchable(),
                 TrashedFilter::make(),
             ])
+            ->headerActions([
+                ExportAction::make()
+                    ->exporter(CandidateApplicationExporter::class)
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+            ])
             ->recordActions([
+                ViewAction::make(),
                 self::advanceStageAction(),
                 self::rejectAction(),
                 self::dropoutAction(),
@@ -85,10 +100,13 @@ class CandidateApplicationsTable
                     ForceDeleteBulkAction::make(),
                     RestoreBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('No applications found')
+            ->emptyStateDescription('Try changing your filters, or add a new candidate to a requisition to create one.')
+            ->emptyStateIcon('heroicon-o-queue-list');
     }
 
-    private static function advanceStageAction(): Action
+    public static function advanceStageAction(): Action
     {
         return Action::make('advanceStage')
             ->label('Advance Stage')
@@ -118,7 +136,7 @@ class CandidateApplicationsTable
             });
     }
 
-    private static function rejectAction(): Action
+    public static function rejectAction(): Action
     {
         return Action::make('reject')
             ->label('Reject')
@@ -146,7 +164,7 @@ class CandidateApplicationsTable
             });
     }
 
-    private static function dropoutAction(): Action
+    public static function dropoutAction(): Action
     {
         return Action::make('dropout')
             ->label('Dropout')
@@ -174,7 +192,7 @@ class CandidateApplicationsTable
             });
     }
 
-    private static function reactivateAction(): Action
+    public static function reactivateAction(): Action
     {
         return Action::make('reactivate')
             ->label('Reactivate')

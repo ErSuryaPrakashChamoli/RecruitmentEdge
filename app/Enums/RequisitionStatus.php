@@ -24,4 +24,17 @@ enum RequisitionStatus: string
             self::Cancelled => 'Cancelled',
         };
     }
+
+    /**
+     * The single source of truth for this status's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Approved, self::Open => 'success',
+            self::PendingApproval, self::OnHold => 'warning',
+            self::Cancelled => 'danger',
+            self::Draft, self::Closed => 'gray',
+        };
+    }
 }

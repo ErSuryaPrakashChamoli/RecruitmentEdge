@@ -57,4 +57,63 @@ class HierarchyService
             ->where('ancestor_id', $employeeId)
             ->pluck('descendant_id');
     }
+
+    /**
+     * Team size below (not including) the given employee.
+     */
+    public function teamSizeOf(int $employeeId): int
+    {
+        return $this->descendantIdsOf($employeeId)->count() - 1;
+    }
+
+    /**
+     * A nested org-chart structure rooted at $rootEmployeeId, for the Organization/Hierarchy
+     * admin page (Section 32). Built from exactly 3 queries total (the employee rows, their team
+     * sizes, and the closure table for grouping) regardless of subtree depth or size — avoids the
+     * N+1 a naive recursive-query implementation would produce.
+     *
+     * @return array{employee: Employee, team_size: int, children: array<int, array<string, mixed>>}|null
+     */
+    public function treeFor(int $rootEmployeeId): ?array
+    {
+        $descendantIds = $this->descendantIdsOf($rootEmployeeId);
+
+        if ($descendantIds->isEmpty()) {
+            return null;
+        }
+
+        $employees = Employee::query()
+            ->whereIn('id', $descendantIds)
+            ->with(['designation', 'department'])
+            ->get()
+            ->keyBy('id');
+
+        $teamSizes = DB::table('employee_hierarchy')
+            ->whereIn('ancestor_id', $descendantIds)
+            ->selectRaw('ancestor_id, count(*) - 1 as team_size')
+            ->groupBy('ancestor_id')
+            ->pluck('team_size', 'ancestor_id');
+
+        $byManager = $employees->groupBy('reports_to_id');
+
+        $build = function (int $id) use (&$build, $employees, $byManager, $teamSizes): ?array {
+            $employee = $employees->get($id);
+
+            if ($employee === null) {
+                return null;
+            }
+
+            return [
+                'employee' => $employee,
+                'team_size' => (int) ($teamSizes[$id] ?? 0),
+                'children' => $byManager->get($id, collect())
+                    ->map(fn (Employee $child) => $build($child->id))
+                    ->filter()
+                    ->values()
+                    ->all(),
+            ];
+        };
+
+        return $build($rootEmployeeId);
+    }
 }

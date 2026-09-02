@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Models\Concerns\Auditable;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -15,9 +16,9 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password', 'employee_id'])]
+#[Fillable(['name', 'email', 'password', 'employee_id', 'theme'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, HasAvatar
 {
     /** @use HasFactory<UserFactory> */
     use Auditable, HasFactory, HasRoles, Notifiable;
@@ -33,6 +34,11 @@ class User extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return $this->roles()->exists();
+    }
+
+    public function getFilamentAvatarUrl(): ?string
+    {
+        return $this->employee?->photoUrl();
     }
 
     /**

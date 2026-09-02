@@ -17,6 +17,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Company Name
+    |--------------------------------------------------------------------------
+    |
+    | The company/vendor behind this product, shown subtly under the product
+    | name in the admin panel branding (e.g. "by Acme Inc."). Separate from
+    | APP_NAME so the product can be white-labeled independently of who
+    | built it.
+    |
+    */
+
+    'company_name' => env('APP_COMPANY_NAME'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

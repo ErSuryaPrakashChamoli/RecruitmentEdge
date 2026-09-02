@@ -5,7 +5,9 @@ use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\User;
 use App\Services\CandidateJoiningService;
 
 beforeEach(function (): void {
@@ -52,3 +54,16 @@ test('a joining that already joined cannot be changed further', function (): voi
 
     $this->service->confirm($joining);
 })->throws(DomainException::class);
+
+test('marking a dropout notifies the recruiter', function (): void {
+    $recruiter = Employee::factory()->create();
+    $user = User::factory()->create(['employee_id' => $recruiter->id]);
+    $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $joining = CandidateJoining::factory()->create(['candidate_application_id' => $application->id]);
+    $reason = RecruitmentRejectionReason::factory()->create();
+
+    $this->service->markDropout($joining, $reason);
+
+    expect($user->notifications()->count())->toBe(1)
+        ->and($user->notifications()->first()->data['title'])->toBe('[Joining] Candidate dropout');
+});

@@ -4,6 +4,14 @@
     </x-filament::section>
 
     <x-filament::section heading="Hiring Funnel">
+        @if ($this->canExport())
+            <x-slot name="afterHeader">
+                <x-filament::button size="xs" color="gray" outlined wire:click="exportFunnel">
+                    Export CSV
+                </x-filament::button>
+            </x-slot>
+        @endif
+
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
@@ -26,26 +34,50 @@
         </div>
     </x-filament::section>
 
-    <x-filament::section heading="Source Analytics">
+    <x-filament::section heading="Source ROI" description="Which source actually produces joining employees, and at what cost">
+        @if ($this->canExport())
+            <x-slot name="afterHeader">
+                <x-filament::button size="xs" color="gray" outlined wire:click="exportSourceRoi">
+                    Export CSV
+                </x-filament::button>
+            </x-slot>
+        @endif
+
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
                     <tr class="text-left text-gray-500 dark:text-gray-400">
                         <th class="py-2 pr-4">Source</th>
+                        <th class="py-2 pr-4 text-right">Spend</th>
                         <th class="py-2 pr-4 text-right">Sourced</th>
+                        <th class="py-2 pr-4 text-right">Connected</th>
+                        <th class="py-2 pr-4 text-right">Interested</th>
                         <th class="py-2 pr-4 text-right">Interviewed</th>
                         <th class="py-2 pr-4 text-right">Selected</th>
-                        <th class="py-2 text-right">Joined</th>
+                        <th class="py-2 pr-4 text-right">Offers</th>
+                        <th class="py-2 pr-4 text-right">Joined</th>
+                        <th class="py-2 pr-4 text-right">Conversion %</th>
+                        <th class="py-2 pr-4 text-right">Cost / Interview</th>
+                        <th class="py-2 pr-4 text-right">Cost / Selection</th>
+                        <th class="py-2 text-right">Cost / Join</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach ($this->getSourceAnalytics() as $row)
                         <tr class="border-t border-gray-100 dark:border-white/5">
                             <td class="py-2 pr-4 font-medium">{{ $row['source']->name }}</td>
+                            <td class="py-2 pr-4 text-right">₹{{ number_format($row['spend'], 2) }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['sourced'] }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['connected'] }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['interested'] }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['interviewed'] }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['selected'] }}</td>
-                            <td class="py-2 text-right">{{ $row['joined'] }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['offers'] }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['joined'] }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['conversion_percent'] !== null ? $row['conversion_percent'].'%' : '—' }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['cost_per_interview'] !== null ? '₹'.number_format($row['cost_per_interview'], 2) : '—' }}</td>
+                            <td class="py-2 pr-4 text-right">{{ $row['cost_per_selection'] !== null ? '₹'.number_format($row['cost_per_selection'], 2) : '—' }}</td>
+                            <td class="py-2 text-right">{{ $row['cost_per_join'] !== null ? '₹'.number_format($row['cost_per_join'], 2) : '—' }}</td>
                         </tr>
                     @endforeach
                 </tbody>
@@ -69,6 +101,14 @@
     </div>
 
     <x-filament::section heading="Vacancy Ageing">
+        @if ($this->canExport())
+            <x-slot name="afterHeader">
+                <x-filament::button size="xs" color="gray" outlined wire:click="exportVacancyAgeing">
+                    Export CSV
+                </x-filament::button>
+            </x-slot>
+        @endif
+
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
@@ -87,7 +127,7 @@
                             <td class="py-2 pr-4 text-right">{{ $row['ageing_days'] }}</td>
                             <td class="py-2 text-right">
                                 @if ($row['is_overdue'])
-                                    <span class="font-medium text-danger-600 dark:text-danger-400">Yes</span>
+                                    <span class="font-medium text-rose-600 dark:text-rose-400">Yes</span>
                                 @else
                                     No
                                 @endif
@@ -95,7 +135,12 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="py-4 text-center text-gray-500 dark:text-gray-400">No open or on-hold requisitions.</td>
+                            <td colspan="4">
+                                <x-recruitment.empty-state
+                                    icon="heroicon-o-briefcase"
+                                    heading="No open or on-hold requisitions"
+                                />
+                            </td>
                         </tr>
                     @endforelse
                 </tbody>

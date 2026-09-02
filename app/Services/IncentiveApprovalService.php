@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\IncentiveAdjustmentType;
 use App\Enums\IncentiveCalculationStatus;
+use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
 use Carbon\CarbonInterface;
@@ -31,6 +32,8 @@ class IncentiveApprovalService
         'reversed' => [],
     ];
 
+    public function __construct(private readonly NotificationDispatchService $notifications) {}
+
     public function moveTo(
         RecruiterIncentiveCalculation $calculation,
         IncentiveCalculationStatus $to,
@@ -53,8 +56,51 @@ class IncentiveApprovalService
                 'remarks' => $remarks,
             ]);
 
+            $this->notifyStatusChange($calculation, $to);
+
             return $calculation;
         });
+    }
+
+    private function notifyStatusChange(RecruiterIncentiveCalculation $calculation, IncentiveCalculationStatus $to): void
+    {
+        $url = RecruiterIncentiveCalculationResource::getUrl('view', ['record' => $calculation]);
+
+        match ($to) {
+            IncentiveCalculationStatus::PendingVerification => $this->notifications->alert(
+                $calculation->employee?->user,
+                'Incentives',
+                'Incentive pending verification',
+                "Your incentive for {$calculation->candidate?->full_name} is ready for verification.",
+                'info',
+                $url,
+            ),
+            IncentiveCalculationStatus::Approved => $this->notifications->alert(
+                $calculation->employee?->user,
+                'Incentives',
+                'Incentive approved',
+                "Your incentive for {$calculation->candidate?->full_name} has been approved.",
+                'success',
+                $url,
+            ),
+            IncentiveCalculationStatus::Rejected => $this->notifications->alert(
+                $calculation->employee?->user,
+                'Incentives',
+                'Incentive rejected',
+                "Your incentive for {$calculation->candidate?->full_name} was rejected.",
+                'danger',
+                $url,
+            ),
+            IncentiveCalculationStatus::Paid => $this->notifications->alert(
+                $calculation->employee?->user,
+                'Incentives',
+                'Incentive paid',
+                "Your incentive for {$calculation->candidate?->full_name} has been paid.",
+                'success',
+                $url,
+            ),
+            default => null,
+        };
     }
 
     /**

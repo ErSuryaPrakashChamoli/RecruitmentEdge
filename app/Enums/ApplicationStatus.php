@@ -23,4 +23,18 @@ enum ApplicationStatus: string
             self::OnHold => 'On Hold',
         };
     }
+
+    /**
+     * The single source of truth for this status's badge color — every table column badging this
+     * enum should call this rather than redefining its own match arm (Section 32: one badge system,
+     * not a new style per page).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Active => 'success',
+            self::Rejected, self::Dropout => 'danger',
+            self::OnHold => 'warning',
+        };
+    }
 }

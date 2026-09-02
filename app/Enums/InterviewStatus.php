@@ -31,4 +31,18 @@ enum InterviewStatus: string
     {
         return in_array($this, [self::Completed, self::Cancelled, self::NoShow], true);
     }
+
+    /**
+     * The single source of truth for this status's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Completed => 'success',
+            self::Scheduled, self::Confirmed => 'info',
+            self::Hold, self::Rescheduled => 'warning',
+            self::Cancelled, self::NoShow => 'danger',
+            self::Pending => 'gray',
+        };
+    }
 }

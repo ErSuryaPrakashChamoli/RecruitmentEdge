@@ -22,4 +22,16 @@ enum InterviewResult: string
             self::OnHold => 'On Hold',
         };
     }
+
+    /**
+     * The single source of truth for this result's badge color (Section 32).
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Selected => 'success',
+            self::Rejected => 'danger',
+            self::OnHold => 'warning',
+        };
+    }
 }

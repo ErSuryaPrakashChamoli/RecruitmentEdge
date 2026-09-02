@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
+use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
@@ -20,6 +21,7 @@ class CandidateJoiningService
     public function __construct(
         private readonly StageTransitionService $stageTransitions,
         private readonly RecruiterIncentiveCalculator $incentiveCalculator,
+        private readonly NotificationDispatchService $notifications,
     ) {}
 
     public function confirm(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
@@ -73,6 +75,16 @@ class CandidateJoiningService
             $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save();
 
             $this->stageTransitions->dropout($joining->candidateApplication, $reason, $actor, 'Dropped out before joining');
+
+            $application = $joining->candidateApplication;
+            $this->notifications->alert(
+                $application->recruiter?->user,
+                'Joining',
+                'Candidate dropout',
+                "{$application->candidate->full_name} dropped out before joining: {$reason->name}.",
+                'danger',
+                CandidateJoiningResource::getUrl('edit', ['record' => $joining]),
+            );
 
             return $joining;
         });

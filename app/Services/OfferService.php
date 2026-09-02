@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\CandidateStage;
 use App\Enums\OfferStatus;
 use App\Events\OfferAccepted;
+use App\Filament\Resources\Offers\OfferResource;
 use App\Models\Employee;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
@@ -31,7 +32,10 @@ class OfferService
         'withdrawn' => [],
     ];
 
-    public function __construct(private readonly StageTransitionService $stageTransitions) {}
+    public function __construct(
+        private readonly StageTransitionService $stageTransitions,
+        private readonly NotificationDispatchService $notifications,
+    ) {}
 
     public function moveTo(
         Offer $offer,
@@ -69,6 +73,8 @@ class OfferService
                 OfferAccepted::dispatch($offer);
             }
 
+            $this->notifyStatusChange($offer, $to);
+
             return $offer;
         });
     }
@@ -79,6 +85,42 @@ class OfferService
     public function allowedNextStatuses(Offer $offer): array
     {
         return array_map(OfferStatus::from(...), self::ALLOWED_TRANSITIONS[$offer->status->value]);
+    }
+
+    private function notifyStatusChange(Offer $offer, OfferStatus $to): void
+    {
+        $application = $offer->candidateApplication;
+        $recruiter = $application->recruiter;
+        $candidateName = $application->candidate->full_name;
+        $url = OfferResource::getUrl('edit', ['record' => $offer]);
+
+        match ($to) {
+            OfferStatus::Released => $this->notifications->alert(
+                $recruiter?->user,
+                'Offers',
+                'Offer released',
+                "The offer for {$candidateName} has been released and is awaiting a response.",
+                'info',
+                $url,
+            ),
+            OfferStatus::Accepted => $this->notifications->alert(
+                $recruiter?->user,
+                'Offers',
+                'Offer accepted',
+                "{$candidateName} has accepted their offer.",
+                'success',
+                $url,
+            ),
+            OfferStatus::Rejected => $this->notifications->alert(
+                $recruiter?->user,
+                'Offers',
+                'Offer rejected',
+                "{$candidateName} has rejected their offer.",
+                'danger',
+                $url,
+            ),
+            default => null,
+        };
     }
 
     private function syncApplicationStage(Offer $offer, OfferStatus $to, ?Employee $actor, ?RecruitmentRejectionReason $rejectionReason): void

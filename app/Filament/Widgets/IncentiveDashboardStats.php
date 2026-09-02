@@ -39,6 +39,7 @@ class IncentiveDashboardStats extends StatsOverviewWidget
 
         return [
             Stat::make('Total Earned (This Month)', '₹'.number_format($totalEarned, 2)),
+            Stat::make('Under Review', '₹'.number_format($sumFor(IncentiveCalculationStatus::Calculated), 2)),
             Stat::make('Pending Verification', '₹'.number_format($sumFor(IncentiveCalculationStatus::PendingVerification), 2)),
             Stat::make('Approved', '₹'.number_format($sumFor(IncentiveCalculationStatus::Approved), 2)),
             Stat::make('Payable', '₹'.number_format($sumFor(IncentiveCalculationStatus::Payable), 2)),

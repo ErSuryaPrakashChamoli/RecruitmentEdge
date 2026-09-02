@@ -2,7 +2,9 @@
 
 use App\Enums\IncentiveAdjustmentType;
 use App\Enums\IncentiveCalculationStatus;
+use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
+use App\Models\User;
 use App\Services\IncentiveApprovalService;
 
 beforeEach(function (): void {
@@ -56,6 +58,20 @@ test('reversing a calculation zeroes its effective amount and moves it to Revers
     expect($calculation->refresh()->status)->toBe(IncentiveCalculationStatus::Reversed)
         ->and($calculation->effectiveAmount())->toBe(0.0)
         ->and($calculation->adjustments()->first()->adjustment_type)->toBe(IncentiveAdjustmentType::Reversal);
+});
+
+test('approving a calculation notifies the recruiter', function (): void {
+    $employee = Employee::factory()->create();
+    $user = User::factory()->create(['employee_id' => $employee->id]);
+    $calculation = RecruiterIncentiveCalculation::factory()->create([
+        'employee_id' => $employee->id,
+        'status' => IncentiveCalculationStatus::PendingVerification,
+    ]);
+
+    $this->service->moveTo($calculation, IncentiveCalculationStatus::Approved);
+
+    expect($user->notifications()->count())->toBe(1)
+        ->and($user->notifications()->first()->data['title'])->toBe('[Incentives] Incentive approved');
 });
 
 test('allowedNextStatuses reflects the current status', function (): void {

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruiterIncentiveCalculations;
 
+use App\Enums\IncentiveCalculationStatus;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Pages\ListRecruiterIncentiveCalculations;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Pages\ViewRecruiterIncentiveCalculation;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RelationManagers\AdjustmentsRelationManager;
@@ -16,6 +17,7 @@ use BackedEnum;
 use Filament\Facades\Filament;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
@@ -47,17 +49,41 @@ class RecruiterIncentiveCalculationResource extends Resource
         return RecruiterIncentiveCalculationsTable::configure($table);
     }
 
+    /**
+     * A transparent statement: who/what this is for, which slab of the rule matched their
+     * achievement %, and the resulting amount before/after adjustments. There is no "base x
+     * multiplier" in this domain — a rule's slabs are flat amounts per achievement-% band (see
+     * RecruitmentIncentiveSlab::matches()) — so the statement shows that real shape, not an
+     * invented one. Adjustment-by-adjustment detail stays in the Adjustments relation manager tab.
+     */
     public static function infolist(Schema $schema): Schema
     {
         return $schema->components([
-            TextEntry::make('employee.first_name')->label('Recruiter')->formatStateUsing(fn ($record) => $record->employee->fullName()),
-            TextEntry::make('candidate.full_name')->label('Candidate'),
-            TextEntry::make('incentiveRule.name')->label('Rule'),
-            TextEntry::make('period_start')->label('Period')->formatStateUsing(fn ($record) => $record->period_start->format('M Y')),
-            TextEntry::make('achievement')->formatStateUsing(fn (?string $state) => $state !== null ? number_format((float) $state, 1).'%' : '—'),
-            TextEntry::make('amount')->money('INR'),
-            TextEntry::make('effective_amount')->label('Effective Amount')->state(fn ($record) => $record->effectiveAmount())->money('INR'),
-            TextEntry::make('status')->badge(),
+            Section::make('Recruiter & Candidate')
+                ->columns(3)
+                ->schema([
+                    TextEntry::make('employee.first_name')->label('Recruiter')->formatStateUsing(fn ($record) => $record->employee->fullName()),
+                    TextEntry::make('candidate.full_name')->label('Candidate'),
+                    TextEntry::make('period_start')->label('Period')->formatStateUsing(fn ($record) => $record->period_start->format('M Y')),
+                ]),
+            Section::make('Calculation')
+                ->description('Which slab of the rule matched this recruiter\'s achievement %, and the resulting amount.')
+                ->columns(3)
+                ->schema([
+                    TextEntry::make('incentiveRule.name')->label('Rule'),
+                    TextEntry::make('achievement')->label('Achievement')->formatStateUsing(fn (?string $state) => $state !== null ? number_format((float) $state, 1).'%' : '—'),
+                    TextEntry::make('incentiveSlab.achievement_min')
+                        ->label('Slab Band')
+                        ->formatStateUsing(fn ($record) => $record->incentiveSlab === null ? '—' : number_format((float) $record->incentiveSlab->achievement_min, 1).'% – '
+                            .($record->incentiveSlab->achievement_max !== null ? number_format((float) $record->incentiveSlab->achievement_max, 1).'%' : 'uncapped')),
+                    TextEntry::make('incentiveSlab.amount')->label('Slab Amount')->money('INR')->placeholder('—'),
+                    TextEntry::make('amount')->label('Calculated Amount')->money('INR'),
+                    TextEntry::make('effective_amount')->label('Effective Amount (after adjustments)')->state(fn ($record) => $record->effectiveAmount())->money('INR'),
+                ]),
+            Section::make('Status')
+                ->schema([
+                    TextEntry::make('status')->badge()->color(fn (IncentiveCalculationStatus $state) => $state->color()),
+                ]),
         ]);
     }
 
