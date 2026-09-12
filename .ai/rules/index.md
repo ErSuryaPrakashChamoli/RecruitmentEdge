@@ -23,6 +23,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Resources/**,app/Policies/** | .ai/rules/policies.md |
 | app/Filament/Widgets/**,resources/views/filament/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/providers-filament.md |
 | app/Services/AI/Providers/*.php,app/Services/AI/Gateway/*.php,app/Providers/AiServiceProvider.php | .ai/rules/providers.md |
+| app/Filament/Resources/**,app/Filament/Pages/*.php | .ai/rules/resources-filament-pages.md |
 | app/Filament/Resources/**/Schemas/*.php | .ai/rules/schemas.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Services/IncentiveApprovalService.php,app/Models/RecruiterIncentiveCalculation.php | .ai/rules/services-models.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |

@@ -2,24 +2,32 @@
 
 namespace App\Filament\Resources\Interviews\Tables;
 
+use App\Enums\FeedbackRecommendation;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Filament\Exports\InterviewExporter;
 use App\Filament\Resources\Interviews\InterviewResource;
+use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\InterviewService;
 use App\Services\NotificationDispatchService;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -76,6 +84,7 @@ class InterviewsTable
             ->recordActions([
                 self::confirmAction(),
                 self::rescheduleAction(),
+                self::addFeedbackAction(),
                 self::completeAction(),
                 self::noShowAction(),
                 self::cancelAction(),
@@ -143,35 +152,100 @@ class InterviewsTable
             ->label('Complete')
             ->color('success')
             ->icon('heroicon-o-check-circle')
+            ->modalDescription('At least one feedback entry must be recorded before an interview can be completed.')
             ->visible(fn (Interview $record) => ! $record->status->isTerminal())
             ->schema([
                 Select::make('result')
                     ->options(collect(InterviewResult::cases())->mapWithKeys(fn (InterviewResult $r) => [$r->value => $r->label()]))
+                    ->live()
                     ->required(),
                 Select::make('rejection_reason_id')
                     ->label('Rejection Reason')
                     ->relationship('rejectionReason', 'name')
                     ->searchable()
+                    ->required(fn (Get $get) => $get('result') === InterviewResult::Rejected->value)
                     ->visible(fn (Get $get) => $get('result') === InterviewResult::Rejected->value),
             ])
             ->action(fn (Interview $record, array $data) => self::performComplete($record, $data));
     }
 
     /**
+     * InterviewService enforces the domain guards (feedback required, rejection reason required)
+     * for every write path, so they arrive here as DomainException. Surface them as a notification
+     * and halt the action — an uncaught one renders a 500 error page over the panel.
+     *
      * @param  array<string, mixed>  $data
      */
     public static function performComplete(Interview $record, array $data): void
     {
-        app(InterviewService::class)->complete(
-            $record,
-            InterviewResult::from($data['result']),
-            auth()->user()?->employee,
-            filled($data['rejection_reason_id'] ?? null)
-                ? RecruitmentRejectionReason::query()->find($data['rejection_reason_id'])
-                : null,
-        );
+        try {
+            app(InterviewService::class)->complete(
+                $record,
+                InterviewResult::from($data['result']),
+                auth()->user()?->employee,
+                filled($data['rejection_reason_id'] ?? null)
+                    ? RecruitmentRejectionReason::query()->find($data['rejection_reason_id'])
+                    : null,
+            );
+        } catch (DomainException $e) {
+            Notification::make()
+                ->title('Interview could not be completed')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw new Halt;
+        }
 
         Notification::make()->title('Interview completed')->success()->send();
+    }
+
+    /**
+     * Completing an interview requires feedback, so feedback has to be capturable from the same
+     * surface as the Complete action — otherwise the guard above is a dead end from the list page.
+     */
+    public static function addFeedbackAction(): Action
+    {
+        return Action::make('addFeedback')
+            ->label('Add Feedback')
+            ->color('gray')
+            ->icon('heroicon-o-chat-bubble-left-right')
+            ->visible(fn (): bool => (bool) auth()->user()?->can('interviews.manage'))
+            ->schema(self::feedbackSchema())
+            ->action(fn (Interview $record, array $data) => self::performAddFeedback($record, $data));
+    }
+
+    /**
+     * @return array<int, Component>
+     */
+    public static function feedbackSchema(): array
+    {
+        return [
+            Select::make('interviewer_id')
+                ->label('Interviewer')
+                ->options(fn () => Employee::query()->get()->mapWithKeys(fn (Employee $e) => [$e->id => $e->fullName()]))
+                ->default(fn () => Filament::auth()->user()?->employee_id)
+                ->searchable()
+                ->required(),
+            TextInput::make('score')->numeric()->minValue(1)->maxValue(10),
+            Select::make('recommendation')
+                ->options(collect(FeedbackRecommendation::cases())->mapWithKeys(fn (FeedbackRecommendation $r) => [$r->value => $r->label()]))
+                ->required(),
+            Textarea::make('feedback')->required()->columnSpanFull(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public static function performAddFeedback(Interview $record, array $data): void
+    {
+        abort_unless((bool) auth()->user()?->can('interviews.manage'), 403);
+
+        $record->feedback()->create($data);
+
+        Notification::make()->title('Feedback added')->success()->send();
     }
 
     public static function noShowAction(): Action

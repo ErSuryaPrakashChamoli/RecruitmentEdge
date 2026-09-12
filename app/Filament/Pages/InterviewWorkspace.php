@@ -2,12 +2,10 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\FeedbackRecommendation;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
-use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\User;
@@ -18,9 +16,6 @@ use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\TextInput;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
@@ -150,6 +145,7 @@ class InterviewWorkspace extends Page
             ->label('Complete')
             ->color('success')
             ->icon('heroicon-o-check-circle')
+            ->modalDescription('At least one feedback entry must be recorded before an interview can be completed.')
             ->schema([
                 Select::make('result')
                     ->options(collect(InterviewResult::cases())->mapWithKeys(fn ($r) => [$r->value => $r->label()]))
@@ -159,6 +155,7 @@ class InterviewWorkspace extends Page
                     ->label('Rejection Reason')
                     ->options(fn () => RecruitmentRejectionReason::query()->pluck('name', 'id'))
                     ->searchable()
+                    ->required(fn (Get $get) => $get('result') === InterviewResult::Rejected->value)
                     ->visible(fn (Get $get) => $get('result') === InterviewResult::Rejected->value),
             ])
             ->action(fn (array $arguments, array $data) => InterviewsTable::performComplete(Interview::query()->findOrFail($arguments['record']), $data));
@@ -179,28 +176,11 @@ class InterviewWorkspace extends Page
         return Action::make('addFeedback')
             ->label('Add Feedback')
             ->icon('heroicon-o-chat-bubble-left-right')
-            ->schema([
-                Select::make('interviewer_id')
-                    ->label('Interviewer')
-                    ->options(fn () => Employee::query()->get()->mapWithKeys(fn (Employee $e) => [$e->id => $e->fullName()]))
-                    ->default(fn () => Filament::auth()->user()?->employee_id)
-                    ->searchable()
-                    ->required(),
-                TextInput::make('score')->numeric()->minValue(1)->maxValue(10),
-                Select::make('recommendation')
-                    ->options(collect(FeedbackRecommendation::cases())->mapWithKeys(fn ($r) => [$r->value => $r->label()]))
-                    ->required(),
-                Textarea::make('feedback')->required()->columnSpanFull(),
-            ])
-            ->action(function (array $arguments, array $data): void {
-                $interview = Interview::query()->findOrFail($arguments['interviewId']);
-
-                abort_unless((bool) auth()->user()?->can('interviews.manage'), 403);
-
-                $interview->feedback()->create($data);
-
-                Notification::make()->title('Feedback added')->success()->send();
-            });
+            ->schema(InterviewsTable::feedbackSchema())
+            ->action(fn (array $arguments, array $data) => InterviewsTable::performAddFeedback(
+                Interview::query()->findOrFail($arguments['interviewId']),
+                $data,
+            ));
     }
 
     public function interviewEditUrl(Interview $interview): string
