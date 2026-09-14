@@ -77,7 +77,12 @@ test('completing an already-terminal interview is rejected', function (): void {
 
 test('selectCandidate transitions the application to Selected', function (): void {
     $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::FinalInterview]);
-    $interview = Interview::factory()->create(['candidate_application_id' => $application->id, 'round_number' => 3]);
+    $interview = Interview::factory()->create([
+        'candidate_application_id' => $application->id,
+        'round_number' => 3,
+        'status' => InterviewStatus::Completed,
+        'result' => InterviewResult::Selected,
+    ]);
 
     $this->service->selectCandidate($interview);
 

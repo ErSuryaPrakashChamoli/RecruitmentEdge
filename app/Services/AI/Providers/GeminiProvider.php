@@ -4,6 +4,7 @@ namespace App\Services\AI\Providers;
 
 use App\Services\AI\Contracts\EmbeddingProviderInterface;
 use App\Services\AI\Contracts\LLMProviderInterface;
+use App\Services\AI\Contracts\ReportsUsage;
 use App\Services\AI\Contracts\WebSearchProviderInterface;
 use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\LlmResponse;
@@ -39,8 +40,13 @@ use Throwable;
  * (unverified exact framing without a live key to test against) — it completes the call and
  * flushes the result in word-sized chunks through the same $onDelta contract.
  */
-class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface, WebSearchProviderInterface
+class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface, ReportsUsage, WebSearchProviderInterface
 {
+    /**
+     * @var array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    private array $lastUsage = [];
+
     public function __construct(
         private readonly ?string $apiKey,
         private readonly string $baseUrl,
@@ -49,6 +55,14 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     public function isConfigured(): bool
     {
         return filled($this->apiKey);
+    }
+
+    /**
+     * @return array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    public function lastUsage(): array
+    {
+        return $this->lastUsage;
     }
 
     /**
@@ -106,9 +120,11 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         $payload = $this->basePayload($messages, $options);
         $payload['generationConfig']['responseMimeType'] = 'application/json';
         $payload['generationConfig']['responseSchema'] = $jsonSchema['schema'] ?? $jsonSchema;
+        $this->lastUsage = [];
 
         try {
             $response = $this->request()->post("/models/{$model}:generateContent", $payload);
+            $this->lastUsage = $this->usageFromMetadata($response->json('usageMetadata') ?? []);
             $text = $this->extractText($response->json() ?? []);
 
             return $text !== null ? (json_decode($text, true) ?? []) : [];
@@ -126,6 +142,8 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     public function embed(array $texts, ?string $model = null, string $context = 'document'): array
     {
         $this->assertConfigured();
+        // batchEmbedContents reports no token usage, so embeddings are logged without tokens.
+        $this->lastUsage = [];
 
         $model ??= config('ai.embeddings.model');
         $taskType = $context === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
@@ -163,7 +181,8 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     {
         $this->assertConfigured();
 
-        $model = $options['model'] ?? config('ai.models.balanced');
+        $model = $options['model'] ?? config('ai.web_search.model');
+        $this->lastUsage = [];
 
         $response = $this->request()->post("/models/{$model}:generateContent", [
             'contents' => [['role' => 'user', 'parts' => [['text' => $query]]]],
@@ -176,7 +195,26 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
             throw new AiProviderUnavailableException('The Gemini web search service returned an error.');
         }
 
+        $this->lastUsage = $this->usageFromMetadata($response->json('usageMetadata') ?? []);
+
         return $this->extractCitations($response->json() ?? []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $usage
+     * @return array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    private function usageFromMetadata(array $usage): array
+    {
+        if ($usage === []) {
+            return [];
+        }
+
+        return [
+            'input_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
+            'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
+            'cached_tokens' => (int) ($usage['cachedContentTokenCount'] ?? 0),
+        ];
     }
 
     private function request(): PendingRequest

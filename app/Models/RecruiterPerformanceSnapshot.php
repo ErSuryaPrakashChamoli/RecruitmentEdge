@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\MetricAccountability;
+use App\Enums\TargetMetric;
+use App\Services\PerformanceEngine;
 use Database\Factories\RecruiterPerformanceSnapshotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -36,5 +39,36 @@ class RecruiterPerformanceSnapshot extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    /**
+     * @return array{metric: string, weight?: float, target: int|null, actual: int, achievement: float|null}|null
+     */
+    public function breakdownFor(TargetMetric $metric): ?array
+    {
+        return collect($this->breakdown ?? [])->firstWhere('metric', $metric->value);
+    }
+
+    /**
+     * @return array<string, array{accountability: MetricAccountability, rows: list<array{metric: string, weight?: float, target: int|null, actual: int, achievement: float|null}>, measured: int, met: int, average_achievement: float|null}>
+     */
+    public function accountabilitySummary(): array
+    {
+        return PerformanceEngine::summarizeByAccountability($this->breakdown ?? []);
+    }
+
+    /**
+     * Metrics that reached 100% achievement, out of those with a resolvable target.
+     *
+     * @return array{met: int, measured: int}
+     */
+    public function metricsMetCount(): array
+    {
+        $summary = collect($this->accountabilitySummary());
+
+        return [
+            'met' => $summary->sum('met'),
+            'measured' => $summary->sum('measured'),
+        ];
     }
 }

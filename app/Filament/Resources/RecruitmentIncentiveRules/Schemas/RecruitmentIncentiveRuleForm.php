@@ -56,6 +56,11 @@ class RecruitmentIncentiveRuleForm
                             ->relationship('designation', 'name')
                             ->searchable()
                             ->preload(),
+                        Select::make('location_id')
+                            ->relationship('location', 'name')
+                            ->helperText('Matched against the recruiter\'s own location.')
+                            ->searchable()
+                            ->preload(),
                         Select::make('employment_type')
                             ->options(collect(EmploymentType::cases())->mapWithKeys(fn (EmploymentType $t) => [$t->value => $t->label()])),
                     ]),

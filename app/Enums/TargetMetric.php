@@ -34,4 +34,21 @@ enum TargetMetric: string
             self::Joining => 'Joining',
         };
     }
+
+    /**
+     * Activity and pipeline-progress metrics are Controllable; hiring outcomes that depend on a
+     * hiring manager, client, or candidate decision are Influenced.
+     */
+    public function accountability(): MetricAccountability
+    {
+        return match ($this) {
+            self::Selections, self::Offers, self::Joining => MetricAccountability::Influenced,
+            default => MetricAccountability::Controllable,
+        };
+    }
+
+    public function isControllable(): bool
+    {
+        return $this->accountability() === MetricAccountability::Controllable;
+    }
 }

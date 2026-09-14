@@ -3,26 +3,30 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\TargetMetric;
+use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
-use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\RecruiterDailyMetricsService;
 use App\Services\RecruitmentAnalyticsService;
 use App\Services\TargetResolutionService;
-use Filament\Facades\Filament;
+use Carbon\CarbonImmutable;
+use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
 
 /**
- * Section 6's pulse table (Target/Actual/Achievement for Today and MTD), summed across every
- * recruiter visible to the viewer — a genuine team rollup, not a single recruiter's numbers.
- * Shortlisted and Turn-up % (Section 9) are appended alongside the target-driven metrics: turn-up
- * has no configurable target (it's a ratio, not a quota), so it carries a null target/achievement
- * shape instead of forcing a fake target through TargetResolutionService.
+ * Section 6's pulse table (Target / Actual / Achievement for every target metric), summed across
+ * every recruiter in scope — the viewer's hierarchy, or the recruiter chosen in the dashboard's
+ * recruiter filter. Follows the dashboard period filter (today when none is set); "Today" is
+ * always shown alongside so the day's progress stays visible inside a longer period. Turn-up %
+ * (Section 9) has no configurable target (it's a ratio, not a quota), so it carries a null
+ * target shape instead of forcing a fake target through TargetResolutionService.
  */
 class TodaysRecruitmentPulse extends Widget
 {
+    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
     protected static bool $isLazy = false;
@@ -39,23 +43,57 @@ class TodaysRecruitmentPulse extends Widget
         TargetMetric::Calls,
         TargetMetric::ConnectedCalls,
         TargetMetric::InterestedCandidates,
+        TargetMetric::Screening,
         TargetMetric::Shortlisted,
         TargetMetric::Interviews,
+        TargetMetric::Selections,
         TargetMetric::Offers,
         TargetMetric::Joining,
     ];
 
     /**
-     * @return Collection<int, array{label: string, today: int|string, mtd: int|string, target: int|null, achievement: float|null}>
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    public function getPulsePeriod(): array
+    {
+        if (blank($this->pageFilters['period'] ?? null)) {
+            $now = CarbonImmutable::now();
+
+            return [$now->startOfDay(), $now->endOfDay()];
+        }
+
+        return $this->resolvePeriod();
+    }
+
+    public function isTodayOnly(): bool
+    {
+        [$start, $end] = $this->getPulsePeriod();
+
+        return $start->isToday() && $end->isToday();
+    }
+
+    public function getPeriodLabel(): string
+    {
+        [$start, $end] = $this->getPulsePeriod();
+
+        if ($start->isSameDay($end)) {
+            return $start->isToday() ? 'Today' : $start->format('d M Y');
+        }
+
+        return $start->format('d M').' – '.$end->format('d M Y');
+    }
+
+    /**
+     * @return Collection<int, array{label: string, today: int|string, actual: int|string, target: int|null, achievement: float|null}>
      */
     public function getRows(): Collection
     {
-        /** @var User $user */
-        $user = Filament::auth()->user();
-        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+        $scopeUser = $this->filteredUser();
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($scopeUser);
 
         $recruiterIds = CandidateApplication::query()
             ->when($visibleIds !== null, fn ($q) => $q->whereIn('recruiter_id', $visibleIds))
+            ->whereNotNull('recruiter_id')
             ->distinct()
             ->pluck('recruiter_id');
 
@@ -64,40 +102,40 @@ class TodaysRecruitmentPulse extends Widget
         $metrics = app(RecruiterDailyMetricsService::class);
         $targets = app(TargetResolutionService::class);
 
-        $today = now();
-        $monthStart = now()->startOfMonth();
-        $monthEnd = now()->endOfMonth();
+        [$start, $end] = $this->getPulsePeriod();
+        $todayStart = CarbonImmutable::now()->startOfDay();
+        $todayEnd = CarbonImmutable::now()->endOfDay();
 
-        $rows = collect(self::PULSE_METRICS)->map(function (TargetMetric $metric) use ($recruiters, $metrics, $targets, $today, $monthStart, $monthEnd) {
+        $rows = collect(self::PULSE_METRICS)->map(function (TargetMetric $metric) use ($recruiters, $metrics, $targets, $start, $end, $todayStart, $todayEnd) {
             $todayActual = 0;
-            $mtdActual = 0;
-            $mtdTarget = 0;
+            $periodActual = 0;
+            $periodTarget = 0;
 
             foreach ($recruiters as $recruiter) {
-                $todayActual += $metrics->actualFor($recruiter, $metric, $today, $today);
-                $mtdActual += $metrics->actualFor($recruiter, $metric, $monthStart, $monthEnd);
-                $mtdTarget += $targets->resolveForRange($recruiter, $metric, $monthStart, $monthEnd) ?? 0;
+                $todayActual += $metrics->actualFor($recruiter, $metric, $todayStart, $todayEnd);
+                $periodActual += $metrics->actualFor($recruiter, $metric, $start, $end);
+                $periodTarget += $targets->resolveForRange($recruiter, $metric, $start, $end) ?? 0;
             }
 
             return [
                 'label' => $metric->label(),
                 'today' => $todayActual,
-                'mtd' => $mtdActual,
-                'target' => $mtdTarget,
-                'achievement' => $mtdTarget > 0 ? round($mtdActual / $mtdTarget * 100, 1) : null,
+                'actual' => $periodActual,
+                'target' => $periodTarget,
+                'achievement' => $periodTarget > 0 ? round($periodActual / $periodTarget * 100, 1) : null,
             ];
         });
 
         $analytics = app(RecruitmentAnalyticsService::class);
-        $todayTurnUp = $analytics->turnUpAnalysis($today->copy()->startOfDay(), $today->copy()->endOfDay(), $user);
-        $mtdTurnUp = $analytics->turnUpAnalysis($monthStart, $monthEnd, $user);
+        $todayTurnUp = $analytics->turnUpAnalysis($todayStart, $todayEnd, $scopeUser);
+        $periodTurnUp = $analytics->turnUpAnalysis($start, $end, $scopeUser);
 
         return $rows->push([
             'label' => 'Turn-up %',
             'today' => "{$todayTurnUp['turnups']}/{$todayTurnUp['lineups']}",
-            'mtd' => "{$mtdTurnUp['turnups']}/{$mtdTurnUp['lineups']}",
+            'actual' => "{$periodTurnUp['turnups']}/{$periodTurnUp['lineups']}",
             'target' => null,
-            'achievement' => $mtdTurnUp['turnup_percent'],
+            'achievement' => $periodTurnUp['turnup_percent'],
         ]);
     }
 }

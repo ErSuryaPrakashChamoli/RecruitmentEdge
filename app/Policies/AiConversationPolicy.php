@@ -6,14 +6,15 @@ use App\Models\AiConversation;
 use App\Models\User;
 
 /**
- * A user always owns/can view their own conversations (base ai.query access); ai.manage is for
- * administrators browsing conversations for support/audit purposes (spec section 32).
+ * A user always owns their own conversations (opened through the AI Copilot page, which restricts
+ * lookups to the signed-in user's rows); the AI Conversations review resource — listing everyone's
+ * conversations — is for administrators with ai.manage only (spec section 32).
  */
 class AiConversationPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->can('ai.query');
+        return $user->can('ai.manage');
     }
 
     public function view(User $user, AiConversation $aiConversation): bool

@@ -3,10 +3,12 @@
 namespace App\Filament\Resources\AiActionLogs;
 
 use App\Filament\Resources\AiActionLogs\Pages\ListAiActionLogs;
+use App\Filament\Resources\AiActionLogs\Schemas\AiActionLogInfolist;
 use App\Filament\Resources\AiActionLogs\Tables\AiActionLogsTable;
 use App\Models\AiActionLog;
 use BackedEnum;
 use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use UnitEnum;
@@ -24,6 +26,11 @@ class AiActionLogResource extends Resource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    public static function infolist(Schema $schema): Schema
+    {
+        return AiActionLogInfolist::configure($schema);
     }
 
     public static function table(Table $table): Table

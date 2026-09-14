@@ -6,6 +6,7 @@ use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
+use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
@@ -110,18 +111,23 @@ test('sourceAnalytics respects hierarchy scoping when a user is passed', functio
     expect($row['sourced'])->toBe(1);
 });
 
-test('vacancyAgeing flags requisitions past the configured threshold as overdue', function (): void {
+test('vacancyAgeing returns only open requisitions past the configured threshold, with their priority', function (): void {
     RecruitmentSetting::put('vacancy_ageing_alert_days', '30', 'int');
 
-    $overdue = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open, 'opening_date' => now()->subDays(45)]);
+    $overdue = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open, 'opening_date' => now()->subDays(45), 'priority' => Priority::Urgent]);
     $fresh = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open, 'opening_date' => now()->subDays(5)]);
     RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Closed, 'opening_date' => now()->subDays(90)]);
 
     $ageing = $this->service->vacancyAgeing()->keyBy(fn (array $row) => $row['requisition']->id);
 
-    expect($ageing)->toHaveCount(2)
+    expect($ageing)->toHaveCount(1)
         ->and($ageing[$overdue->id]['is_overdue'])->toBeTrue()
-        ->and($ageing[$fresh->id]['is_overdue'])->toBeFalse();
+        ->and($ageing[$overdue->id]['priority'])->toBe('Urgent');
+
+    $all = $this->service->vacancyAgeing(includeWithinThreshold: true)->keyBy(fn (array $row) => $row['requisition']->id);
+
+    expect($all)->toHaveCount(2)
+        ->and($all[$fresh->id]['is_overdue'])->toBeFalse();
 });
 
 test('averageTimeToHireDays is null when there are no joins in the period', function (): void {
@@ -340,4 +346,86 @@ test('joiningRisks excludes candidates who have already joined', function (): vo
     expect($risks)->toHaveCount(1)
         ->and($risks->first()['joining']->status)->toBe(JoiningStatus::Expected)
         ->and($risks->first()['risk'])->toBe('red');
+});
+
+test('interviewAnalytics breaks interviews down by round', function (): void {
+    $application = CandidateApplication::factory()->create();
+
+    Interview::factory()->create(['candidate_application_id' => $application->id, 'round_number' => 1, 'status' => InterviewStatus::Completed, 'result' => InterviewResult::Selected, 'scheduled_at' => now()]);
+    Interview::factory()->create(['candidate_application_id' => $application->id, 'round_number' => 1, 'status' => InterviewStatus::NoShow, 'scheduled_at' => now()]);
+    Interview::factory()->create(['candidate_application_id' => $application->id, 'round_number' => 2, 'status' => InterviewStatus::Completed, 'result' => InterviewResult::Rejected, 'scheduled_at' => now()]);
+
+    $byRound = $this->service->interviewAnalytics($this->start, $this->end)['by_round'];
+
+    expect($byRound->all())->toBe([
+        ['round' => 1, 'scheduled' => 2, 'completed' => 1, 'no_show' => 1, 'selected' => 1],
+        ['round' => 2, 'scheduled' => 1, 'completed' => 1, 'no_show' => 0, 'selected' => 0],
+    ]);
+});
+
+test('offerAnalytics reports released offers, acceptance of released, average CTC, and selection-to-offer days', function (): void {
+    $application = CandidateApplication::factory()->create();
+    $this->travelTo(now()->subDays(5));
+    $this->transitions->transitionTo($application, CandidateStage::Selected);
+    $this->travelBack();
+
+    $acceptedOffer = Offer::factory()->create(['candidate_application_id' => $application->id, 'status' => OfferStatus::Accepted, 'offer_date' => now(), 'offered_ctc' => 600000]);
+    $rejectedOffer = Offer::factory()->create(['status' => OfferStatus::Rejected, 'offer_date' => now(), 'offered_ctc' => 500000]);
+    Offer::factory()->create(['status' => OfferStatus::Draft, 'offer_date' => now(), 'offered_ctc' => 400000]);
+
+    foreach ([$acceptedOffer, $rejectedOffer] as $offer) {
+        $offer->statusHistory()->create(['from_status' => OfferStatus::Initiated, 'to_status' => OfferStatus::Released]);
+    }
+
+    $result = $this->service->offerAnalytics($this->start, $this->end);
+
+    expect($result['released'])->toBe(2)
+        ->and($result['released_acceptance_percent'])->toBe(50.0)
+        ->and($result['average_offered_ctc'])->toBe(500000.0)
+        ->and($result['average_days_selection_to_offer'])->toBe(5.0);
+});
+
+test('joiningAnalytics reports offer accepted to joined conversion separately from selection to joining', function (): void {
+    $joinedOffer = Offer::factory()->create(['status' => OfferStatus::Accepted, 'accepted_at' => now()]);
+    Offer::factory()->create(['status' => OfferStatus::Accepted, 'accepted_at' => now()]);
+
+    CandidateJoining::factory()->create([
+        'candidate_application_id' => $joinedOffer->candidate_application_id,
+        'status' => JoiningStatus::Joined,
+        'expected_doj' => now(),
+    ]);
+
+    $result = $this->service->joiningAnalytics($this->start, $this->end);
+
+    expect($result['accepted'])->toBe(2)
+        ->and($result['accepted_joined'])->toBe(1)
+        ->and($result['offer_to_join_percent'])->toBe(50.0);
+});
+
+test('joiningTrend returns daily expected vs joined buckets for a short range', function (): void {
+    $start = CarbonImmutable::parse('2026-03-01');
+    $end = CarbonImmutable::parse('2026-03-31')->endOfDay();
+
+    CandidateJoining::factory()->create(['status' => JoiningStatus::Expected, 'expected_doj' => '2026-03-31']);
+    CandidateJoining::factory()->create(['status' => JoiningStatus::Joined, 'expected_doj' => '2026-03-10', 'actual_doj' => '2026-03-12']);
+    CandidateJoining::factory()->create(['status' => JoiningStatus::Expected, 'expected_doj' => '2026-04-01']);
+
+    $rows = $this->service->joiningTrend($start, $end)->keyBy('start');
+
+    expect($rows)->toHaveCount(31)
+        ->and($rows['2026-03-31']['expected'])->toBe(1)
+        ->and($rows['2026-03-10']['expected'])->toBe(1)
+        ->and($rows['2026-03-12']['joined'])->toBe(1)
+        ->and($rows->sum('expected'))->toBe(2)
+        ->and($rows->sum('joined'))->toBe(1);
+});
+
+test('joiningTrend buckets a long range by calendar month', function (): void {
+    CandidateJoining::factory()->create(['status' => JoiningStatus::Joined, 'expected_doj' => '2026-03-10', 'actual_doj' => '2026-04-02']);
+
+    $rows = $this->service->joiningTrend(CarbonImmutable::parse('2026-01-01'), CarbonImmutable::parse('2026-12-31'))->keyBy('period');
+
+    expect($rows)->toHaveCount(12)
+        ->and($rows['Mar 2026']['expected'])->toBe(1)
+        ->and($rows['Apr 2026']['joined'])->toBe(1);
 });

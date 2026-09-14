@@ -13,6 +13,7 @@ use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\ToolRegistry;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 /**
  * The turn loop: builds context, calls the Gateway, and for each tool call the model requests
@@ -20,15 +21,26 @@ use Illuminate\Support\Facades\RateLimiter;
  * human to approve (Write/External/HighImpact — spec section 26). Never called directly from a
  * Filament page/controller for anything beyond ask()/continueTurn() — those are the only two entry
  * points into the loop.
+ *
+ * With no LLM provider configured the turn is answered by KnowledgeBaseFallback (keyword search
+ * over published knowledge articles) instead of a bare "not configured" message.
  */
 class AiOrchestrator
 {
+    public const string DEFAULT_TITLE = 'New conversation';
+
     public function __construct(
         private readonly AiGateway $gateway,
         private readonly ToolRegistry $registry,
         private readonly ConversationContextBuilder $contextBuilder,
         private readonly ActionExecutor $executor,
+        private readonly KnowledgeBaseFallback $knowledgeBaseFallback,
     ) {}
+
+    public static function rateLimitKey(User $user): string
+    {
+        return "ai-chat:{$user->id}";
+    }
 
     /**
      * Starts a new turn from a user-typed message.
@@ -38,6 +50,7 @@ class AiOrchestrator
     public function ask(AiConversation $conversation, string $userMessage, User $user, ?callable $onDelta = null): array
     {
         $this->assertNotRateLimited($user);
+        $this->titleFromFirstMessage($conversation, $userMessage);
 
         $conversation->messages()->create([
             'role' => AiMessageRole::User,
@@ -63,6 +76,10 @@ class AiOrchestrator
      */
     private function runTurn(AiConversation $conversation, User $user, ?callable $onDelta): array
     {
+        if (! $this->gateway->isConfigured()) {
+            return ['message' => $this->answerFromKnowledgeBase($conversation, $user, $onDelta), 'pending' => []];
+        }
+
         $tools = $this->registry->definitionsForUser($user);
         $maxSteps = (int) config('ai.limits.max_tool_calls_per_turn');
         $steps = 0;
@@ -103,6 +120,24 @@ class AiOrchestrator
         return ['message' => $assistantMessage, 'pending' => $pending];
     }
 
+    private function answerFromKnowledgeBase(AiConversation $conversation, User $user, ?callable $onDelta): AiMessage
+    {
+        $content = $this->knowledgeBaseFallback->answer($this->latestUserMessageText($conversation) ?? '', $user);
+
+        if ($onDelta !== null) {
+            $onDelta($content);
+        }
+
+        $message = $conversation->messages()->create([
+            'role' => AiMessageRole::Assistant,
+            'content' => $content,
+        ]);
+
+        $conversation->forceFill(['last_message_at' => now()])->save();
+
+        return $message;
+    }
+
     /**
      * @param  array<int, array{id: string, name: string, arguments: array<string, mixed>}>  $toolCalls
      * @return array<int, AiToolCall> the tool calls now awaiting human approval, if any
@@ -113,7 +148,7 @@ class AiOrchestrator
 
         foreach ($toolCalls as $call) {
             $tool = $this->registry->find($call['name']);
-            $permitted = $tool !== null && $this->registry->userMayUse($user, $call['name']);
+            $permitted = $tool !== null && $this->registry->isOfferedTo($user, $tool);
 
             if (! $permitted) {
                 $toolCallRow = $assistantMessage->toolCalls()->create([
@@ -166,6 +201,23 @@ class AiOrchestrator
         return $pending;
     }
 
+    /**
+     * Gives a fresh conversation a recognizable title from its first question, so the Copilot's
+     * conversation switcher and the AI Conversations review screen aren't a list of identical rows.
+     */
+    private function titleFromFirstMessage(AiConversation $conversation, string $userMessage): void
+    {
+        if (filled($conversation->title) && $conversation->title !== self::DEFAULT_TITLE) {
+            return;
+        }
+
+        if ($conversation->messages()->where('role', AiMessageRole::User)->exists()) {
+            return;
+        }
+
+        $conversation->forceFill(['title' => Str::limit(trim(preg_replace('/\s+/', ' ', $userMessage)), 60)])->save();
+    }
+
     private function latestUserMessageText(AiConversation $conversation): ?string
     {
         return $conversation->messages()
@@ -177,7 +229,7 @@ class AiOrchestrator
 
     private function assertNotRateLimited(User $user): void
     {
-        $key = "ai-chat:{$user->id}";
+        $key = self::rateLimitKey($user);
         $max = (int) config('ai.limits.rate_limit_per_minute');
 
         if (RateLimiter::tooManyAttempts($key, $max)) {

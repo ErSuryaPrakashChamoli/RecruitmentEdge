@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\AI\Tools\Concerns\CallsLanguageModel;
 use App\Services\AI\Tools\Contracts\AiTool;
 
 /**
@@ -16,6 +17,8 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class GenerateJdTool implements AiTool
 {
+    use CallsLanguageModel;
+
     public function __construct(private readonly AiGateway $gateway) {}
 
     public function name(): string
@@ -56,8 +59,12 @@ class GenerateJdTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
+        if (blank($arguments['title'] ?? null)) {
+            return ToolResult::fail('A job title is required.');
+        }
+
         if (! $this->gateway->isConfigured()) {
-            return ToolResult::fail('AI is not configured, so I cannot draft a job description right now.');
+            return $this->modelUnavailable($this->gateway, 'draft a job description');
         }
 
         $details = collect($arguments)->except('title')->filter()->map(fn ($v, $k) => ucfirst(str_replace('_', ' ', $k)).": {$v}")->implode("\n");
@@ -67,10 +74,14 @@ class GenerateJdTool implements AiTool
             LlmMessage::user("Job title: {$arguments['title']}\n{$details}"),
         ];
 
-        $response = $this->gateway->generate($messages, [], 'generation', $user);
+        $text = $this->generateText($this->gateway, $messages, 'generation', $user);
+
+        if ($text === null) {
+            return $this->modelUnavailable($this->gateway, 'draft a job description');
+        }
 
         return ToolResult::ok(
-            data: ['job_description' => $response->content],
+            data: ['job_description' => $text],
             summary: "Drafted a job description for {$arguments['title']}.",
             type: 'text',
         );

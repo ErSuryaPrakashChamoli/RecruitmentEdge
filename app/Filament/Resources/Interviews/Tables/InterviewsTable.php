@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Interviews\Tables;
 
+use App\Enums\ApplicationStatus;
+use App\Enums\CandidateStage;
 use App\Enums\FeedbackRecommendation;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
@@ -10,6 +12,7 @@ use App\Filament\Exports\InterviewExporter;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\InterviewFeedback;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\InterviewService;
 use App\Services\NotificationDispatchService;
@@ -26,11 +29,13 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Fieldset;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Carbon;
 
 class InterviewsTable
 {
@@ -84,8 +89,10 @@ class InterviewsTable
             ->recordActions([
                 self::confirmAction(),
                 self::rescheduleAction(),
+                self::holdAction(),
                 self::addFeedbackAction(),
                 self::completeAction(),
+                self::selectCandidateAction(),
                 self::noShowAction(),
                 self::cancelAction(),
                 EditAction::make(),
@@ -105,13 +112,14 @@ class InterviewsTable
         return Action::make('confirm')
             ->color('success')
             ->icon('heroicon-o-check')
-            ->visible(fn (Interview $record) => $record->status === InterviewStatus::Scheduled)
+            ->visible(fn (Interview $record) => $record->status->awaitsConfirmation())
             ->action(fn (Interview $record) => self::performConfirm($record));
     }
 
     public static function performConfirm(Interview $record): void
     {
-        $record->update(['status' => InterviewStatus::Confirmed]);
+        self::guarded('Interview could not be confirmed', fn () => app(InterviewService::class)->confirm($record));
+
         Notification::make()->title('Interview confirmed')->success()->send();
     }
 
@@ -121,10 +129,19 @@ class InterviewsTable
             ->color('warning')
             ->icon('heroicon-o-calendar')
             ->visible(fn (Interview $record) => ! $record->status->isTerminal())
-            ->schema([
-                DateTimePicker::make('scheduled_at')->required(),
-            ])
+            ->schema(self::rescheduleSchema())
             ->action(fn (Interview $record, array $data) => self::performReschedule($record, $data));
+    }
+
+    /**
+     * @return array<int, Component>
+     */
+    public static function rescheduleSchema(): array
+    {
+        return [
+            DateTimePicker::make('scheduled_at')->label('New date & time')->required(),
+            Textarea::make('remarks')->label('Reason / remarks'),
+        ];
     }
 
     /**
@@ -132,18 +149,49 @@ class InterviewsTable
      */
     public static function performReschedule(Interview $record, array $data): void
     {
-        $record->update(['scheduled_at' => $data['scheduled_at'], 'status' => InterviewStatus::Scheduled]);
-
-        app(NotificationDispatchService::class)->alert(
-            $record->candidateApplication->recruiter?->user,
-            'Interviews',
-            'Interview rescheduled',
-            "The interview for {$record->candidateApplication->candidate->full_name} has been rescheduled to {$record->scheduled_at->format('d M Y, h:i A')}.",
-            'warning',
-            InterviewResource::getUrl('edit', ['record' => $record]),
-        );
+        self::guarded('Interview could not be rescheduled', fn () => app(InterviewService::class)->reschedule(
+            $record,
+            Carbon::parse($data['scheduled_at']),
+            $data['remarks'] ?? null,
+            auth()->user()?->employee,
+        ));
 
         Notification::make()->title('Interview rescheduled')->success()->send();
+    }
+
+    public static function holdAction(): Action
+    {
+        return Action::make('hold')
+            ->label('Hold')
+            ->color('warning')
+            ->icon('heroicon-o-pause-circle')
+            ->visible(fn (Interview $record) => ! $record->status->isTerminal() && $record->status !== InterviewStatus::Hold)
+            ->schema(self::holdSchema())
+            ->action(fn (Interview $record, array $data) => self::performHold($record, $data));
+    }
+
+    /**
+     * @return array<int, Component>
+     */
+    public static function holdSchema(): array
+    {
+        return [
+            Textarea::make('remarks')->label('Why is this interview on hold?')->required(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public static function performHold(Interview $record, array $data): void
+    {
+        self::guarded('Interview could not be put on hold', fn () => app(InterviewService::class)->hold(
+            $record,
+            (string) ($data['remarks'] ?? ''),
+            auth()->user()?->employee,
+        ));
+
+        Notification::make()->title('Interview put on hold')->success()->send();
     }
 
     public static function completeAction(): Action
@@ -161,7 +209,7 @@ class InterviewsTable
                     ->required(),
                 Select::make('rejection_reason_id')
                     ->label('Rejection Reason')
-                    ->relationship('rejectionReason', 'name')
+                    ->options(fn (): array => RecruitmentRejectionReason::groupedActiveOptions())
                     ->searchable()
                     ->required(fn (Get $get) => $get('result') === InterviewResult::Rejected->value)
                     ->visible(fn (Get $get) => $get('result') === InterviewResult::Rejected->value),
@@ -178,27 +226,51 @@ class InterviewsTable
      */
     public static function performComplete(Interview $record, array $data): void
     {
-        try {
-            app(InterviewService::class)->complete(
-                $record,
-                InterviewResult::from($data['result']),
-                auth()->user()?->employee,
-                filled($data['rejection_reason_id'] ?? null)
-                    ? RecruitmentRejectionReason::query()->find($data['rejection_reason_id'])
-                    : null,
-            );
-        } catch (DomainException $e) {
-            Notification::make()
-                ->title('Interview could not be completed')
-                ->body($e->getMessage())
-                ->danger()
-                ->persistent()
-                ->send();
-
-            throw new Halt;
-        }
+        self::guarded('Interview could not be completed', fn () => app(InterviewService::class)->complete(
+            $record,
+            InterviewResult::from($data['result']),
+            auth()->user()?->employee,
+            filled($data['rejection_reason_id'] ?? null)
+                ? RecruitmentRejectionReason::query()->find($data['rejection_reason_id'])
+                : null,
+        ));
 
         Notification::make()->title('Interview completed')->success()->send();
+    }
+
+    /**
+     * The explicit pipeline "Selected" decision (InterviewService::selectCandidate()), separate from
+     * any single round's result.
+     */
+    public static function selectCandidateAction(): Action
+    {
+        return Action::make('selectCandidate')
+            ->label('Select Candidate')
+            ->color('success')
+            ->icon('heroicon-o-trophy')
+            ->requiresConfirmation()
+            ->modalDescription('Moves the application to the Selected stage.')
+            ->visible(fn (Interview $record): bool => self::canSelectCandidate($record))
+            ->action(fn (Interview $record) => self::performSelectCandidate($record));
+    }
+
+    public static function canSelectCandidate(Interview $record): bool
+    {
+        $application = $record->candidateApplication;
+
+        return app(InterviewService::class)->canSelectCandidateFrom($record)
+            && $application->status === ApplicationStatus::Active
+            && $application->current_stage->order() < CandidateStage::Selected->order()
+            && (bool) auth()->user()?->can('transitionStage', $application);
+    }
+
+    public static function performSelectCandidate(Interview $record): void
+    {
+        abort_unless((bool) auth()->user()?->can('transitionStage', $record->candidateApplication), 403);
+
+        self::guarded('Candidate could not be selected', fn () => app(InterviewService::class)->selectCandidate($record, auth()->user()?->employee));
+
+        Notification::make()->title('Candidate selected')->success()->send();
     }
 
     /**
@@ -228,11 +300,40 @@ class InterviewsTable
                 ->default(fn () => Filament::auth()->user()?->employee_id)
                 ->searchable()
                 ->required(),
-            TextInput::make('score')->numeric()->minValue(1)->maxValue(10),
+            ...self::ratingFields(),
             Select::make('recommendation')
                 ->options(collect(FeedbackRecommendation::cases())->mapWithKeys(fn (FeedbackRecommendation $r) => [$r->value => $r->label()]))
                 ->required(),
             Textarea::make('feedback')->required()->columnSpanFull(),
+        ];
+    }
+
+    /**
+     * Per-criterion 1–5 ratings plus the overall score, which InterviewFeedback defaults to the
+     * scaled criteria average when left blank.
+     *
+     * @return array<int, Component>
+     */
+    public static function ratingFields(): array
+    {
+        $ratingOptions = collect(range(1, InterviewFeedback::RATING_MAX))->mapWithKeys(fn (int $rating) => [$rating => (string) $rating])->all();
+
+        return [
+            Fieldset::make('Ratings (1–5)')
+                ->columns(2)
+                ->columnSpanFull()
+                ->schema(collect(InterviewFeedback::RATING_CRITERIA)
+                    ->map(fn (string $label, string $key) => Select::make("ratings.{$key}")
+                        ->label($label)
+                        ->options($ratingOptions))
+                    ->values()
+                    ->all()),
+            TextInput::make('score')
+                ->label('Overall Score (1–10)')
+                ->numeric()
+                ->minValue(1)
+                ->maxValue(InterviewFeedback::SCORE_MAX)
+                ->helperText('Leave blank to use the average of the ratings.'),
         ];
     }
 
@@ -290,5 +391,27 @@ class InterviewsTable
     {
         $record->update(['status' => InterviewStatus::Cancelled]);
         Notification::make()->title('Interview cancelled')->success()->send();
+    }
+
+    /**
+     * Runs a domain-service call, turning a DomainException into a danger notification and a Halt
+     * (see .ai/rules/resources-filament-pages.md) instead of a 500 page over the panel.
+     *
+     * @param  callable(): mixed  $callback
+     */
+    public static function guarded(string $failureTitle, callable $callback): mixed
+    {
+        try {
+            return $callback();
+        } catch (DomainException $e) {
+            Notification::make()
+                ->title($failureTitle)
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw new Halt;
+        }
     }
 }

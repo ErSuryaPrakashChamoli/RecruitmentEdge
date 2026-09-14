@@ -6,8 +6,10 @@ use App\Enums\AiMessageRole;
 use App\Enums\AiToolCallStatus;
 use App\Models\AiConversation;
 use App\Models\AiToolCall;
+use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
 use App\Services\AI\Actions\ConfirmationGate;
+use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Orchestrator\AiOrchestrator;
 use BackedEnum;
@@ -15,23 +17,28 @@ use DomainException;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use UnitEnum;
 
 /**
  * The global AI Recruitment Copilot — the single chat surface for internal data, recruitment
- * knowledge, external research, and permission-gated actions (spec sections 30-33). Replaces the
- * placeholder AskAi page; AiAssistantService's keyword search lives on as the no-provider fallback
- * inside SearchKnowledgeBaseTool rather than being deleted.
+ * knowledge, external research, and permission-gated actions (spec sections 30-33). With no LLM
+ * provider configured, AiOrchestrator answers from a keyword search of the knowledge base
+ * (AiAssistantService) instead of failing.
+ *
+ * Users can start a new conversation or switch between their own recent ones; every conversation
+ * lookup here is restricted to the signed-in user's own rows, so a tampered Livewire property can
+ * never open (or approve actions inside) someone else's conversation.
  *
  * Note on streaming: this page calls AiOrchestrator::ask() synchronously rather than wiring
  * Livewire's native stream() to a live SSE feed — see OpenAiProvider's docblock for why true
  * token-level streaming isn't implemented without a live key to verify the event schema against.
- * The Gateway/Orchestrator streaming contract is already in place; swapping in real streaming here
- * is a UI-only follow-up once that's verified.
  */
 class AiCopilot extends Page
 {
+    private const int RECENT_CONVERSATION_LIMIT = 15;
+
     protected string $view = 'filament.pages.ai-copilot';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSparkles;
@@ -82,7 +89,21 @@ class AiCopilot extends Page
 
     public function canApproveActions(): bool
     {
-        return app(ConfirmationGate::class)->canApprove(Filament::auth()->user());
+        return app(ConfirmationGate::class)->canApprove($this->user());
+    }
+
+    /**
+     * The signed-in user's own most recent conversations, for the conversation switcher.
+     *
+     * @return Collection<int, AiConversation>
+     */
+    public function recentConversations(): Collection
+    {
+        return $this->ownConversations()
+            ->latest('last_message_at')
+            ->latest('id')
+            ->limit(self::RECENT_CONVERSATION_LIMIT)
+            ->get(['id', 'title', 'context_type', 'last_message_at']);
     }
 
     /**
@@ -121,10 +142,12 @@ class AiCopilot extends Page
         return match ($this->contextType) {
             'candidate' => [
                 'Summarize this candidate.',
+                'What is the next best step for this candidate?',
                 'Generate interview questions for this candidate.',
                 'Find likely duplicates for this candidate.',
             ],
             'requisition' => [
+                'Show the pipeline for this requisition.',
                 'Why might we be getting poor applicants for this role?',
                 'Improve this job description.',
                 'Is this requisition at risk?',
@@ -140,12 +163,32 @@ class AiCopilot extends Page
             ],
             default => [
                 'What needs my attention today?',
+                'Which follow-ups are overdue?',
                 'Which candidates are stuck for more than 7 days?',
                 'Analyze our recruitment funnel for the last 30 days.',
-                'Which recruiters are underperforming?',
                 'Create a hiring plan for 50 sales executives in 45 days.',
             ],
         };
+    }
+
+    public function newConversation(): void
+    {
+        $this->conversationId = $this->createConversation()->id;
+        $this->question = '';
+    }
+
+    public function switchConversation(int|string|null $conversationId): void
+    {
+        $conversation = filled($conversationId)
+            ? $this->ownConversations()->find((int) $conversationId)
+            : null;
+
+        if ($conversation === null || ! $this->user()->can('update', $conversation)) {
+            return;
+        }
+
+        $this->conversationId = $conversation->id;
+        $this->question = '';
     }
 
     public function ask(): void
@@ -160,7 +203,9 @@ class AiCopilot extends Page
         $this->sending = true;
 
         try {
-            app(AiOrchestrator::class)->ask($this->conversation(), $question, Filament::auth()->user());
+            app(AiOrchestrator::class)->ask($this->conversation(), $question, $this->user());
+        } catch (AiRateLimitExceededException $e) {
+            $this->addSystemError($e->getMessage());
         } catch (\Throwable $e) {
             report($e);
             $this->addSystemError("I couldn't complete that just now because the AI service is temporarily unavailable. Please try again.");
@@ -171,30 +216,30 @@ class AiCopilot extends Page
 
     public function approveToolCall(int $toolCallId): void
     {
-        $toolCall = AiToolCall::query()->find($toolCallId);
+        $toolCall = $this->toolCallInCurrentConversation($toolCallId);
 
         if ($toolCall === null) {
             return;
         }
 
         try {
-            app(ActionExecutor::class)->approve($toolCall, Filament::auth()->user());
+            app(ActionExecutor::class)->approve($toolCall, $this->user());
             $this->continueIfResolved($toolCall);
-        } catch (DomainException $e) {
+        } catch (DomainException|AiRateLimitExceededException $e) {
             $this->addSystemError($e->getMessage());
         }
     }
 
     public function rejectToolCall(int $toolCallId): void
     {
-        $toolCall = AiToolCall::query()->find($toolCallId);
+        $toolCall = $this->toolCallInCurrentConversation($toolCallId);
 
         if ($toolCall === null) {
             return;
         }
 
         try {
-            app(ActionExecutor::class)->reject($toolCall, Filament::auth()->user());
+            app(ActionExecutor::class)->reject($toolCall, $this->user());
             $this->continueIfResolved($toolCall);
         } catch (DomainException $e) {
             $this->addSystemError($e->getMessage());
@@ -206,32 +251,55 @@ class AiCopilot extends Page
         $stillPending = $toolCall->message->toolCalls()->where('status', AiToolCallStatus::Pending)->exists();
 
         if (! $stillPending) {
-            app(AiOrchestrator::class)->continueTurn($this->conversation(), Filament::auth()->user());
+            app(AiOrchestrator::class)->continueTurn($this->conversation(), $this->user());
         }
+    }
+
+    private function toolCallInCurrentConversation(int $toolCallId): ?AiToolCall
+    {
+        return AiToolCall::query()
+            ->whereHas('message', fn (Builder $message) => $message->where('conversation_id', $this->conversationId))
+            ->find($toolCallId);
     }
 
     private function conversation(): AiConversation
     {
-        return AiConversation::query()->findOrFail($this->conversationId);
+        return $this->ownConversations()->findOrFail($this->conversationId);
+    }
+
+    /**
+     * @return Builder<AiConversation>
+     */
+    private function ownConversations(): Builder
+    {
+        return AiConversation::query()->where('user_id', $this->user()->id);
+    }
+
+    private function user(): User
+    {
+        /** @var User */
+        return Filament::auth()->user();
     }
 
     private function findOrCreateConversation(): AiConversation
     {
-        $user = Filament::auth()->user();
-
-        $existing = AiConversation::query()
-            ->where('user_id', $user->id)
+        $existing = $this->ownConversations()
             ->where('context_type', $this->contextType)
             ->where('context_id', $this->contextId)
             ->where('status', 'active')
             ->latest('last_message_at')
             ->first();
 
-        return $existing ?? AiConversation::query()->create([
-            'user_id' => $user->id,
+        return $existing ?? $this->createConversation();
+    }
+
+    private function createConversation(): AiConversation
+    {
+        return AiConversation::query()->create([
+            'user_id' => $this->user()->id,
             'context_type' => $this->contextType,
             'context_id' => $this->contextId,
-            'title' => 'New conversation',
+            'title' => AiOrchestrator::DEFAULT_TITLE,
             'status' => 'active',
             'last_message_at' => now(),
         ]);

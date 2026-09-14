@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
+use App\Models\Concerns\Auditable;
 use Database\Factories\CandidateJoiningFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class CandidateJoining extends Model
 {
+    use Auditable;
+
     /** @use HasFactory<CandidateJoiningFactory> */
     use HasFactory;
 

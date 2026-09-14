@@ -86,3 +86,54 @@ test('reactivating clears both reason columns and restores active status', funct
     expect($application->status)->toBe(ApplicationStatus::Active)
         ->and($application->rejection_reason_id)->toBeNull();
 });
+
+test('putting an application on hold sets the status and writes a history row with the remarks', function (): void {
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Screened]);
+
+    $this->service->hold($application, null, 'Requisition paused by client');
+
+    $application->refresh();
+
+    expect($application->status)->toBe(ApplicationStatus::OnHold)
+        ->and($application->current_stage)->toBe(CandidateStage::Screened)
+        ->and($application->stageHistory()->first()->remarks)->toContain('Requisition paused by client');
+});
+
+test('only an active application can be put on hold', function (): void {
+    $application = CandidateApplication::factory()->create(['status' => ApplicationStatus::Rejected]);
+
+    $this->service->hold($application, null, 'Waiting');
+})->throws(DomainException::class);
+
+test('putting an application on hold requires remarks', function (): void {
+    $application = CandidateApplication::factory()->create();
+
+    $this->service->hold($application, null, '   ');
+})->throws(DomainException::class, 'Remarks are required');
+
+test('reactivating an on-hold application restores active status and records the remarks', function (): void {
+    $application = CandidateApplication::factory()->create();
+
+    $this->service->hold($application, null, 'Waiting for budget');
+    $this->service->reactivate($application->fresh(), remarks: 'Budget approved');
+
+    $application->refresh();
+
+    expect($application->status)->toBe(ApplicationStatus::Active)
+        ->and($application->stageHistory()->where('remarks', 'Budget approved')->exists())->toBeTrue();
+});
+
+test('reactivating an already-active application throws', function (): void {
+    $application = CandidateApplication::factory()->create();
+
+    $this->service->reactivate($application);
+})->throws(DomainException::class);
+
+test('rejecting or dropping out with an inactive reason is refused', function (string $method): void {
+    $application = CandidateApplication::factory()->create();
+    $reason = RecruitmentRejectionReason::factory()->create(['is_active' => false]);
+
+    expect(fn () => $this->service->{$method}($application, $reason))->toThrow(DomainException::class, 'no longer active');
+
+    expect($application->fresh()->status)->toBe(ApplicationStatus::Active);
+})->with(['reject', 'dropout']);

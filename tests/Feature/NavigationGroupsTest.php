@@ -2,6 +2,7 @@
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Resources\RecruiterPerformanceRules\RecruiterPerformanceRuleResource;
+use App\Filament\Resources\RecruitmentDailyActivities\RecruitmentDailyActivityResource;
 use App\Providers\Filament\AdminPanelProvider;
 use Filament\Panel;
 
@@ -18,4 +19,9 @@ test('the Dashboard page belongs to the Overview navigation group', function ():
 
 test('RecruiterPerformanceRuleResource belongs to the Performance navigation group, not Administration', function (): void {
     expect(RecruiterPerformanceRuleResource::getNavigationGroup())->toBe('Performance');
+});
+
+test('RecruitmentDailyActivityResource is labelled Daily Activities in the Recruitment group', function (): void {
+    expect(RecruitmentDailyActivityResource::getNavigationLabel())->toBe('Daily Activities')
+        ->and(RecruitmentDailyActivityResource::getNavigationGroup())->toBe('Recruitment');
 });

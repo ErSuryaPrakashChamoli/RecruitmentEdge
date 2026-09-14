@@ -3,13 +3,14 @@
 namespace App\Filament\Resources\Interviews\RelationManagers;
 
 use App\Enums\FeedbackRecommendation;
+use App\Filament\Resources\Interviews\Tables\InterviewsTable;
 use App\Models\Employee;
+use App\Models\InterviewFeedback;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
@@ -30,10 +31,7 @@ class FeedbackRelationManager extends RelationManager
                     ->required()
                     ->searchable()
                     ->preload(),
-                TextInput::make('score')
-                    ->numeric()
-                    ->minValue(1)
-                    ->maxValue(10),
+                ...InterviewsTable::ratingFields(),
                 Select::make('recommendation')
                     ->options(collect(FeedbackRecommendation::cases())->mapWithKeys(fn (FeedbackRecommendation $r) => [$r->value => $r->label()]))
                     ->required(),
@@ -52,6 +50,10 @@ class FeedbackRelationManager extends RelationManager
                     ->label('Interviewer')
                     ->formatStateUsing(fn ($record) => $record->interviewer->fullName()),
                 TextColumn::make('score'),
+                TextColumn::make('ratings')
+                    ->label('Ratings')
+                    ->state(fn (InterviewFeedback $record): string => $record->ratingsSummary() ?? '—')
+                    ->wrap(),
                 TextColumn::make('recommendation')
                     ->badge()
                     ->formatStateUsing(fn (FeedbackRecommendation $state) => $state->label()),

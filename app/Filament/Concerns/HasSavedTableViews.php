@@ -19,9 +19,32 @@ use Illuminate\Database\Eloquent\Builder;
  * page's normal (hierarchy-scoped) query wouldn't already return for that user — it replays input,
  * not a raw query. Strictly per-user (scoped by user_id); a `resource` string (the List page's own
  * FQCN) keeps one user's views for different tables from colliding.
+ *
+ * The user's default view (is_default) is applied automatically when the list opens — unless the
+ * page was opened with explicit filter/search/sort state (e.g. an Action Center deep link with
+ * ?tableFilters=...), which always wins.
  */
 trait HasSavedTableViews
 {
+    /**
+     * Livewire trait mount hook: runs after URL-bound properties are hydrated and before
+     * InteractsWithTable's booted hook fills the filters form from $this->tableFilters.
+     */
+    public function mountHasSavedTableViews(): void
+    {
+        if (filled($this->tableFilters) || filled($this->tableSearch) || filled($this->tableSort)) {
+            return;
+        }
+
+        $defaultView = $this->savedTableViewsQuery()->where('is_default', true)->first();
+
+        if ($defaultView !== null) {
+            // No resetPage() here: the table isn't built until InteractsWithTable's booted hook,
+            // and a freshly opened list is already on page 1.
+            $this->applySavedTableView($defaultView, resetPage: false);
+        }
+    }
+
     protected function savedTableViewsQuery(): Builder
     {
         return SavedTableView::query()
@@ -134,11 +157,14 @@ trait HasSavedTableViews
             });
     }
 
-    private function applySavedTableView(SavedTableView $view): void
+    private function applySavedTableView(SavedTableView $view, bool $resetPage = true): void
     {
         $this->tableFilters = $view->filters;
         $this->tableSearch = $view->search ?? '';
         $this->tableSort = $view->sort;
-        $this->resetPage();
+
+        if ($resetPage) {
+            $this->resetPage();
+        }
     }
 }

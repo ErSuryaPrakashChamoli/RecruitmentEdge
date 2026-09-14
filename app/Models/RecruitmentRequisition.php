@@ -8,6 +8,8 @@ use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use Database\Factories\RecruitmentRequisitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -161,9 +163,51 @@ class RecruitmentRequisition extends Model
         return $this->hasMany(CandidateApplication::class, 'requisition_id');
     }
 
+    /**
+     * Stages that count an opening as filled: Joined or any later stage (Documents Completed,
+     * Onboarding Completed), derived from the canonical CandidateStage order.
+     *
+     * @return array<int, string>
+     */
+    public static function filledStageValues(): array
+    {
+        return collect(CandidateStage::cases())
+            ->filter(fn (CandidateStage $stage): bool => $stage->order() >= CandidateStage::Joined->order())
+            ->map(fn (CandidateStage $stage): string => $stage->value)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Uses a preloaded `filled_openings_count` (see scopeWithFilledOpeningsCount) when present so
+     * list tables don't run one count query per row.
+     */
     public function filledOpeningsCount(): int
     {
-        return $this->applications()->where('current_stage', CandidateStage::Joined->value)->count();
+        if (array_key_exists('filled_openings_count', $this->attributes)) {
+            return (int) $this->attributes['filled_openings_count'];
+        }
+
+        return $this->applications()->whereIn('current_stage', self::filledStageValues())->count();
+    }
+
+    /**
+     * @param  Builder<RecruitmentRequisition>  $query
+     */
+    #[Scope]
+    protected function withFilledOpeningsCount(Builder $query): void
+    {
+        $query->withCount([
+            'applications as filled_openings_count' => fn (Builder $applications) => $applications->whereIn('current_stage', self::filledStageValues()),
+        ]);
+    }
+
+    /**
+     * New applications may only be raised against an Open requisition.
+     */
+    public function acceptsApplications(): bool
+    {
+        return $this->status === RequisitionStatus::Open;
     }
 
     public function remainingOpenings(): int

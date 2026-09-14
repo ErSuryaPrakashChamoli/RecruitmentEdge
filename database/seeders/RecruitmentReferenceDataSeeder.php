@@ -5,11 +5,13 @@ namespace Database\Seeders;
 use App\Enums\RejectionCategory;
 use App\Models\CandidateSource;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\RecruitmentSetting;
 use Illuminate\Database\Seeder;
 
 /**
- * Seeds the candidate sources (Section 33) and rejection/dropout reasons (Section 14) named in
- * the product spec, as editable starting points from Administration.
+ * Seeds the candidate sources (Section 33), rejection/dropout reasons (Section 14), and default
+ * recruitment settings (RecruitmentSetting::DEFINITIONS) named in the product spec, as editable
+ * starting points from Administration. Idempotent.
  */
 class RecruitmentReferenceDataSeeder extends Seeder
 {
@@ -48,6 +50,20 @@ class RecruitmentReferenceDataSeeder extends Seeder
             RecruitmentRejectionReason::query()->firstOrCreate(
                 ['code' => 'RSN-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT)],
                 ['name' => $name, 'category' => $category, 'is_active' => true],
+            );
+        }
+
+        // firstOrCreate, never updateOrCreate: re-running the seeder must not overwrite a value an
+        // admin has already changed from Administration > Recruitment Settings.
+        foreach (RecruitmentSetting::DEFINITIONS as $key => $definition) {
+            RecruitmentSetting::query()->firstOrCreate(
+                ['key' => $key],
+                [
+                    'value' => (string) $definition['default'],
+                    'type' => $definition['type'],
+                    'group' => $definition['group'],
+                    'description' => $definition['description'],
+                ],
             );
         }
     }

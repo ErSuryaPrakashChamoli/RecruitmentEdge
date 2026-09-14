@@ -15,6 +15,22 @@ class CandidateObserver
      */
     public function created(Candidate $candidate): void
     {
+        $this->logDuplicateMatches($candidate);
+    }
+
+    /**
+     * A changed mobile or email can introduce a new duplicate, so re-run detection. Existing match
+     * rows are reused (firstOrCreate), so re-running never duplicates a match or resets a review.
+     */
+    public function updated(Candidate $candidate): void
+    {
+        if ($candidate->wasChanged(['mobile', 'email'])) {
+            $this->logDuplicateMatches($candidate);
+        }
+    }
+
+    private function logDuplicateMatches(Candidate $candidate): void
+    {
         $this->duplicateDetector->findMatches($candidate)->each(
             fn (array $match) => CandidateDuplicateMatch::query()->firstOrCreate([
                 'candidate_id' => $candidate->id,

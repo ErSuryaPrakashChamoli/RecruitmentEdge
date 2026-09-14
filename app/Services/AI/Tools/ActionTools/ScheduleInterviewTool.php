@@ -6,27 +6,32 @@ use App\Enums\AiRiskLevel;
 use App\Enums\InterviewMode;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
-use App\Models\Interview;
 use App\Models\User;
 use App\Services\AI\Calendar\Contracts\CalendarProviderInterface;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\InterviewService;
+use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Throwable;
 
 /**
  * EXTERNAL risk: scheduling an interview commits interviewer time and (once a real
- * CalendarProviderInterface implementation exists) may send external calendar invites. There is no
- * dedicated "create interview" service in the app today (the Filament resource creates the model
- * directly), so this tool does the same, then best-effort syncs to CalendarProviderInterface —
- * which is a no-op NullCalendarProvider until a real calendar credential is configured.
+ * CalendarProviderInterface implementation exists) may send external calendar invites. Creation
+ * goes through InterviewService::schedule() — the same path as every Filament surface, so the
+ * stage sync and notifications match — then best-effort syncs to CalendarProviderInterface, which
+ * is a no-op NullCalendarProvider until a real calendar credential is configured.
  */
 class ScheduleInterviewTool implements AiTool
 {
     use ScopesToHierarchy;
 
-    public function __construct(private readonly CalendarProviderInterface $calendar) {}
+    public function __construct(
+        private readonly CalendarProviderInterface $calendar,
+        private readonly InterviewService $interviews,
+    ) {}
 
     public function name(): string
     {
@@ -44,13 +49,15 @@ class ScheduleInterviewTool implements AiTool
             'type' => 'object',
             'properties' => [
                 'application_id' => ['type' => 'integer'],
-                'round_number' => ['type' => 'integer'],
+                'round_number' => ['type' => 'integer', 'description' => 'Optional; defaults to the next round for this application'],
                 'round_name' => ['type' => 'string'],
                 'interviewer_employee_id' => ['type' => 'integer'],
                 'scheduled_at' => ['type' => 'string', 'description' => 'ISO date/time'],
                 'mode' => ['type' => 'string', 'description' => 'One of: in_person, phone, video_call'],
+                'location' => ['type' => 'string'],
+                'meeting_link' => ['type' => 'string'],
             ],
-            'required' => ['application_id', 'round_number', 'round_name', 'interviewer_employee_id', 'scheduled_at', 'mode'],
+            'required' => ['application_id', 'interviewer_employee_id', 'scheduled_at', 'mode'],
         ];
     }
 
@@ -83,27 +90,36 @@ class ScheduleInterviewTool implements AiTool
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $interviewer = Employee::query()->find($arguments['interviewer_employee_id']);
+        $interviewer = Employee::query()->find($arguments['interviewer_employee_id'] ?? null);
 
         if ($interviewer === null) {
             return ToolResult::fail('Interviewer not found.');
         }
 
-        $scheduledAt = Carbon::parse($arguments['scheduled_at']);
+        try {
+            $scheduledAt = Carbon::parse($arguments['scheduled_at'] ?? '');
+        } catch (Throwable) {
+            return ToolResult::fail('Invalid scheduled_at date/time.');
+        }
 
-        $interview = Interview::query()->create([
-            'candidate_application_id' => $application->id,
-            'round_number' => $arguments['round_number'],
-            'round_name' => $arguments['round_name'],
-            'interviewer_id' => $interviewer->id,
-            'scheduled_at' => $scheduledAt,
-            'mode' => $mode,
-            'status' => 'scheduled',
-            'created_by' => $user->employee_id,
-        ]);
+        try {
+            $interview = $this->interviews->schedule($application, [
+                'round_number' => $arguments['round_number'] ?? null,
+                'round_name' => $arguments['round_name'] ?? null,
+                'interviewer_id' => $interviewer->id,
+                'scheduled_at' => $scheduledAt,
+                'mode' => $mode,
+                'location' => $arguments['location'] ?? null,
+                'meeting_link' => $arguments['meeting_link'] ?? null,
+            ], $user->employee);
+        } catch (DomainException $e) {
+            return ToolResult::fail($e->getMessage());
+        }
+
+        $roundLabel = $interview->round_name ?? "Round {$interview->round_number}";
 
         $this->calendar->createEvent(
-            title: "Interview: {$application->candidate?->full_name} - {$arguments['round_name']}",
+            title: "Interview: {$application->candidate?->full_name} - {$roundLabel}",
             start: $scheduledAt,
             end: $scheduledAt->copy()->addHour(),
             attendeeEmails: array_filter([$interviewer->email]),
@@ -111,7 +127,7 @@ class ScheduleInterviewTool implements AiTool
 
         return ToolResult::ok(
             data: ['entity_type' => 'Interview', 'entity_ids' => [$interview->id]],
-            summary: "Scheduled {$arguments['round_name']} for {$application->candidate?->full_name} on {$scheduledAt->toDayDateTimeString()}.",
+            summary: "Scheduled {$roundLabel} for {$application->candidate?->full_name} on {$scheduledAt->toDayDateTimeString()}.",
             type: 'action_result',
         );
     }

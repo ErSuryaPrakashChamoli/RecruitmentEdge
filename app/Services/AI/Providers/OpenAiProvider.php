@@ -4,6 +4,7 @@ namespace App\Services\AI\Providers;
 
 use App\Services\AI\Contracts\EmbeddingProviderInterface;
 use App\Services\AI\Contracts\LLMProviderInterface;
+use App\Services\AI\Contracts\ReportsUsage;
 use App\Services\AI\Contracts\WebSearchProviderInterface;
 use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\LlmResponse;
@@ -33,8 +34,13 @@ use Throwable;
  * without risking a silently-wrong SSE parser. Swap in real event parsing once verified against a
  * live key.
  */
-class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface, WebSearchProviderInterface
+class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface, ReportsUsage, WebSearchProviderInterface
 {
+    /**
+     * @var array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    private array $lastUsage = [];
+
     public function __construct(
         private readonly ?string $apiKey,
         private readonly string $baseUrl,
@@ -44,6 +50,14 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     public function isConfigured(): bool
     {
         return filled($this->apiKey);
+    }
+
+    /**
+     * @return array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    public function lastUsage(): array
+    {
+        return $this->lastUsage;
     }
 
     /**
@@ -115,8 +129,11 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
             ],
         ];
 
+        $this->lastUsage = [];
+
         try {
             $response = $this->request()->post('/responses', $payload);
+            $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
             $text = $this->extractOutputText($response->json() ?? []);
 
             return $text !== null ? (json_decode($text, true) ?? []) : [];
@@ -134,6 +151,7 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     public function embed(array $texts, ?string $model = null, string $context = 'document'): array
     {
         $this->assertConfigured();
+        $this->lastUsage = [];
 
         $response = $this->request()->post('/embeddings', [
             'model' => $model ?? config('ai.embeddings.model'),
@@ -145,6 +163,9 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
 
             throw new AiProviderUnavailableException('The embedding service returned an error.');
         }
+
+        $promptTokens = $response->json('usage.prompt_tokens');
+        $this->lastUsage = $promptTokens !== null ? ['input_tokens' => (int) $promptTokens, 'output_tokens' => 0, 'cached_tokens' => 0] : [];
 
         $data = collect($response->json('data') ?? [])->sortBy('index')->values();
 
@@ -158,9 +179,10 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     public function search(string $query, array $options = []): array
     {
         $this->assertConfigured();
+        $this->lastUsage = [];
 
         $response = $this->request()->post('/responses', [
-            'model' => $options['model'] ?? config('ai.models.balanced'),
+            'model' => $options['model'] ?? config('ai.web_search.model'),
             'input' => $query,
             'tools' => [['type' => 'web_search']],
             'tool_choice' => 'auto',
@@ -172,7 +194,26 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
             throw new AiProviderUnavailableException('The web search service returned an error.');
         }
 
+        $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
+
         return $this->extractCitations($response->json() ?? []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $usage
+     * @return array{input_tokens?: int, output_tokens?: int, cached_tokens?: int}
+     */
+    private function usageFrom(array $usage): array
+    {
+        if ($usage === []) {
+            return [];
+        }
+
+        return [
+            'input_tokens' => (int) ($usage['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($usage['output_tokens'] ?? 0),
+            'cached_tokens' => (int) ($usage['input_tokens_details']['cached_tokens'] ?? 0),
+        ];
     }
 
     private function request(): PendingRequest

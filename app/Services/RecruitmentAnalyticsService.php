@@ -16,12 +16,15 @@ use App\Models\CandidateSource;
 use App\Models\CandidateStageHistory;
 use App\Models\Interview;
 use App\Models\Offer;
+use App\Models\OfferStatusHistory;
 use App\Models\RecruitmentCost;
 use App\Models\RecruitmentRequisition;
 use App\Models\RecruitmentSetting;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -148,12 +151,14 @@ class RecruitmentAnalyticsService
     }
 
     /**
-     * Every open/on-hold requisition with its age and whether it has crossed the configurable
-     * `vacancy_ageing_alert_days` threshold (Section 36).
+     * Open/on-hold requisitions that have crossed the configurable `vacancy_ageing_alert_days`
+     * threshold (Section 36), oldest first, with their priority label. Pass
+     * `$includeWithinThreshold: true` to get every open/on-hold requisition instead (positionHealth()
+     * needs the full set, since pipeline-based risk applies to young requisitions too).
      *
-     * @return Collection<int, array{requisition: RecruitmentRequisition, ageing_days: int, is_overdue: bool}>
+     * @return Collection<int, array{requisition: RecruitmentRequisition, ageing_days: int, is_overdue: bool, priority: string|null}>
      */
-    public function vacancyAgeing(?User $user = null): Collection
+    public function vacancyAgeing(?User $user = null, bool $includeWithinThreshold = false): Collection
     {
         $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
         $thresholdDays = (int) RecruitmentSetting::get('vacancy_ageing_alert_days', 30);
@@ -172,7 +177,9 @@ class RecruitmentAnalyticsService
                 'requisition' => $requisition,
                 'ageing_days' => $requisition->ageingInDays(),
                 'is_overdue' => $requisition->ageingInDays() > $thresholdDays,
+                'priority' => $requisition->priority?->label(),
             ])
+            ->when(! $includeWithinThreshold, fn (Collection $rows) => $rows->where('is_overdue', true))
             ->sortByDesc('ageing_days')
             ->values();
     }
@@ -270,6 +277,68 @@ class RecruitmentAnalyticsService
                 'turnup_percent' => $lineups > 0 ? round($turnups / $lineups * 100, 1) : null,
             ];
         });
+    }
+
+    /**
+     * Expected vs actual joins per period bucket — distinct from turnUpTrend(), which is about
+     * interview line-ups. "Expected" counts joinings whose expected_doj falls in the bucket (any
+     * status); "joined" counts Joined records whose actual_doj falls in the bucket. Buckets are days
+     * for ranges up to 31 days, ISO weeks up to ~6 months, and calendar months beyond that.
+     *
+     * @return Collection<int, array{period: string, start: string, end: string, expected: int, joined: int}>
+     */
+    public function joiningTrend(CarbonInterface $start, CarbonInterface $end, ?User $user = null): Collection
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+        $rangeStart = CarbonImmutable::instance($start)->startOfDay();
+        $rangeEnd = CarbonImmutable::instance($end)->startOfDay();
+        $days = (int) $rangeStart->diffInDays($rangeEnd) + 1;
+
+        $scope = fn (Builder $q) => $q->when($visibleIds !== null, fn (Builder $scoped) => $scoped->whereHas(
+            'candidateApplication',
+            fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
+        ));
+
+        // whereDate bounds (not whereBetween) because date casts persist "Y-m-d H:i:s", which a plain
+        // string BETWEEN on SQLite would exclude on the range's last day.
+        $expectedDates = CandidateJoining::query()
+            ->whereDate('expected_doj', '>=', $rangeStart->toDateString())
+            ->whereDate('expected_doj', '<=', $rangeEnd->toDateString())
+            ->tap($scope)
+            ->pluck('expected_doj')
+            ->map(fn ($date) => Carbon::parse($date)->toDateString());
+
+        $joinedDates = CandidateJoining::query()
+            ->where('status', JoiningStatus::Joined)
+            ->whereDate('actual_doj', '>=', $rangeStart->toDateString())
+            ->whereDate('actual_doj', '<=', $rangeEnd->toDateString())
+            ->tap($scope)
+            ->pluck('actual_doj')
+            ->map(fn ($date) => Carbon::parse($date)->toDateString());
+
+        [$alignStart, $step, $format] = match (true) {
+            $days <= 31 => [fn (CarbonImmutable $d) => $d, fn (CarbonImmutable $d) => $d->addDay(), 'd M'],
+            $days <= 183 => [fn (CarbonImmutable $d) => $d->startOfWeek(), fn (CarbonImmutable $d) => $d->addWeek(), 'd M'],
+            default => [fn (CarbonImmutable $d) => $d->startOfMonth(), fn (CarbonImmutable $d) => $d->addMonthNoOverflow(), 'M Y'],
+        };
+
+        $buckets = collect();
+
+        for ($cursor = $alignStart($rangeStart); $cursor->lte($rangeEnd); $cursor = $step($cursor)) {
+            $bucketStart = $cursor->max($rangeStart)->toDateString();
+            $bucketEnd = $step($cursor)->subDay()->min($rangeEnd)->toDateString();
+            $inBucket = fn (string $date): bool => $date >= $bucketStart && $date <= $bucketEnd;
+
+            $buckets->push([
+                'period' => $cursor->max($rangeStart)->format($format),
+                'start' => $bucketStart,
+                'end' => $bucketEnd,
+                'expected' => $expectedDates->filter($inBucket)->count(),
+                'joined' => $joinedDates->filter($inBucket)->count(),
+            ]);
+        }
+
+        return $buckets;
     }
 
     /**
@@ -387,7 +456,7 @@ class RecruitmentAnalyticsService
         $minPipelineRatio = (float) RecruitmentSetting::get('position_risk_min_pipeline_ratio', 2.0);
         $maxDaysOpen = (int) RecruitmentSetting::get('position_risk_max_days_open', 45);
 
-        return $this->vacancyAgeing($user)->map(function (array $row) use ($minPipelineRatio, $maxDaysOpen) {
+        return $this->vacancyAgeing($user, includeWithinThreshold: true)->map(function (array $row) use ($minPipelineRatio, $maxDaysOpen) {
             $requisition = $row['requisition'];
             $filled = $requisition->filledOpeningsCount();
             $remaining = $requisition->remainingOpenings();
@@ -419,13 +488,25 @@ class RecruitmentAnalyticsService
      * breakdown (Section 16). Recruiter-wise/position-wise breakdowns are already covered by
      * conversionBreakdown('recruiter'|'requisition') — not duplicated here.
      *
-     * @return array{scheduled: int, completed: int, no_show: int, cancelled: int, rescheduled: int, feedback_pending: int, completion_percent: float|null, no_show_percent: float|null, selection_percent: float|null, by_interviewer: Collection<int, array{interviewer: string, scheduled: int, completed: int, no_show: int, no_show_percent: float|null, selected: int}>}
+     * @return array{scheduled: int, completed: int, no_show: int, cancelled: int, rescheduled: int, feedback_pending: int, completion_percent: float|null, no_show_percent: float|null, selection_percent: float|null, by_interviewer: Collection<int, array{interviewer: string, scheduled: int, completed: int, no_show: int, no_show_percent: float|null, selected: int}>, by_round: Collection<int, array{round: int, scheduled: int, completed: int, no_show: int, selected: int}>}
      */
     public function interviewAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
     {
         $interviews = $this->scopedInterviews($start, $end, $user)
             ->with('interviewer:id,first_name,last_name')
-            ->get(['id', 'interviewer_id', 'status', 'result', 'scheduled_at']);
+            ->get(['id', 'interviewer_id', 'round_number', 'status', 'result', 'scheduled_at']);
+
+        $byRound = $interviews
+            ->groupBy(fn (Interview $i) => (int) $i->round_number)
+            ->map(fn (Collection $group, int $round) => [
+                'round' => $round,
+                'scheduled' => $group->count(),
+                'completed' => $group->where('status', InterviewStatus::Completed)->count(),
+                'no_show' => $group->where('status', InterviewStatus::NoShow)->count(),
+                'selected' => $group->where('result', InterviewResult::Selected)->count(),
+            ])
+            ->sortKeys()
+            ->values();
 
         $scheduled = $interviews->count();
         $completed = $interviews->where('status', InterviewStatus::Completed)->count();
@@ -459,13 +540,18 @@ class RecruitmentAnalyticsService
             'no_show_percent' => $scheduled > 0 ? round($interviews->where('status', InterviewStatus::NoShow)->count() / $scheduled * 100, 1) : null,
             'selection_percent' => $completed > 0 ? round($selected / $completed * 100, 1) : null,
             'by_interviewer' => $byInterviewer,
+            'by_round' => $byRound,
         ];
     }
 
     /**
-     * Offer pipeline totals for a period (Section 18).
+     * Offer pipeline totals for a period (Section 18). `generated`/`acceptance_percent`/averages are
+     * over offers dated in the period; `released` counts offers that actually reached Released in the
+     * period (from offer_status_histories), and `released_acceptance_percent` is how many of those
+     * released offers are now Accepted. `average_days_selection_to_offer` measures from the
+     * application's first Selected stage change to the offer date.
      *
-     * @return array{generated: int, accepted: int, rejected: int, pending: int, expired: int, withdrawn: int, acceptance_percent: float|null}
+     * @return array{generated: int, released: int, accepted: int, rejected: int, pending: int, expired: int, withdrawn: int, acceptance_percent: float|null, released_acceptance_percent: float|null, average_offered_ctc: float|null, average_days_selection_to_offer: float|null}
      */
     public function offerAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
     {
@@ -474,13 +560,48 @@ class RecruitmentAnalyticsService
         $offers = Offer::query()
             ->whereBetween('offer_date', [$start->toDateString(), $end->toDateString()])
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
-            ->get(['id', 'status']);
+            ->get(['id', 'candidate_application_id', 'status', 'offered_ctc', 'offer_date']);
 
         $accepted = $offers->where('status', OfferStatus::Accepted)->count();
         $rejected = $offers->where('status', OfferStatus::Rejected)->count();
         $decided = $accepted + $rejected;
 
+        $releasedOfferIds = OfferStatusHistory::query()
+            ->where('to_status', OfferStatus::Released)
+            ->whereBetween('created_at', [$start, $end])
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('offer.candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
+            ->distinct()
+            ->pluck('offer_id');
+
+        $releasedAccepted = $releasedOfferIds->isEmpty()
+            ? 0
+            : Offer::query()->whereIn('id', $releasedOfferIds)->where('status', OfferStatus::Accepted)->count();
+
+        $ctcValues = $offers->pluck('offered_ctc')->filter(fn ($ctc) => $ctc !== null)->map(fn ($ctc) => (float) $ctc);
+
+        $selectedAt = CandidateStageHistory::query()
+            ->whereIn('candidate_application_id', $offers->pluck('candidate_application_id')->unique())
+            ->where('new_stage', CandidateStage::Selected)
+            ->orderBy('created_at')
+            ->get(['candidate_application_id', 'created_at'])
+            ->unique('candidate_application_id')
+            ->mapWithKeys(fn (CandidateStageHistory $h) => [$h->candidate_application_id => $h->created_at]);
+
+        $selectionToOfferDays = $offers
+            ->map(function (Offer $offer) use ($selectedAt): ?int {
+                $selected = $selectedAt->get($offer->candidate_application_id);
+
+                return $selected === null || $offer->offer_date === null
+                    ? null
+                    : (int) $selected->copy()->startOfDay()->diffInDays($offer->offer_date->copy()->startOfDay(), false);
+            })
+            ->filter(fn (?int $days) => $days !== null && $days >= 0);
+
         return [
+            'released' => $releasedOfferIds->count(),
+            'released_acceptance_percent' => $releasedOfferIds->isNotEmpty() ? round($releasedAccepted / $releasedOfferIds->count() * 100, 1) : null,
+            'average_offered_ctc' => $ctcValues->isNotEmpty() ? round($ctcValues->avg(), 2) : null,
+            'average_days_selection_to_offer' => $selectionToOfferDays->isNotEmpty() ? round($selectionToOfferDays->avg(), 1) : null,
             'generated' => $offers->count(),
             'accepted' => $accepted,
             'rejected' => $rejected,
@@ -492,9 +613,12 @@ class RecruitmentAnalyticsService
     }
 
     /**
-     * Joining pipeline totals plus the near-term joining schedule (Section 19).
+     * Joining pipeline totals plus the near-term joining schedule (Section 19). Two conversions:
+     * `joining_percent` is Selection -> Joining (joined ÷ selected in the period), and
+     * `offer_to_join_percent` is Offer Accepted -> Joined (of offers accepted in the period, how many
+     * of those applications have actually joined).
      *
-     * @return array{selected: int, offered: int, accepted: int, joined: int, no_show: int, dropout: int, joining_percent: float|null, today: int, tomorrow: int, next_7_days: int}
+     * @return array{selected: int, offered: int, accepted: int, accepted_joined: int, joined: int, no_show: int, dropout: int, joining_percent: float|null, offer_to_join_percent: float|null, today: int, tomorrow: int, next_7_days: int}
      */
     public function joiningAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
     {
@@ -507,11 +631,20 @@ class RecruitmentAnalyticsService
             ->distinct('candidate_application_id')
             ->count('candidate_application_id');
 
-        $accepted = Offer::query()
+        $acceptedApplicationIds = Offer::query()
             ->where('status', OfferStatus::Accepted)
             ->whereBetween('accepted_at', [$start, $end])
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
-            ->count();
+            ->pluck('candidate_application_id');
+
+        $accepted = $acceptedApplicationIds->count();
+
+        $acceptedJoined = $acceptedApplicationIds->isEmpty()
+            ? 0
+            : CandidateJoining::query()
+                ->whereIn('candidate_application_id', $acceptedApplicationIds->unique())
+                ->where('status', JoiningStatus::Joined)
+                ->count();
 
         $offered = Offer::query()
             ->whereBetween('offer_date', [$start->toDateString(), $end->toDateString()])
@@ -534,10 +667,12 @@ class RecruitmentAnalyticsService
             'selected' => $selected,
             'offered' => $offered,
             'accepted' => $accepted,
+            'accepted_joined' => $acceptedJoined,
             'joined' => $joined,
             'no_show' => $joinings->where('status', JoiningStatus::NoShow)->count(),
             'dropout' => $joinings->where('status', JoiningStatus::Dropout)->count(),
             'joining_percent' => $selected > 0 ? round($joined / $selected * 100, 1) : null,
+            'offer_to_join_percent' => $accepted > 0 ? round($acceptedJoined / $accepted * 100, 1) : null,
             'today' => (clone $upcomingBase)->whereDate('expected_doj', $today->toDateString())->count(),
             'tomorrow' => (clone $upcomingBase)->whereDate('expected_doj', $today->copy()->addDay()->toDateString())->count(),
             'next_7_days' => (clone $upcomingBase)->whereBetween('expected_doj', [$today->toDateString(), $today->copy()->addDays(7)->toDateString()])->count(),

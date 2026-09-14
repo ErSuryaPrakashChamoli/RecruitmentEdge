@@ -70,7 +70,8 @@ class RecruitmentFunnelWidget extends Widget
                     'drop_off_count' => $dropOffCount,
                     'drop_off_percent' => $dropOffPercent,
                     'url' => CandidateApplicationResource::getUrl('index', [
-                        'tableFilters' => ['current_stage' => ['value' => $row['stage']->value]],
+                        // ListRecords binds $tableFilters to the `filters` query-string key.
+                        'filters' => ['current_stage' => ['value' => $row['stage']->value]],
                     ]),
                 ];
             })

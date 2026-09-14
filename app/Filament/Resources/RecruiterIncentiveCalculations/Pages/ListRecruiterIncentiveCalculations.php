@@ -5,11 +5,15 @@ namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 use App\Enums\IncentiveTriggerEvent;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Models\CandidateApplication;
+use App\Models\Employee;
+use App\Models\User;
+use App\Services\IncentiveStatementService;
 use App\Services\RecruiterIncentiveCalculator;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Exceptions\Halt;
 
 class ListRecruiterIncentiveCalculations extends ListRecords
 {
@@ -53,6 +57,57 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                         ->success()
                         ->send();
                 }),
+            $this->downloadPeriodStatementAction(),
         ];
+    }
+
+    /**
+     * A period (month) statement for any recruiter within the viewer's hierarchy. The recruiter
+     * options are already hierarchy-scoped; IncentiveStatementService::canDownloadFor() re-checks
+     * server-side so a tampered employee_id can never be exported.
+     */
+    private function downloadPeriodStatementAction(): Action
+    {
+        return Action::make('downloadPeriodStatement')
+            ->label('Download Statement')
+            ->icon('heroicon-o-document-arrow-down')
+            ->color('gray')
+            ->visible(fn (): bool => (bool) (auth()->user()?->can('reports.export') || auth()->user()?->can('incentives.approve')))
+            ->modalHeading('Download period incentive statement')
+            ->modalSubmitActionLabel('Download')
+            ->schema([
+                Select::make('employee_id')
+                    ->label('Recruiter')
+                    ->options(function (): array {
+                        /** @var User $user */
+                        $user = auth()->user();
+
+                        return app(IncentiveStatementService::class)->recruiterOptionsFor($user);
+                    })
+                    ->searchable()
+                    ->required(),
+                Select::make('month')
+                    ->options(fn (): array => app(IncentiveStatementService::class)->monthOptions())
+                    ->default(now()->format('Y-m'))
+                    ->required(),
+            ])
+            ->action(function (array $data): mixed {
+                /** @var User $user */
+                $user = auth()->user();
+                $service = app(IncentiveStatementService::class);
+                $recruiter = Employee::query()->find($data['employee_id']);
+
+                if ($recruiter === null || ! $service->canDownloadFor($user, $recruiter)) {
+                    Notification::make()
+                        ->title('Statement could not be downloaded')
+                        ->body('That recruiter is outside your hierarchy.')
+                        ->danger()
+                        ->send();
+
+                    throw new Halt;
+                }
+
+                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']));
+            });
     }
 }

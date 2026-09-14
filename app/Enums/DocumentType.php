@@ -4,6 +4,7 @@ namespace App\Enums;
 
 enum DocumentType: string
 {
+    case Resume = 'resume';
     case IdProof = 'id_proof';
     case AddressProof = 'address_proof';
     case EducationCertificate = 'education_certificate';
@@ -17,6 +18,7 @@ enum DocumentType: string
     public function label(): string
     {
         return match ($this) {
+            self::Resume => 'Resume',
             self::IdProof => 'ID Proof',
             self::AddressProof => 'Address Proof',
             self::EducationCertificate => 'Education Certificate',

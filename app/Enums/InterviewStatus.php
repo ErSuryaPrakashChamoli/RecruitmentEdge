@@ -33,6 +33,23 @@ enum InterviewStatus: string
     }
 
     /**
+     * Scheduled and Rescheduled interviews still need the candidate/interviewer to confirm the
+     * slot — both are confirmable, and both count toward "Pending Confirmation".
+     */
+    public function awaitsConfirmation(): bool
+    {
+        return in_array($this, self::unconfirmed(), true);
+    }
+
+    /**
+     * @return array<int, self>
+     */
+    public static function unconfirmed(): array
+    {
+        return [self::Scheduled, self::Rescheduled];
+    }
+
+    /**
      * The single source of truth for this status's badge color (Section 32).
      */
     public function color(): string

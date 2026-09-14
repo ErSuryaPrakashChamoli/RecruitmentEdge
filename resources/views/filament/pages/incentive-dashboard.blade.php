@@ -15,15 +15,30 @@
                         @php
                             $calculation = $row['calculation'];
                             $progress = $row['slabProgress'];
-                            $achievementPct = $calculation->achievement !== null ? min(100, max(0, (float) $calculation->achievement)) : null;
+                            $achievementPct = $calculation->achievement !== null ? max(0, (float) $calculation->achievement) : null;
+                            $ruleUrl = $this->ruleUrl($calculation->incentiveRule);
                         @endphp
                         <div class="rounded-lg border border-gray-100 p-4 dark:border-white/5">
                             <div class="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-semibold text-gray-950 dark:text-white">{{ $calculation->incentiveRule?->name ?? 'Incentive' }}</p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ $calculation->candidate?->full_name }} &middot; {{ $calculation->period_start->format('M Y') }}</p>
+                                    <p class="text-sm font-semibold text-gray-950 dark:text-white">
+                                        @if ($ruleUrl)
+                                            <a href="{{ $ruleUrl }}" class="hover:underline">{{ $calculation->incentiveRule?->name ?? 'Incentive' }}</a>
+                                        @else
+                                            {{ $calculation->incentiveRule?->name ?? 'Incentive' }}
+                                        @endif
+                                    </p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                                        <a href="{{ $this->calculationUrl($calculation) }}" class="hover:underline">
+                                            {{ $calculation->candidate?->full_name }}@if ($calculation->candidateApplication?->application_code) ({{ $calculation->candidateApplication->application_code }})@endif
+                                        </a>
+                                        &middot; {{ $calculation->period_start->format('M Y') }}
+                                    </p>
                                 </div>
-                                <x-filament::badge :color="$calculation->status->color()">{{ $calculation->status->label() }}</x-filament::badge>
+                                <div class="flex items-center gap-2">
+                                    <x-filament::badge :color="$calculation->status->color()">{{ $calculation->status->label() }}</x-filament::badge>
+                                    <a href="{{ $this->calculationUrl($calculation) }}" class="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400">View calculation →</a>
+                                </div>
                             </div>
 
                             <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -50,21 +65,23 @@
                                     <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
                                         <span>Slab: {{ number_format((float) $progress['current']->achievement_min, 1) }}%{{ $progress['current']->achievement_max !== null ? ' – '.number_format((float) $progress['current']->achievement_max, 1).'%' : '+' }} &middot; ₹{{ number_format((float) $progress['current']->amount, 2) }}</span>
                                         @if ($progress['next'])
-                                            <span>Next slab at {{ number_format((float) $progress['next']->achievement_min, 1) }}%</span>
+                                            <span>Next band at {{ number_format((float) $progress['next']->achievement_min, 1) }}% &middot; ₹{{ number_format($progress['nextAmount'], 2) }}</span>
                                         @endif
                                     </div>
-                                    <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/5">
-                                        <span class="block h-full rounded-full bg-primary-500" style="width: {{ $progress['progressPct'] }}%"></span>
-                                    </span>
-                                    @if ($progress['next'])
+                                    @if ($progress['topBandReached'])
+                                        <p class="mt-1">
+                                            <x-filament::badge color="success" icon="heroicon-m-trophy">Top band reached</x-filament::badge>
+                                        </p>
+                                    @else
+                                        <span class="mt-1 block h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-white/5">
+                                            <span class="block h-full rounded-full bg-primary-500" style="width: {{ $progress['progressPct'] }}%"></span>
+                                        </span>
                                         <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                                            {{ number_format($progress['remaining'], 1) }}% more to reach the next slab
+                                            {{ number_format($progress['remaining'], 1) }}% more to reach the next band (₹{{ number_format($progress['nextAmount'], 2) }})
                                             @if ($progress['potentialAdditional'] !== null)
                                                 — potential additional ₹{{ number_format($progress['potentialAdditional'], 2) }}
                                             @endif
                                         </p>
-                                    @else
-                                        <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Top slab reached.</p>
                                     @endif
                                 </div>
                             @endif
@@ -111,6 +128,7 @@
                                     <th class="pb-2 pr-4 font-medium">Achievement</th>
                                     <th class="pb-2 pr-4 font-medium">Incentive</th>
                                     <th class="pb-2 pr-4 font-medium">Status</th>
+                                    <th class="pb-2 pr-4 font-medium">Calculations</th>
                                     <th class="pb-2 font-medium">Badge</th>
                                 </tr>
                             </thead>
@@ -126,6 +144,22 @@
                                         <td class="py-2 pr-4 tabular-nums text-gray-600 dark:text-gray-400">{{ $row['achievement'] !== null ? number_format($row['achievement'], 1).'%' : '—' }}</td>
                                         <td class="py-2 pr-4 tabular-nums font-medium text-gray-900 dark:text-gray-100">₹{{ number_format($row['amount'], 2) }}</td>
                                         <td class="py-2 pr-4 text-gray-600 dark:text-gray-400">{{ $row['status'] }}</td>
+                                        <td class="py-2 pr-4 text-xs">
+                                            @forelse ($row['calculations'] as $teamCalculation)
+                                                @php $teamRuleUrl = $this->ruleUrl($teamCalculation->incentiveRule); @endphp
+                                                <div class="whitespace-nowrap">
+                                                    @if ($teamRuleUrl)
+                                                        <a href="{{ $teamRuleUrl }}" class="text-gray-700 hover:underline dark:text-gray-300">{{ $teamCalculation->incentiveRule?->name ?? 'Incentive' }}</a>
+                                                    @else
+                                                        <span class="text-gray-700 dark:text-gray-300">{{ $teamCalculation->incentiveRule?->name ?? 'Incentive' }}</span>
+                                                    @endif
+                                                    &middot;
+                                                    <a href="{{ $this->calculationUrl($teamCalculation) }}" class="text-primary-600 hover:underline dark:text-primary-400">{{ $teamCalculation->candidate?->full_name ?? 'View' }} →</a>
+                                                </div>
+                                            @empty
+                                                <span class="text-gray-400 dark:text-gray-500">—</span>
+                                            @endforelse
+                                        </td>
                                         <td class="py-2">
                                             <div class="flex flex-wrap gap-1">
                                                 @if ($topPerformer && $row['recruiter']->id === $topPerformer['recruiter']->id)

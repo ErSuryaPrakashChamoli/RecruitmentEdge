@@ -3,17 +3,24 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
+use App\Filament\Resources\RecruitmentIncentiveRules\RecruitmentIncentiveRuleResource;
 use App\Filament\Widgets\IncentiveDashboardStats;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
+use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\IncentiveStatementService;
 use App\Services\TargetResolutionService;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Select;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -51,8 +58,50 @@ class IncentiveDashboard extends Page
         ];
     }
 
+    protected function getHeaderActions(): array
+    {
+        return [
+            $this->downloadStatementAction(),
+        ];
+    }
+
     /**
-     * @return Collection<int, array{calculation: RecruiterIncentiveCalculation, target: int|null, adjustmentsTotal: float, final: float, slabProgress: array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float, potentialAdditional: float|null}|null}>
+     * The viewer's own period statement (all their calculations for the chosen month).
+     */
+    private function downloadStatementAction(): Action
+    {
+        return Action::make('downloadStatement')
+            ->label('Download Statement')
+            ->icon('heroicon-o-document-arrow-down')
+            ->color('gray')
+            ->visible(fn (): bool => Filament::auth()->user()?->employee_id !== null
+                && (bool) Filament::auth()->user()?->can('incentives.view'))
+            ->modalHeading('Download my incentive statement')
+            ->modalSubmitActionLabel('Download')
+            ->schema([
+                Select::make('month')
+                    ->options(fn (): array => app(IncentiveStatementService::class)->monthOptions())
+                    ->default(now()->format('Y-m'))
+                    ->required(),
+            ])
+            ->action(function (array $data): mixed {
+                /** @var User $user */
+                $user = Filament::auth()->user();
+                $service = app(IncentiveStatementService::class);
+                $recruiter = $user->employee;
+
+                if ($recruiter === null || ! $service->canDownloadFor($user, $recruiter)) {
+                    Notification::make()->title('Statement could not be downloaded')->danger()->send();
+
+                    throw new Halt;
+                }
+
+                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']));
+            });
+    }
+
+    /**
+     * @return Collection<int, array{calculation: RecruiterIncentiveCalculation, target: int|null, adjustmentsTotal: float, final: float, slabProgress: array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool}|null}>
      */
     public function getMyScorecard(): Collection
     {
@@ -66,7 +115,7 @@ class IncentiveDashboard extends Page
         return RecruiterIncentiveCalculation::query()
             ->where('employee_id', $user->employee_id)
             ->whereDate('period_start', now()->startOfMonth())
-            ->with(['incentiveRule.slabs', 'incentiveSlab', 'adjustments', 'employee', 'candidate'])
+            ->with(['incentiveRule.slabs', 'incentiveSlab', 'adjustments', 'employee', 'candidate', 'candidateApplication'])
             ->get()
             ->map(fn (RecruiterIncentiveCalculation $calculation) => [
                 'calculation' => $calculation,
@@ -94,7 +143,11 @@ class IncentiveDashboard extends Page
     }
 
     /**
-     * @return array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float, potentialAdditional: float|null}|null
+     * Progress within the current band toward the next band's lower bound. When there is no higher
+     * band (including the open-ended top band) there is nothing to progress toward, so
+     * `topBandReached` is true and `progressPct` is null rather than a fabricated 100%.
+     *
+     * @return array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool}|null
      */
     private function slabProgressFor(RecruiterIncentiveCalculation $calculation): ?array
     {
@@ -113,17 +166,30 @@ class IncentiveDashboard extends Page
         $current = $slabs[$currentIndex];
         $next = $slabs[$currentIndex + 1] ?? null;
         $achievement = (float) $calculation->achievement;
+
+        if ($next === null) {
+            return [
+                'current' => $current,
+                'next' => null,
+                'remaining' => null,
+                'progressPct' => null,
+                'potentialAdditional' => null,
+                'nextAmount' => null,
+                'topBandReached' => true,
+            ];
+        }
+
         $bandMin = (float) $current->achievement_min;
-        $bandMax = $current->achievement_max !== null
-            ? (float) $current->achievement_max
-            : ($next !== null ? (float) $next->achievement_min : $bandMin);
+        $nextMin = (float) $next->achievement_min;
 
         return [
             'current' => $current,
             'next' => $next,
-            'remaining' => $next !== null ? max(0.0, (float) $next->achievement_min - $achievement) : null,
-            'progressPct' => $bandMax > $bandMin ? min(100, max(0, ($achievement - $bandMin) / ($bandMax - $bandMin) * 100)) : 100.0,
-            'potentialAdditional' => $next !== null ? (float) $next->amount - (float) $current->amount : null,
+            'remaining' => max(0.0, $nextMin - $achievement),
+            'progressPct' => $nextMin > $bandMin ? (float) min(100, max(0, ($achievement - $bandMin) / ($nextMin - $bandMin) * 100)) : 0.0,
+            'potentialAdditional' => (float) $next->amount - (float) $current->amount,
+            'nextAmount' => (float) $next->amount,
+            'topBandReached' => false,
         ];
     }
 
@@ -141,7 +207,7 @@ class IncentiveDashboard extends Page
     }
 
     /**
-     * @return Collection<int, array{recruiter: Employee, amount: float, achievement: float|null, growth: float, status: string}>
+     * @return Collection<int, array{recruiter: Employee, amount: float, achievement: float|null, growth: float, status: string, calculations: Collection<int, RecruiterIncentiveCalculation>}>
      */
     public function getTeamIncentives(): Collection
     {
@@ -180,6 +246,7 @@ class IncentiveDashboard extends Page
                         $statuses->count() > 1 => 'Mixed',
                         default => $statuses->first()->label(),
                     },
+                    'calculations' => $current->values(),
                 ];
             })
             ->sortByDesc('amount')
@@ -195,7 +262,7 @@ class IncentiveDashboard extends Page
         return RecruiterIncentiveCalculation::query()
             ->whereIn('employee_id', $recruiterIds)
             ->whereDate('period_start', $periodStart)
-            ->with('adjustments')
+            ->with(['adjustments', 'incentiveRule', 'candidate'])
             ->get()
             ->groupBy('employee_id');
     }
@@ -203,5 +270,18 @@ class IncentiveDashboard extends Page
     public function calculationUrl(RecruiterIncentiveCalculation $calculation): string
     {
         return RecruiterIncentiveCalculationResource::getUrl('view', ['record' => $calculation]);
+    }
+
+    /**
+     * Rules are configuration gated by `incentives.configureRules`; viewers without it get the
+     * rule name as plain text (null URL) instead of a link that would 403.
+     */
+    public function ruleUrl(?RecruitmentIncentiveRule $rule): ?string
+    {
+        if ($rule === null || ! Filament::auth()->user()?->can('update', $rule)) {
+            return null;
+        }
+
+        return RecruitmentIncentiveRuleResource::getUrl('edit', ['record' => $rule]);
     }
 }

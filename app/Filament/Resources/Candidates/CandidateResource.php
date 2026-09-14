@@ -7,6 +7,7 @@ use App\Filament\Resources\Candidates\Pages\EditCandidate;
 use App\Filament\Resources\Candidates\Pages\ListCandidates;
 use App\Filament\Resources\Candidates\Pages\ViewCandidate;
 use App\Filament\Resources\Candidates\RelationManagers\ApplicationsRelationManager;
+use App\Filament\Resources\Candidates\RelationManagers\DocumentsRelationManager;
 use App\Filament\Resources\Candidates\RelationManagers\DuplicateMatchesRelationManager;
 use App\Filament\Resources\Candidates\Schemas\CandidateForm;
 use App\Filament\Resources\Candidates\Schemas\CandidateInfolist;
@@ -80,6 +81,7 @@ class CandidateResource extends Resource
     {
         return [
             ApplicationsRelationManager::class,
+            DocumentsRelationManager::class,
             DuplicateMatchesRelationManager::class,
         ];
     }

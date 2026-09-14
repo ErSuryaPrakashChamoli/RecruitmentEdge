@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\AI\Tools\Concerns\CallsLanguageModel;
+use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
 /**
@@ -17,6 +19,8 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class DraftCandidateEmailTool implements AiTool
 {
+    use CallsLanguageModel, ScopesToHierarchy;
+
     public function __construct(private readonly AiGateway $gateway) {}
 
     public function name(): string
@@ -54,14 +58,18 @@ class DraftCandidateEmailTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        if (! $this->gateway->isConfigured()) {
-            return ToolResult::fail('AI is not configured, so I cannot draft this email right now.');
+        if (blank($arguments['purpose'] ?? null)) {
+            return ToolResult::fail('The purpose of the email is required.');
         }
 
-        $candidate = Candidate::query()->find($arguments['candidate_id'] ?? null);
+        if (! $this->gateway->isConfigured()) {
+            return $this->modelUnavailable($this->gateway, 'draft this email');
+        }
+
+        $candidate = $this->scopeCandidatesVisibleTo(Candidate::query(), $user)->find($arguments['candidate_id'] ?? null);
 
         if ($candidate === null) {
-            return ToolResult::fail('Candidate not found.');
+            return ToolResult::fail('Candidate not found, or not visible to you.');
         }
 
         if (blank($candidate->email)) {
@@ -73,8 +81,13 @@ class DraftCandidateEmailTool implements AiTool
             LlmMessage::user("Candidate: {$candidate->full_name}\nPurpose: {$arguments['purpose']}\nKey points: ".($arguments['key_points'] ?? 'none given')),
         ];
 
-        $response = $this->gateway->generate($messages, [], 'generation', $user);
-        [$subject, $body] = $this->splitSubjectAndBody((string) $response->content);
+        $text = $this->generateText($this->gateway, $messages, 'generation', $user);
+
+        if ($text === null) {
+            return $this->modelUnavailable($this->gateway, 'draft this email');
+        }
+
+        [$subject, $body] = $this->splitSubjectAndBody($text);
 
         return ToolResult::ok(
             data: ['candidate_id' => $candidate->id, 'candidate_email' => $candidate->email, 'subject' => $subject, 'body' => $body],

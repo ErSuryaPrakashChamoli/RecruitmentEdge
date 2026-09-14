@@ -5,15 +5,22 @@ namespace App\Filament\Resources\CandidateApplications\RelationManagers;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
+use App\Filament\Resources\Interviews\Schemas\InterviewForm;
+use App\Filament\Resources\Interviews\Tables\InterviewsTable;
+use App\Models\CandidateApplication;
 use App\Models\Interview;
+use App\Services\InterviewService;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
 /**
- * Read-only summary for the application's 360 view — full interview scheduling/actions stay on
- * the dedicated Interviews resource (InterviewsTable), not duplicated here.
+ * Summary of the application's interview rounds on its 360 view, with a Schedule Interview header
+ * action routed through InterviewService::schedule() — the per-interview workflow actions
+ * (confirm/reschedule/complete/...) stay on the Interviews resource and the Interview Calendar.
  */
 class InterviewsRelationManager extends RelationManager
 {
@@ -53,8 +60,27 @@ class InterviewsRelationManager extends RelationManager
                     ->color(fn (?InterviewResult $state) => $state?->color() ?? 'gray'),
             ])
             ->defaultSort('scheduled_at', 'desc')
-            ->headerActions([])
+            ->headerActions([
+                $this->scheduleInterviewAction(),
+            ])
             ->recordActions([])
             ->toolbarActions([]);
+    }
+
+    protected function scheduleInterviewAction(): Action
+    {
+        return Action::make('scheduleInterview')
+            ->label('Schedule Interview')
+            ->icon('heroicon-o-calendar-days')
+            ->visible(fn (): bool => (bool) auth()->user()?->can('interviews.manage'))
+            ->schema(fn (): array => InterviewForm::schedulingFields($this->getOwnerRecord()))
+            ->action(function (array $data): void {
+                /** @var CandidateApplication $application */
+                $application = $this->getOwnerRecord();
+
+                InterviewsTable::guarded('Interview could not be scheduled', fn () => app(InterviewService::class)->schedule($application, $data, auth()->user()?->employee));
+
+                Notification::make()->title('Interview scheduled')->success()->send();
+            });
     }
 }

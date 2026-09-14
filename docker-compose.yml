@@ -1,25 +1,62 @@
+# The web app, scheduler and queue worker share one image, env and storage volumes. Only `app`
+# runs migrations on start (RUN_MIGRATIONS); the scheduler/queue containers set it to "false" so
+# they never race the app container's migration run.
+x-app-base: &app-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: recruitment-edge-app
+  env_file:
+    - .env
+  volumes:
+    - storage-data:/var/www/html/storage/app
+    - storage-logs:/var/www/html/storage/logs
+  depends_on:
+    db:
+      condition: service_healthy
+
+x-app-environment: &app-environment
+  DB_CONNECTION: mysql
+  DB_HOST: db
+  DB_PORT: 3306
+  DB_DATABASE: ${DB_DATABASE:-recruitment_edge}
+  DB_USERNAME: ${DB_USERNAME:-recruitment_edge}
+  DB_PASSWORD: ${DB_PASSWORD:-secret}
+
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *app-base
     ports:
       - "${APP_PORT:-8080}:80"
-    env_file:
-      - .env
     environment:
-      DB_CONNECTION: mysql
-      DB_HOST: db
-      DB_PORT: 3306
-      DB_DATABASE: ${DB_DATABASE:-recruitment_edge}
-      DB_USERNAME: ${DB_USERNAME:-recruitment_edge}
-      DB_PASSWORD: ${DB_PASSWORD:-secret}
+      <<: *app-environment
       RUN_MIGRATIONS: "true"
-    volumes:
-      - storage-data:/var/www/html/storage/app
+
+  scheduler:
+    <<: *app-base
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
     depends_on:
       db:
         condition: service_healthy
+      app:
+        condition: service_started
+
+  queue:
+    <<: *app-base
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--tries=3"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
 
   db:
     image: mysql:8.4
@@ -40,3 +77,4 @@ services:
 volumes:
   db-data:
   storage-data:
+  storage-logs:

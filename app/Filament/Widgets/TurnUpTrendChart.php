@@ -11,8 +11,9 @@ use Filament\Widgets\ChartWidget;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 
 /**
- * Day-by-day line-up vs turn-up trend for the selected period (Section 4), from
- * RecruitmentAnalyticsService::turnUpTrend() — no chart-specific calculation lives here.
+ * Day-by-day interview line-up vs turn-up trend for the selected period (Section 4), from
+ * RecruitmentAnalyticsService::turnUpTrend() — no chart-specific calculation lives here. This is
+ * about interviews only; expected vs actual joinings live in JoiningTrendChart.
  */
 class TurnUpTrendChart extends ChartWidget
 {
@@ -22,7 +23,7 @@ class TurnUpTrendChart extends ChartWidget
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
     protected static bool $isLazy = false;
 
-    protected ?string $heading = 'Line-up vs Turn-up Trend';
+    protected ?string $heading = 'Interview Line-up vs Turn-up Trend';
 
     protected int|string|array $columnSpan = 'full';
 

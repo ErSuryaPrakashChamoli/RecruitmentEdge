@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\CandidateStage;
+use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Models\CandidateJoining;
@@ -88,6 +89,53 @@ class CandidateJoiningService
 
             return $joining;
         });
+    }
+
+    /**
+     * Post-join milestone: the joiner's documents are verified. Only valid once the candidate has
+     * actually joined; sets `documents_status` and advances the application stage together.
+     */
+    public function markDocumentsCompleted(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
+    {
+        $this->guardPostJoinMilestone($joining, CandidateStage::DocumentsCompleted);
+
+        return DB::transaction(function () use ($joining, $actor): CandidateJoining {
+            $joining->forceFill(['documents_status' => DocumentStatus::Verified])->save();
+
+            $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::DocumentsCompleted, $actor);
+
+            return $joining;
+        });
+    }
+
+    /**
+     * Final post-join milestone. Requires documents to be completed first so the stage path stays
+     * Joined -> Documents Completed -> Onboarding Completed.
+     */
+    public function markOnboardingCompleted(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
+    {
+        $this->guardPostJoinMilestone($joining, CandidateStage::OnboardingCompleted);
+
+        if ($joining->candidateApplication->current_stage->order() < CandidateStage::DocumentsCompleted->order()) {
+            throw new DomainException('Documents must be completed before onboarding can be marked complete.');
+        }
+
+        return DB::transaction(function () use ($joining, $actor): CandidateJoining {
+            $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::OnboardingCompleted, $actor);
+
+            return $joining;
+        });
+    }
+
+    private function guardPostJoinMilestone(CandidateJoining $joining, CandidateStage $milestone): void
+    {
+        if ($joining->status !== JoiningStatus::Joined) {
+            throw new DomainException("{$milestone->label()} can only be recorded once the candidate has joined.");
+        }
+
+        if ($joining->candidateApplication->current_stage->order() >= $milestone->order()) {
+            throw new DomainException("{$milestone->label()} has already been recorded for this candidate.");
+        }
     }
 
     private function guardActive(CandidateJoining $joining): void

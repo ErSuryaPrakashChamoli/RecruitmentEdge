@@ -88,6 +88,17 @@ class Candidate extends Model
     }
 
     /**
+     * Every document held for this candidate — attached before joining (e.g. a resume) or from
+     * their joining record (CandidateDocument fills candidate_id from the joining on create).
+     *
+     * @return HasMany<CandidateDocument, $this>
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(CandidateDocument::class);
+    }
+
+    /**
      * @return HasMany<CandidateDuplicateMatch, $this>
      */
     public function duplicateMatches(): HasMany

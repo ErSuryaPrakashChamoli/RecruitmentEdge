@@ -2,6 +2,7 @@
 
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
+use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
@@ -66,4 +67,33 @@ test('marking a dropout notifies the recruiter', function (): void {
 
     expect($user->notifications()->count())->toBe(1)
         ->and($user->notifications()->first()->data['title'])->toBe('[Joining] Candidate dropout');
+});
+
+test('documents completed can only be recorded once the candidate has joined', function (): void {
+    $joining = CandidateJoining::factory()->create(['status' => JoiningStatus::Confirmed]);
+
+    $this->service->markDocumentsCompleted($joining);
+})->throws(DomainException::class, 'once the candidate has joined');
+
+test('marking documents completed verifies documents and advances the application stage', function (): void {
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Joined]);
+    $joining = CandidateJoining::factory()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Joined]);
+
+    $this->service->markDocumentsCompleted($joining);
+
+    expect($joining->refresh()->documents_status)->toBe(DocumentStatus::Verified)
+        ->and($application->refresh()->current_stage)->toBe(CandidateStage::DocumentsCompleted)
+        ->and(fn () => $this->service->markDocumentsCompleted($joining->refresh()))->toThrow(DomainException::class, 'already been recorded');
+});
+
+test('onboarding completed requires documents to be completed first', function (): void {
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Joined]);
+    $joining = CandidateJoining::factory()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Joined]);
+
+    expect(fn () => $this->service->markOnboardingCompleted($joining))->toThrow(DomainException::class, 'Documents must be completed');
+
+    $this->service->markDocumentsCompleted($joining);
+    $this->service->markOnboardingCompleted($joining->refresh());
+
+    expect($application->refresh()->current_stage)->toBe(CandidateStage::OnboardingCompleted);
 });

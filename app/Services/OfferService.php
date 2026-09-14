@@ -37,6 +37,32 @@ class OfferService
         private readonly NotificationDispatchService $notifications,
     ) {}
 
+    /**
+     * Creates an offer together with its initial (null -> status) history row, so the trail starts
+     * at creation rather than at the first transition.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function create(array $attributes, ?Employee $actor = null): Offer
+    {
+        return DB::transaction(function () use ($attributes, $actor): Offer {
+            $offer = Offer::query()->create([
+                ...$attributes,
+                'status' => $attributes['status'] ?? OfferStatus::Draft,
+                'created_by' => $attributes['created_by'] ?? $actor?->id,
+            ]);
+
+            $offer->statusHistory()->create([
+                'from_status' => null,
+                'to_status' => $offer->status,
+                'changed_by' => $actor?->id,
+                'remarks' => 'Offer created',
+            ]);
+
+            return $offer;
+        });
+    }
+
     public function moveTo(
         Offer $offer,
         OfferStatus $to,
@@ -48,6 +74,10 @@ class OfferService
 
         if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
             throw new DomainException("Cannot move an offer from {$from->label()} to {$to->label()}.");
+        }
+
+        if ($to === OfferStatus::Released && ! $this->canRelease($actor)) {
+            throw new DomainException('Releasing an offer requires the offers.release permission.');
         }
 
         if ($to === OfferStatus::Rejected && $rejectionReason === null) {
@@ -77,6 +107,31 @@ class OfferService
 
             return $offer;
         });
+    }
+
+    /**
+     * Released offers whose validity (`offer_expiry`) ended before today are moved to Expired
+     * through the normal transition path, so each one gets its own history row.
+     */
+    public function expireLapsedOffers(): int
+    {
+        $lapsed = Offer::query()
+            ->where('status', OfferStatus::Released)
+            ->whereNotNull('offer_expiry')
+            ->whereDate('offer_expiry', '<', today()->toDateString())
+            ->get();
+
+        $lapsed->each(fn (Offer $offer) => $this->moveTo($offer, OfferStatus::Expired, remarks: 'Offer validity lapsed'));
+
+        return $lapsed->count();
+    }
+
+    /**
+     * Releasing is a separate, higher-trust permission than managing offers (Section 27).
+     */
+    public function canRelease(?Employee $actor): bool
+    {
+        return (bool) $actor?->user?->can('offers.release');
     }
 
     /**

@@ -110,3 +110,45 @@ test('loading a saved view does not bypass hierarchy scoping', function (): void
         ->assertCanSeeTableRecords([$visible])
         ->assertCanNotSeeTableRecords([$hidden]);
 });
+
+test("the user's default saved view is applied automatically when the list opens", function (): void {
+    SavedTableView::factory()->create([
+        'user_id' => $this->user->id,
+        'resource' => ListCandidateApplications::class,
+        'filters' => ['status' => ['value' => 'rejected']],
+        'is_default' => true,
+    ]);
+
+    $rejected = CandidateApplication::factory()->create(['status' => 'rejected']);
+    $active = CandidateApplication::factory()->create(['status' => 'active']);
+
+    Livewire::test(ListCandidateApplications::class)
+        ->assertSet('tableFilters.status.value', 'rejected')
+        ->assertCanSeeTableRecords([$rejected])
+        ->assertCanNotSeeTableRecords([$active]);
+});
+
+test('a non-default saved view is not applied automatically', function (): void {
+    SavedTableView::factory()->create([
+        'user_id' => $this->user->id,
+        'resource' => ListCandidateApplications::class,
+        'filters' => ['status' => ['value' => 'rejected']],
+        'is_default' => false,
+    ]);
+
+    Livewire::test(ListCandidateApplications::class)
+        ->assertSet('tableFilters.status.value', null);
+});
+
+test('explicit filters in the URL win over the default saved view', function (): void {
+    SavedTableView::factory()->create([
+        'user_id' => $this->user->id,
+        'resource' => ListCandidateApplications::class,
+        'filters' => ['status' => ['value' => 'rejected']],
+        'is_default' => true,
+    ]);
+
+    Livewire::withQueryParams(['filters' => ['status' => ['value' => 'active']]])
+        ->test(ListCandidateApplications::class)
+        ->assertSet('tableFilters.status.value', 'active');
+});

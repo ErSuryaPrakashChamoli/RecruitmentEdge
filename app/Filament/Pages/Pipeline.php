@@ -6,18 +6,22 @@ use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\OfferStatus;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
+use App\Filament\Resources\CandidateApplications\Tables\CandidateApplicationsTable;
+use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\CandidateApplication;
 use App\Models\CandidateStageHistory;
+use App\Models\Department;
 use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
-use App\Models\RecruitmentRequisition;
+use App\Models\RecruitmentRejectionReason;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\RecruitmentActionCenterService;
 use App\Services\RecruitmentAnalyticsService;
 use App\Services\StageTransitionService;
 use BackedEnum;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
@@ -42,6 +46,10 @@ use UnitEnum;
  * can't be inferred from a drop into a group of 3-6 granular stages. handleSort() calls the exact
  * same authorization check and StageTransitionService::transitionTo() the modal action already
  * uses — one write path, two ways to reach it.
+ *
+ * The board shows Active applications by default; the status filter lets On Hold / Rejected /
+ * Dropout applications be viewed too, but those boards are read-only (no drag-and-drop or card
+ * actions) since StageTransitionService only moves or closes Active applications.
  */
 class Pipeline extends Page
 {
@@ -62,6 +70,10 @@ class Pipeline extends Page
     public ?int $recruiterId = null;
 
     public ?string $priorityFilter = null;
+
+    public ?int $departmentId = null;
+
+    public string $statusFilter = 'active';
 
     public static function canAccess(): bool
     {
@@ -133,7 +145,65 @@ class Pipeline extends Page
      */
     public function requisitionOptions(): array
     {
-        return RecruitmentRequisition::query()->orderBy('code')->get()->map(fn (RecruitmentRequisition $r) => ['value' => $r->id, 'label' => $r->code])->all();
+        return RecruitmentRequisitionResource::getEloquentQuery()
+            ->orderBy('code')
+            ->get(['id', 'code'])
+            ->map(fn ($requisition) => ['value' => $requisition->id, 'label' => $requisition->code])
+            ->all();
+    }
+
+    /**
+     * Departments of the requisitions the viewer can see — same hierarchy scope as
+     * requisitionOptions(), so the filter never leaks departments outside the viewer's hierarchy.
+     *
+     * @return array<int, array{value: int, label: string}>
+     */
+    public function departmentOptions(): array
+    {
+        return Department::query()
+            ->whereIn('id', RecruitmentRequisitionResource::getEloquentQuery()->select('department_id'))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Department $department) => ['value' => $department->id, 'label' => $department->name])
+            ->all();
+    }
+
+    /**
+     * @return array<int, array{value: string, label: string}>
+     */
+    public function statusOptions(): array
+    {
+        return collect(ApplicationStatus::cases())
+            ->map(fn (ApplicationStatus $status) => ['value' => $status->value, 'label' => $status->label()])
+            ->all();
+    }
+
+    public function selectedStatus(): ApplicationStatus
+    {
+        return ApplicationStatus::tryFrom($this->statusFilter) ?? ApplicationStatus::Active;
+    }
+
+    /**
+     * Drag-and-drop and card actions only apply to Active applications — see class docblock.
+     */
+    public function isActiveBoard(): bool
+    {
+        return $this->selectedStatus() === ApplicationStatus::Active;
+    }
+
+    public function hasActiveFilters(): bool
+    {
+        return $this->requisitionId || $this->recruiterId || $this->priorityFilter || $this->departmentId
+            || ! $this->isActiveBoard();
+    }
+
+    public function clearFilters(): void
+    {
+        $this->requisitionId = null;
+        $this->recruiterId = null;
+        $this->priorityFilter = null;
+        $this->departmentId = null;
+        $this->statusFilter = ApplicationStatus::Active->value;
     }
 
     /**
@@ -170,8 +240,9 @@ class Pipeline extends Page
 
         $query = CandidateApplication::query()
             ->whereIn('current_stage', $stageValues)
-            ->where('status', ApplicationStatus::Active)
+            ->where('status', $this->selectedStatus())
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
+            ->when($this->departmentId, fn (Builder $q) => $q->whereHas('requisition', fn (Builder $r) => $r->where('department_id', $this->departmentId)))
             ->when($this->requisitionId, fn (Builder $q) => $q->where('requisition_id', $this->requisitionId))
             ->when($this->recruiterId, fn (Builder $q) => $q->where('recruiter_id', $this->recruiterId))
             ->when($this->priorityFilter, fn (Builder $q) => $q->where('priority', $this->priorityFilter))
@@ -236,7 +307,7 @@ class Pipeline extends Page
         $firstStage = $column['stages'][0] ?? null;
 
         return CandidateApplicationResource::getUrl('index', [
-            'tableFilters' => ['current_stage' => ['value' => $firstStage?->value]],
+            'filters' => ['current_stage' => ['value' => $firstStage?->value]],
         ]);
     }
 
@@ -267,11 +338,17 @@ class Pipeline extends Page
 
         abort_unless((bool) auth()->user()?->can('transitionStage', $application), 403);
 
-        app(StageTransitionService::class)->transitionTo(
-            $application,
-            $column['dragStage'],
-            auth()->user()?->employee,
-        );
+        try {
+            app(StageTransitionService::class)->transitionTo(
+                $application,
+                $column['dragStage'],
+                auth()->user()?->employee,
+            );
+        } catch (DomainException $e) {
+            Notification::make()->title('Stage could not be updated')->body($e->getMessage())->danger()->send();
+
+            return;
+        }
 
         Notification::make()->title('Stage updated')->success()->send();
     }
@@ -301,14 +378,85 @@ class Pipeline extends Page
 
                 abort_unless((bool) auth()->user()?->can('transitionStage', $application), 403);
 
-                app(StageTransitionService::class)->transitionTo(
-                    $application,
-                    CandidateStage::from($data['stage']),
-                    auth()->user()?->employee,
-                    $data['remarks'] ?? null,
+                CandidateApplicationsTable::performTransition(
+                    fn (StageTransitionService $service) => $service->transitionTo(
+                        $application,
+                        CandidateStage::from($data['stage']),
+                        auth()->user()?->employee,
+                        $data['remarks'] ?? null,
+                    ),
+                    'Stage updated',
                 );
-
-                Notification::make()->title('Stage updated')->success()->send();
             });
+    }
+
+    /**
+     * Same authorization (`update`), reason list and StageTransitionService::reject() call as
+     * CandidateApplicationsTable::rejectAction(). The card leaves the Active board on re-render.
+     */
+    public function rejectApplicationAction(): Action
+    {
+        return Action::make('rejectApplication')
+            ->label('Reject')
+            ->color('danger')
+            ->icon('heroicon-o-x-circle')
+            ->schema([
+                CandidateApplicationsTable::reasonSelect('reason_id'),
+                Textarea::make('remarks'),
+            ])
+            ->action(function (array $arguments, array $data): void {
+                $application = $this->findAuthorizedApplication($arguments);
+
+                CandidateApplicationsTable::performTransition(
+                    fn (StageTransitionService $service) => $service->reject(
+                        $application,
+                        RecruitmentRejectionReason::query()->findOrFail($data['reason_id']),
+                        auth()->user()?->employee,
+                        $data['remarks'] ?? null,
+                    ),
+                    'Application rejected',
+                );
+            });
+    }
+
+    /**
+     * Same authorization, reason list and StageTransitionService::dropout() call as
+     * CandidateApplicationsTable::dropoutAction().
+     */
+    public function dropoutApplicationAction(): Action
+    {
+        return Action::make('dropoutApplication')
+            ->label('Drop Out')
+            ->color('danger')
+            ->icon('heroicon-o-arrow-uturn-left')
+            ->schema([
+                CandidateApplicationsTable::reasonSelect('reason_id'),
+                Textarea::make('remarks'),
+            ])
+            ->action(function (array $arguments, array $data): void {
+                $application = $this->findAuthorizedApplication($arguments);
+
+                CandidateApplicationsTable::performTransition(
+                    fn (StageTransitionService $service) => $service->dropout(
+                        $application,
+                        RecruitmentRejectionReason::query()->findOrFail($data['reason_id']),
+                        auth()->user()?->employee,
+                        $data['remarks'] ?? null,
+                    ),
+                    'Application marked as dropout',
+                );
+            });
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     */
+    private function findAuthorizedApplication(array $arguments): CandidateApplication
+    {
+        $application = CandidateApplication::query()->findOrFail($arguments['applicationId'] ?? null);
+
+        abort_unless((bool) auth()->user()?->can('update', $application), 403);
+
+        return $application;
     }
 }

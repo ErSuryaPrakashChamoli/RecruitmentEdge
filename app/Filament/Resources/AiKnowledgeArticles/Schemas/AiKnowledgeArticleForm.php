@@ -31,7 +31,7 @@ class AiKnowledgeArticleForm
                     ->required()
                     ->rows(8)
                     ->columnSpanFull()
-                    ->helperText('Keyword-searched by the "Ask AI" page — write it the way you would answer the question directly.'),
+                    ->helperText('Used by the AI Copilot: semantically indexed for AI answers once published, and keyword-searched when full AI is not configured. Write it the way you would answer the question directly.'),
                 Toggle::make('is_published')
                     ->default(true)
                     ->required(),

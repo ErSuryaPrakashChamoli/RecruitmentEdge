@@ -4,15 +4,14 @@ namespace App\Filament\Resources\CandidateApplications\Pages;
 
 use App\Enums\CandidateStage;
 use App\Enums\FollowupType;
-use App\Enums\InterviewMode;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Resources\CandidateApplications\Tables\CandidateApplicationsTable;
-use App\Filament\Resources\Interviews\InterviewResource;
+use App\Filament\Resources\Interviews\Schemas\InterviewForm;
+use App\Filament\Resources\Interviews\Tables\InterviewsTable;
 use App\Models\CandidateApplication;
-use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\RecruitmentFollowup;
-use App\Services\NotificationDispatchService;
+use App\Services\InterviewService;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Facades\Filament;
@@ -42,8 +41,10 @@ class ViewCandidateApplication extends ViewRecord
     {
         return [
             CandidateApplicationsTable::advanceStageAction(),
+            $this->selectCandidateAction(),
             CandidateApplicationsTable::rejectAction(),
             CandidateApplicationsTable::dropoutAction(),
+            CandidateApplicationsTable::holdAction(),
             CandidateApplicationsTable::reactivateAction(),
             EditAction::make(),
         ];
@@ -114,7 +115,12 @@ class ViewCandidateApplication extends ViewRecord
                     'color' => 'info',
                     'title' => 'Feedback submitted',
                     'subtitle' => 'by '.($feedback->interviewer?->fullName() ?? '—'),
-                    'meta' => $feedback->recommendation->label().($feedback->feedback ? ' — '.$feedback->feedback : ''),
+                    'meta' => collect([
+                        $feedback->recommendation->label(),
+                        $feedback->score !== null ? "Score {$feedback->score}" : null,
+                        $feedback->ratingsSummary(),
+                        $feedback->feedback,
+                    ])->filter()->implode(' — '),
                     'at' => $feedback->created_at,
                 ]);
             }
@@ -136,7 +142,7 @@ class ViewCandidateApplication extends ViewRecord
         foreach ($record->activities as $activity) {
             $events->push([
                 'icon' => 'heroicon-o-phone',
-                'color' => $activity->outcome?->isConnected() ? 'success' : 'gray',
+                'color' => $activity->outcome?->color() ?? 'gray',
                 'title' => $activity->activity_type->label().($activity->outcome ? ' — '.$activity->outcome->label() : ''),
                 'subtitle' => 'by '.($activity->createdBy?->fullName() ?? '—'),
                 'meta' => $activity->remarks,
@@ -165,41 +171,40 @@ class ViewCandidateApplication extends ViewRecord
             ->icon('heroicon-o-calendar-days')
             ->color('gray')
             ->visible(fn (): bool => (bool) auth()->user()?->can('interviews.manage'))
-            ->schema([
-                Select::make('interviewer_id')
-                    ->label('Interviewer')
-                    ->options(fn () => Employee::query()->get()->mapWithKeys(fn (Employee $employee) => [$employee->id => $employee->fullName()]))
-                    ->searchable()
-                    ->required(),
-                DateTimePicker::make('scheduled_at')->required(),
-                Select::make('mode')
-                    ->options(collect(InterviewMode::cases())->mapWithKeys(fn ($m) => [$m->value => $m->label()]))
-                    ->required(),
-            ])
+            ->schema(fn (): array => InterviewForm::schedulingFields($this->getRecord()))
             ->action(function (array $data): void {
                 /** @var CandidateApplication $record */
                 $record = $this->getRecord();
 
-                $interview = Interview::query()->create([
-                    'candidate_application_id' => $record->id,
-                    'round_number' => $record->interviews()->count() + 1,
-                    'interviewer_id' => $data['interviewer_id'],
-                    'scheduled_at' => $data['scheduled_at'],
-                    'mode' => $data['mode'],
-                    'status' => 'scheduled',
-                    'created_by' => Filament::auth()->user()?->employee_id,
-                ]);
-
-                app(NotificationDispatchService::class)->alert(
-                    $interview->interviewer?->user,
-                    'Interviews',
-                    'Interview scheduled',
-                    "You've been scheduled to interview {$record->candidate->full_name}.",
-                    'info',
-                    InterviewResource::getUrl('edit', ['record' => $interview]),
-                );
+                InterviewsTable::guarded('Interview could not be scheduled', fn () => app(InterviewService::class)->schedule($record, $data, auth()->user()?->employee));
 
                 Notification::make()->title('Interview scheduled')->success()->send();
+            });
+    }
+
+    /**
+     * Selects the candidate from their latest completed, non-rejected interview round — the same
+     * InterviewService::selectCandidate() decision as the Interviews table's action.
+     */
+    public function selectCandidateAction(): Action
+    {
+        return Action::make('selectCandidate')
+            ->label('Select Candidate')
+            ->color('success')
+            ->icon('heroicon-o-trophy')
+            ->requiresConfirmation()
+            ->modalDescription('Moves the application to the Selected stage based on its latest completed interview.')
+            ->visible(function (): bool {
+                $interview = $this->latestSelectableInterview();
+
+                return $interview !== null && InterviewsTable::canSelectCandidate($interview);
+            })
+            ->action(function (): void {
+                $interview = $this->latestSelectableInterview();
+
+                abort_if($interview === null, 404);
+
+                InterviewsTable::performSelectCandidate($interview);
             });
     }
 
@@ -256,5 +261,17 @@ class ViewCandidateApplication extends ViewRecord
 
                 Notification::make()->title('Follow-up updated')->success()->send();
             });
+    }
+
+    private function latestSelectableInterview(): ?Interview
+    {
+        /** @var CandidateApplication $record */
+        $record = $this->getRecord();
+
+        return $record->interviews()
+            ->orderByDesc('round_number')
+            ->orderByDesc('scheduled_at')
+            ->get()
+            ->first(fn (Interview $interview): bool => app(InterviewService::class)->canSelectCandidateFrom($interview));
     }
 }

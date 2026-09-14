@@ -6,6 +6,7 @@ use App\Filament\Widgets\CandidateAgingWidget;
 use App\Filament\Widgets\ConversionBreakdownWidget;
 use App\Filament\Widgets\FollowUpCalendar;
 use App\Filament\Widgets\InterviewAnalyticsWidget;
+use App\Filament\Widgets\JoiningTrendChart;
 use App\Filament\Widgets\OfferJoiningAnalyticsWidget;
 use App\Filament\Widgets\PositionHealthWidget;
 use App\Filament\Widgets\RecruiterLeaderboardWidget;
@@ -110,22 +111,23 @@ class Dashboard extends BaseDashboard
 
     /**
      * Same widget set for every role (no data or permission changes here — HierarchyService
-     * already scopes each widget's own query), but reordered by role: a plain recruiter (no one
-     * reporting to them) sees action-oriented widgets first — what to work on today — with
-     * org-wide analytics further down; a manager/CHRO sees the full-breadth ordering, since
-     * cross-recruiter comparison is the point of their view.
+     * already scopes each widget's own query), ordered per the product document. Managers:
+     * Overview, Pulse, Follow-up Calendar, Action Center, Smart Recommendations (+ Insights), Funnel,
+     * then the analytics block. A plain recruiter (no one reporting to them) sees the Funnel right
+     * after the Pulse — their own pipeline is what they work from — then the same sequence.
+     *
+     * @return array<int, class-string>
      */
     public function getWidgets(): array
     {
-        $always = [
-            RecruitmentOverviewStats::class,
+        $actionable = [
             FollowUpCalendar::class,
             RecruitmentActionCenterWidget::class,
+            SmartRecommendationsWidget::class,
             RecruitmentInsightsWidget::class,
         ];
 
         $analytics = [
-            TurnUpTrendChart::class,
             RecruiterLeaderboardWidget::class,
             ConversionBreakdownWidget::class,
             PositionHealthWidget::class,
@@ -134,32 +136,26 @@ class Dashboard extends BaseDashboard
             SlaTatWidget::class,
             InterviewAnalyticsWidget::class,
             OfferJoiningAnalyticsWidget::class,
+            TurnUpTrendChart::class,
+            JoiningTrendChart::class,
         ];
 
         if ($this->isIndividualContributor()) {
             return [
-                ...$always,
+                RecruitmentOverviewStats::class,
                 TodaysRecruitmentPulse::class,
                 RecruitmentFunnelWidget::class,
-                SmartRecommendationsWidget::class,
+                ...$actionable,
                 ...$analytics,
             ];
         }
 
         return [
-            ...$always,
-            RecruitmentFunnelWidget::class,
-            TurnUpTrendChart::class,
+            RecruitmentOverviewStats::class,
             TodaysRecruitmentPulse::class,
-            RecruiterLeaderboardWidget::class,
-            SmartRecommendationsWidget::class,
-            ConversionBreakdownWidget::class,
-            PositionHealthWidget::class,
-            SourcePerformanceWidget::class,
-            CandidateAgingWidget::class,
-            SlaTatWidget::class,
-            InterviewAnalyticsWidget::class,
-            OfferJoiningAnalyticsWidget::class,
+            ...$actionable,
+            RecruitmentFunnelWidget::class,
+            ...$analytics,
         ];
     }
 

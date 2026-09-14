@@ -5,6 +5,8 @@ namespace App\Filament\Resources\Candidates\RelationManagers;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
+use App\Filament\Resources\CandidateApplications\Pages\CreateCandidateApplication;
+use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
 use App\Services\SequenceCodeGenerator;
 use Filament\Actions\CreateAction;
@@ -14,6 +16,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ApplicationsRelationManager extends RelationManager
 {
@@ -24,7 +27,14 @@ class ApplicationsRelationManager extends RelationManager
         return $schema
             ->components([
                 Select::make('requisition_id')
-                    ->relationship('requisition', 'code')
+                    ->relationship(
+                        'requisition',
+                        'code',
+                        modifyQueryUsing: fn (Builder $query, string $operation): Builder => $operation === 'create'
+                            ? RecruitmentRequisitionResource::applicationTargetQuery($query)
+                            : $query,
+                    )
+                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? 'Only Open requisitions accept new applications.' : null)
                     ->required()
                     ->searchable()
                     ->preload(),
@@ -63,6 +73,8 @@ class ApplicationsRelationManager extends RelationManager
             ->headerActions([
                 CreateAction::make()
                     ->mutateFormDataUsing(function (array $data): array {
+                        CreateCandidateApplication::ensureRequisitionAcceptsApplications($data['requisition_id'] ?? null);
+
                         $data['application_code'] = app(SequenceCodeGenerator::class)->next('APP');
                         $data['current_stage'] = CandidateStage::Sourced;
                         $data['status'] = ApplicationStatus::Active;

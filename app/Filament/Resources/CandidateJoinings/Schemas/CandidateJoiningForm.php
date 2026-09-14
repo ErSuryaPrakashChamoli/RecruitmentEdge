@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CandidateJoinings\Schemas;
 
+use App\Enums\DocumentStatus;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -24,6 +25,11 @@ class CandidateJoiningForm
                     ->searchable()
                     ->preload(),
                 DatePicker::make('expected_doj')
+                    ->required(),
+                Select::make('documents_status')
+                    ->label('Documents Status')
+                    ->options(collect(DocumentStatus::cases())->mapWithKeys(fn (DocumentStatus $s) => [$s->value => $s->label()]))
+                    ->default(DocumentStatus::Pending->value)
                     ->required(),
                 Textarea::make('remarks')
                     ->columnSpanFull(),

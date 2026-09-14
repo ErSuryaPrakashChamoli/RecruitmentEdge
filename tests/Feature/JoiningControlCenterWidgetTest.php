@@ -90,3 +90,46 @@ test('joining tomorrow only shows joinings visible to the hierarchy', function (
         ->assertSee('Visible Tomorrow Joiner')
         ->assertDontSee('Hidden Tomorrow Joiner');
 });
+
+test('the Confirmed KPI counts confirmed joinings, not every on-track joining', function (): void {
+    $recruiter = Employee::factory()->create();
+
+    foreach ([JoiningStatus::Expected, JoiningStatus::Confirmed] as $status) {
+        CandidateJoining::factory()->create([
+            'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id])->id,
+            'status' => $status,
+            'expected_doj' => now()->addDays(20),
+        ]);
+    }
+
+    $user = User::factory()->create(['employee_id' => $recruiter->id]);
+    $user->assignRole('chro');
+    actingAs($user);
+
+    expect(Livewire::test(JoiningControlCenterWidget::class)->instance()->getSummary()['confirmed'])->toBe(1);
+});
+
+test('truncated risk groups show the full total, a view all link, days to DOJ, and confirmation status', function (): void {
+    $recruiter = Employee::factory()->create();
+
+    CandidateJoining::factory()->count(JoiningControlCenterWidget::RISK_GROUP_LIMIT + 2)->create([
+        'candidate_application_id' => fn () => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id])->id,
+        'status' => JoiningStatus::Expected,
+        'expected_doj' => now()->addDays(20),
+    ]);
+
+    $user = User::factory()->create(['employee_id' => $recruiter->id]);
+    $user->assignRole('chro');
+    actingAs($user);
+
+    $widget = Livewire::test(JoiningControlCenterWidget::class);
+
+    expect($widget->instance()->getRiskGroups()['green'])->toHaveCount(JoiningControlCenterWidget::RISK_GROUP_LIMIT)
+        ->and($widget->instance()->getRiskGroupTotals()['green'])->toBe(JoiningControlCenterWidget::RISK_GROUP_LIMIT + 2);
+
+    $widget->assertSee('On Track ('.(JoiningControlCenterWidget::RISK_GROUP_LIMIT + 2).')')
+        ->assertSee('Showing '.JoiningControlCenterWidget::RISK_GROUP_LIMIT.' of '.(JoiningControlCenterWidget::RISK_GROUP_LIMIT + 2))
+        ->assertSee('View all')
+        ->assertSee('In 20 days')
+        ->assertSee('Not confirmed');
+});

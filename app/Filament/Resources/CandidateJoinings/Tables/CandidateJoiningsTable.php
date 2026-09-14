@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CandidateJoinings\Tables;
 
+use App\Enums\CandidateStage;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Filament\Exports\CandidateJoiningExporter;
@@ -9,6 +10,7 @@ use App\Models\CandidateJoining;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\CandidateJoiningService;
 use App\Services\EmployeeConversionService;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -16,6 +18,7 @@ use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -111,6 +114,8 @@ class CandidateJoiningsTable
                 self::markJoinedAction(),
                 self::markNoShowAction(),
                 self::markDropoutAction(),
+                self::markDocumentsCompletedAction(),
+                self::markOnboardingCompletedAction(),
                 self::convertToEmployeeAction(),
                 EditAction::make(),
             ])
@@ -131,10 +136,10 @@ class CandidateJoiningsTable
             ->color('info')
             ->icon('heroicon-o-check')
             ->visible(fn (CandidateJoining $record) => $record->status === JoiningStatus::Expected)
-            ->action(function (CandidateJoining $record): void {
-                app(CandidateJoiningService::class)->confirm($record, auth()->user()?->employee);
-                Notification::make()->title('Joining confirmed')->success()->send();
-            });
+            ->action(fn (CandidateJoining $record) => self::perform(
+                fn (CandidateJoiningService $service) => $service->confirm($record, auth()->user()?->employee),
+                'Joining confirmed',
+            ));
     }
 
     private static function markJoinedAction(): Action
@@ -145,10 +150,10 @@ class CandidateJoiningsTable
             ->icon('heroicon-o-check-circle')
             ->visible(fn (CandidateJoining $record) => in_array($record->status, [JoiningStatus::Expected, JoiningStatus::Confirmed], true))
             ->requiresConfirmation()
-            ->action(function (CandidateJoining $record): void {
-                app(CandidateJoiningService::class)->markJoined($record, actor: auth()->user()?->employee);
-                Notification::make()->title('Candidate marked as joined')->success()->send();
-            });
+            ->action(fn (CandidateJoining $record) => self::perform(
+                fn (CandidateJoiningService $service) => $service->markJoined($record, actor: auth()->user()?->employee),
+                'Candidate marked as joined',
+            ));
     }
 
     private static function markNoShowAction(): Action
@@ -161,18 +166,18 @@ class CandidateJoiningsTable
             ->schema([
                 Select::make('reason_id')
                     ->label('Reason')
-                    ->options(RecruitmentRejectionReason::query()->pluck('name', 'id'))
+                    ->options(fn (): array => RecruitmentRejectionReason::groupedActiveOptions())
                     ->required()
                     ->searchable(),
             ])
-            ->action(function (CandidateJoining $record, array $data): void {
-                app(CandidateJoiningService::class)->markNoShow(
+            ->action(fn (CandidateJoining $record, array $data) => self::perform(
+                fn (CandidateJoiningService $service) => $service->markNoShow(
                     $record,
                     RecruitmentRejectionReason::query()->findOrFail($data['reason_id']),
                     auth()->user()?->employee,
-                );
-                Notification::make()->title('Marked as no-show')->success()->send();
-            });
+                ),
+                'Marked as no-show',
+            ));
     }
 
     private static function markDropoutAction(): Action
@@ -185,18 +190,48 @@ class CandidateJoiningsTable
             ->schema([
                 Select::make('reason_id')
                     ->label('Reason')
-                    ->options(RecruitmentRejectionReason::query()->pluck('name', 'id'))
+                    ->options(fn (): array => RecruitmentRejectionReason::groupedActiveOptions())
                     ->required()
                     ->searchable(),
             ])
-            ->action(function (CandidateJoining $record, array $data): void {
-                app(CandidateJoiningService::class)->markDropout(
+            ->action(fn (CandidateJoining $record, array $data) => self::perform(
+                fn (CandidateJoiningService $service) => $service->markDropout(
                     $record,
                     RecruitmentRejectionReason::query()->findOrFail($data['reason_id']),
                     auth()->user()?->employee,
-                );
-                Notification::make()->title('Marked as dropout')->success()->send();
-            });
+                ),
+                'Marked as dropout',
+            ));
+    }
+
+    private static function markDocumentsCompletedAction(): Action
+    {
+        return Action::make('markDocumentsCompleted')
+            ->label('Mark Documents Completed')
+            ->color('success')
+            ->icon('heroicon-o-document-check')
+            ->visible(fn (CandidateJoining $record) => $record->status === JoiningStatus::Joined
+                && $record->candidateApplication->current_stage->order() < CandidateStage::DocumentsCompleted->order())
+            ->requiresConfirmation()
+            ->action(fn (CandidateJoining $record) => self::perform(
+                fn (CandidateJoiningService $service) => $service->markDocumentsCompleted($record, auth()->user()?->employee),
+                'Documents marked as completed',
+            ));
+    }
+
+    private static function markOnboardingCompletedAction(): Action
+    {
+        return Action::make('markOnboardingCompleted')
+            ->label('Mark Onboarding Completed')
+            ->color('success')
+            ->icon('heroicon-o-academic-cap')
+            ->visible(fn (CandidateJoining $record) => $record->status === JoiningStatus::Joined
+                && $record->candidateApplication->current_stage === CandidateStage::DocumentsCompleted)
+            ->requiresConfirmation()
+            ->action(fn (CandidateJoining $record) => self::perform(
+                fn (CandidateJoiningService $service) => $service->markOnboardingCompleted($record, auth()->user()?->employee),
+                'Onboarding marked as completed',
+            ));
     }
 
     private static function convertToEmployeeAction(): Action
@@ -212,5 +247,29 @@ class CandidateJoiningsTable
                 $employee = app(EmployeeConversionService::class)->convert($record);
                 Notification::make()->title("Converted to employee {$employee->employee_code}")->success()->send();
             });
+    }
+
+    /**
+     * CandidateJoiningService/StageTransitionService enforce the joining rules as DomainException —
+     * surface them as a notification and halt instead of rendering a 500 over the panel.
+     *
+     * @param  callable(CandidateJoiningService): mixed  $callback
+     */
+    private static function perform(callable $callback, string $successTitle): void
+    {
+        try {
+            $callback(app(CandidateJoiningService::class));
+        } catch (DomainException $e) {
+            Notification::make()
+                ->title('Joining could not be updated')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw new Halt;
+        }
+
+        Notification::make()->title($successTitle)->success()->send();
     }
 }

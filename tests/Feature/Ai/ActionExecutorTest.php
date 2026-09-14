@@ -105,3 +105,60 @@ test('rejecting a pending tool call marks it rejected and never touches the unde
         ->and($application->fresh()->status)->toBe(ApplicationStatus::Active)
         ->and(AiActionLog::query()->where('tool_name', 'reject_candidates')->where('status', 'rejected')->exists())->toBeTrue();
 });
+
+test('approval is refused when AI actions have been disabled since the action was proposed', function (): void {
+    $application = CandidateApplication::factory()->create(['status' => ApplicationStatus::Active]);
+    $reason = RecruitmentRejectionReason::factory()->create();
+
+    $toolCall = makePendingToolCall('reject_candidates', [
+        'application_ids' => [$application->id],
+        'rejection_reason_id' => $reason->id,
+    ]);
+
+    $approver = User::factory()->create();
+    $approver->assignRole('chro');
+
+    config(['ai.features.actions_enabled' => false]);
+
+    expect(fn () => $this->executor->approve($toolCall, $approver))->toThrow(DomainException::class, 'disabled');
+
+    expect($application->fresh()->status)->toBe(ApplicationStatus::Active)
+        ->and($toolCall->fresh()->status->value)->toBe('pending');
+});
+
+test('approval re-checks the tool\'s own permission, not only ai.actions.execute', function (): void {
+    $application = CandidateApplication::factory()->create(['status' => ApplicationStatus::Active]);
+    $reason = RecruitmentRejectionReason::factory()->create();
+
+    $toolCall = makePendingToolCall('reject_candidates', [
+        'application_ids' => [$application->id],
+        'rejection_reason_id' => $reason->id,
+    ]);
+
+    $approver = User::factory()->create();
+    $approver->givePermissionTo(['ai.query', 'ai.actions.execute']); // no pipeline.transition
+
+    expect(fn () => $this->executor->approve($toolCall, $approver))->toThrow(DomainException::class, 'pipeline.transition');
+
+    expect($application->fresh()->status)->toBe(ApplicationStatus::Active);
+});
+
+test('the action audit log stores the full tool result, not just a summary', function (): void {
+    $application = CandidateApplication::factory()->create(['status' => ApplicationStatus::Active]);
+    $reason = RecruitmentRejectionReason::factory()->create();
+
+    $toolCall = makePendingToolCall('reject_candidates', [
+        'application_ids' => [$application->id],
+        'rejection_reason_id' => $reason->id,
+    ]);
+
+    $approver = User::factory()->create();
+    $approver->assignRole('chro');
+
+    $this->executor->approve($toolCall, $approver);
+
+    $log = AiActionLog::query()->where('tool_name', 'reject_candidates')->latest('id')->first();
+
+    expect($log->output['success'])->toBeTrue()
+        ->and($log->output)->toHaveKeys(['data', 'summary', 'type', 'error']);
+});

@@ -49,7 +49,7 @@ class AnalyzeSourcesTool implements AiTool
         $end = filled($arguments['end_date'] ?? null) ? CarbonImmutable::parse($arguments['end_date']) : CarbonImmutable::now();
         $start = filled($arguments['start_date'] ?? null) ? CarbonImmutable::parse($arguments['start_date']) : $end->subDays(90);
 
-        $rows = $this->analytics->sourceAnalytics($start, $end)->map(fn (array $row) => [
+        $rows = $this->analytics->sourceAnalytics($start, $end, $user)->map(fn (array $row) => [
             'source' => $row['source']->name,
             'sourced' => $row['sourced'],
             'interviewed' => $row['interviewed'],

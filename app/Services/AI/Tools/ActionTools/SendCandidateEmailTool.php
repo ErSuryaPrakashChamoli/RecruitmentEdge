@@ -7,6 +7,7 @@ use App\Models\Candidate;
 use App\Models\User;
 use App\Services\AI\Communication\Contracts\EmailProviderInterface;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
 /**
@@ -16,6 +17,8 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class SendCandidateEmailTool implements AiTool
 {
+    use ScopesToHierarchy;
+
     public function __construct(private readonly EmailProviderInterface $email) {}
 
     public function name(): string
@@ -53,10 +56,14 @@ class SendCandidateEmailTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $candidate = Candidate::query()->find($arguments['candidate_id'] ?? null);
+        $candidate = $this->scopeCandidatesVisibleTo(Candidate::query(), $user)->find($arguments['candidate_id'] ?? null);
 
         if ($candidate === null) {
-            return ToolResult::fail('Candidate not found.');
+            return ToolResult::fail('Candidate not found, or not visible to you.');
+        }
+
+        if (blank($arguments['subject'] ?? null) || blank($arguments['body'] ?? null)) {
+            return ToolResult::fail('Both a subject and a body are required to send an email.');
         }
 
         if (blank($candidate->email)) {

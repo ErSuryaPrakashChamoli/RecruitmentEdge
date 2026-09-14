@@ -71,16 +71,23 @@ class StageTransitionService
     }
 
     /**
-     * Reactivate a previously rejected/dropped-out/held application, clearing whichever reason
-     * corresponds to the status it is leaving.
+     * Park an active application without rejecting it (e.g. requisition paused, candidate asked
+     * to wait). Remarks are mandatory since there is no reason list for holds — they are the only
+     * record of why the application was parked. Like reject/dropout, the stage is left as-is.
      */
-    public function reactivate(CandidateApplication $application, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
+    public function hold(CandidateApplication $application, ?Employee $actor, string $remarks): CandidateApplication
     {
+        if ($application->status !== ApplicationStatus::Active) {
+            throw new DomainException("Only an active application can be put on hold (current status: {$application->status->label()}).");
+        }
+
+        if (blank($remarks)) {
+            throw new DomainException('Remarks are required to put an application on hold.');
+        }
+
         return DB::transaction(function () use ($application, $actor, $remarks): CandidateApplication {
             $application->forceFill([
-                'status' => ApplicationStatus::Active,
-                'rejection_reason_id' => null,
-                'dropout_reason_id' => null,
+                'status' => ApplicationStatus::OnHold,
                 'last_activity_at' => now(),
             ])->save();
 
@@ -88,7 +95,44 @@ class StageTransitionService
                 'previous_stage' => $application->current_stage,
                 'new_stage' => $application->current_stage,
                 'changed_by' => $actor?->id,
-                'remarks' => $remarks ?? 'Reactivated',
+                'remarks' => ApplicationStatus::OnHold->label().': '.$remarks,
+            ]);
+
+            return $application;
+        });
+    }
+
+    /**
+     * Reactivate a previously rejected/dropped-out/held application, clearing whichever reason
+     * corresponds to the status it is leaving (a hold has no reason to clear).
+     */
+    public function reactivate(CandidateApplication $application, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
+    {
+        $previousStatus = $application->status;
+
+        if ($previousStatus === ApplicationStatus::Active) {
+            throw new DomainException('Application is already active.');
+        }
+
+        return DB::transaction(function () use ($application, $previousStatus, $actor, $remarks): CandidateApplication {
+            $attributes = [
+                'status' => ApplicationStatus::Active,
+                'last_activity_at' => now(),
+            ];
+
+            match ($previousStatus) {
+                ApplicationStatus::Rejected => $attributes['rejection_reason_id'] = null,
+                ApplicationStatus::Dropout => $attributes['dropout_reason_id'] = null,
+                default => null,
+            };
+
+            $application->forceFill($attributes)->save();
+
+            $application->stageHistory()->create([
+                'previous_stage' => $application->current_stage,
+                'new_stage' => $application->current_stage,
+                'changed_by' => $actor?->id,
+                'remarks' => filled($remarks) ? $remarks : "Reactivated from {$previousStatus->label()}",
             ]);
 
             return $application;
@@ -105,6 +149,10 @@ class StageTransitionService
     ): CandidateApplication {
         if ($application->status !== ApplicationStatus::Active) {
             throw new DomainException("Application is already {$application->status->label()}.");
+        }
+
+        if (! $reason->isSelectable()) {
+            throw new DomainException("The reason \"{$reason->name}\" is no longer active and cannot be used.");
         }
 
         return DB::transaction(function () use ($application, $status, $reasonColumn, $reason, $actor, $remarks): CandidateApplication {

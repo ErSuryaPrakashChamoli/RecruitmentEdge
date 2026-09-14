@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
+use App\Models\Concerns\Auditable;
 use Database\Factories\InterviewFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'scheduled_at',
     'mode',
     'location',
+    'meeting_link',
     'status',
     'result',
     'rejection_reason_id',
@@ -28,6 +30,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class Interview extends Model
 {
+    use Auditable;
+
     /** @use HasFactory<InterviewFactory> */
     use HasFactory;
 

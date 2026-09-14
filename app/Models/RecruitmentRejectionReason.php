@@ -22,4 +22,35 @@ class RecruitmentRejectionReason extends Model
             'is_active' => 'boolean',
         ];
     }
+
+    /**
+     * Active reasons as Select option groups keyed by category label, in RejectionCategory case
+     * order (General, Interview, Offer, Joining) — empty categories are omitted. Every
+     * rejection/dropout reason dropdown should use this rather than listing every reason.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function groupedActiveOptions(): array
+    {
+        $reasons = self::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'category'])
+            ->groupBy(fn (self $reason): string => $reason->category->value);
+
+        $groups = [];
+
+        foreach (RejectionCategory::cases() as $category) {
+            if ($reasons->has($category->value)) {
+                $groups[$category->label()] = $reasons->get($category->value)->pluck('name', 'id')->all();
+            }
+        }
+
+        return $groups;
+    }
+
+    public function isSelectable(): bool
+    {
+        return $this->is_active && ! $this->trashed();
+    }
 }

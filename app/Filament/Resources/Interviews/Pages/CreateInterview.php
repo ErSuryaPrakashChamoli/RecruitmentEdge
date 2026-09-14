@@ -2,41 +2,43 @@
 
 namespace App\Filament\Resources\Interviews\Pages;
 
-use App\Enums\InterviewStatus;
 use App\Filament\Resources\Interviews\InterviewResource;
-use App\Models\Interview;
-use App\Services\NotificationDispatchService;
-use Filament\Facades\Filament;
+use App\Filament\Resources\Interviews\Schemas\InterviewForm;
+use App\Models\CandidateApplication;
+use App\Services\InterviewService;
+use DomainException;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 
+/**
+ * Creation is delegated to InterviewService::schedule() (not a plain Eloquent create) so the
+ * stage sync and interviewer/recruiter notifications happen identically on every scheduling path.
+ */
 class CreateInterview extends CreateRecord
 {
     protected static string $resource = InterviewResource::class;
 
     /**
      * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
      */
-    protected function mutateFormDataBeforeCreate(array $data): array
+    protected function handleRecordCreation(array $data): Model
     {
-        $data['status'] = InterviewStatus::Scheduled;
-        $data['created_by'] = Filament::auth()->user()?->employee_id;
+        $application = InterviewForm::scopeApplicationsToViewer(CandidateApplication::query())
+            ->findOrFail($data['candidate_application_id']);
 
-        return $data;
-    }
+        try {
+            return app(InterviewService::class)->schedule($application, $data, auth()->user()?->employee);
+        } catch (DomainException $e) {
+            Notification::make()
+                ->title('Interview could not be scheduled')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
 
-    protected function afterCreate(): void
-    {
-        /** @var Interview $interview */
-        $interview = $this->record;
-
-        app(NotificationDispatchService::class)->alert(
-            $interview->interviewer?->user,
-            'Interviews',
-            'Interview scheduled',
-            "You've been scheduled to interview {$interview->candidateApplication->candidate->full_name} on {$interview->scheduled_at->format('d M Y, h:i A')}.",
-            'info',
-            InterviewResource::getUrl('edit', ['record' => $interview]),
-        );
+            throw new Halt;
+        }
     }
 }

@@ -75,17 +75,17 @@ class OrganizationHierarchy extends Page
 
     public function candidatesUrl(int $employeeId): string
     {
-        return CandidateApplicationResource::getUrl('index', ['tableFilters' => ['recruiter' => ['value' => $employeeId]]]);
+        return CandidateApplicationResource::getUrl('index', ['filters' => ['recruiter' => ['value' => $employeeId]]]);
     }
 
     public function vacanciesUrl(int $employeeId): string
     {
-        return RecruitmentRequisitionResource::getUrl('index', ['tableFilters' => ['manager' => ['value' => $employeeId]]]);
+        return RecruitmentRequisitionResource::getUrl('index', ['filters' => ['manager' => ['value' => $employeeId]]]);
     }
 
     public function performanceUrl(int $employeeId): string
     {
-        return RecruiterPerformanceSnapshotResource::getUrl('index', ['tableFilters' => ['employee' => ['value' => $employeeId]]]);
+        return RecruiterPerformanceSnapshotResource::getUrl('index', ['filters' => ['employee' => ['value' => $employeeId]]]);
     }
 
     public function reassignManagerAction(): Action

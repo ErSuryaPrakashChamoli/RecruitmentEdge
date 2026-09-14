@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\FollowupStatus;
 use App\Filament\Widgets\FollowUpCalendar;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\RecruitmentFollowup;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Livewire\Livewire;
@@ -98,4 +100,53 @@ test('navigating to the next month advances the displayed month by one', functio
     Livewire::test(FollowUpCalendar::class)
         ->call('nextMonth')
         ->assertSet('month', now()->addMonthNoOverflow()->startOfMonth()->toDateString());
+});
+
+test('follow-ups due on a date are listed and counted, overdue ones flagged, scoped by owner', function (): void {
+    freezeTime();
+
+    $manager = Employee::factory()->create();
+    $recruiter = Employee::factory()->reportingTo($manager)->create();
+    $outsider = Employee::factory()->create();
+    $dueDate = now()->subDays(2)->setTime(10, 0);
+
+    $overdueApplication = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $overdueApplication->candidate->update(['full_name' => 'Overdue Followup Candidate']);
+    RecruitmentFollowup::factory()->create([
+        'candidate_application_id' => $overdueApplication->id,
+        'recruiter_id' => $recruiter->id,
+        'status' => FollowupStatus::Pending,
+        'followup_date' => $dueDate,
+    ]);
+
+    $completedApplication = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $completedApplication->candidate->update(['full_name' => 'Completed Followup Candidate']);
+    RecruitmentFollowup::factory()->create([
+        'candidate_application_id' => $completedApplication->id,
+        'recruiter_id' => $recruiter->id,
+        'status' => FollowupStatus::Completed,
+        'followup_date' => $dueDate,
+    ]);
+
+    $hiddenApplication = CandidateApplication::factory()->create(['recruiter_id' => $outsider->id]);
+    $hiddenApplication->candidate->update(['full_name' => 'Hidden Followup Candidate']);
+    RecruitmentFollowup::factory()->create([
+        'candidate_application_id' => $hiddenApplication->id,
+        'recruiter_id' => $outsider->id,
+        'followup_date' => $dueDate,
+    ]);
+
+    $user = User::factory()->create(['employee_id' => $manager->id]);
+    $user->assignRole('manager');
+    actingAs($user);
+
+    $component = Livewire::test(FollowUpCalendar::class)
+        ->set('month', $dueDate->copy()->startOfMonth()->toDateString())
+        ->call('selectDate', $dueDate->toDateString())
+        ->assertSee('Overdue Followup Candidate')
+        ->assertSee('Completed Followup Candidate')
+        ->assertDontSee('Hidden Followup Candidate');
+
+    expect($component->instance()->getFollowupCountsInMonth()->get($dueDate->toDateString()))
+        ->toBe(['total' => 2, 'overdue' => 1]);
 });

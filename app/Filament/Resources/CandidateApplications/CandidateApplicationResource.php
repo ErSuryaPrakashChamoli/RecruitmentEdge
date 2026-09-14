@@ -102,7 +102,7 @@ class CandidateApplicationResource extends Resource
      */
     public static function getGloballySearchableAttributes(): array
     {
-        return ['application_code'];
+        return ['application_code', 'candidate.full_name', 'candidate.email', 'candidate.mobile', 'requisition.code'];
     }
 
     public static function getGlobalSearchResultTitle(Model $record): string

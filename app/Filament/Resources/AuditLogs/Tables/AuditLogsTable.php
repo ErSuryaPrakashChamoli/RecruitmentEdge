@@ -31,16 +31,28 @@ class AuditLogsTable
                     ->label('Record #'),
                 TextColumn::make('action')
                     ->badge()
+                    ->formatStateUsing(fn (string $state) => Str::headline($state))
                     ->color(fn (string $state) => match ($state) {
                         'created' => 'success',
                         'deleted' => 'danger',
                         default => 'warning',
                     }),
+                TextColumn::make('changed_fields')
+                    ->label('Fields')
+                    ->state(fn (AuditLog $record): string => implode(', ', array_column($record->diffRows(), 'field')))
+                    ->limit(60)
+                    ->placeholder('—')
+                    ->toggleable(),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
                 SelectFilter::make('action')
-                    ->options(['created' => 'Created', 'updated' => 'Updated', 'deleted' => 'Deleted']),
+                    ->options([
+                        'created' => 'Created',
+                        'updated' => 'Updated',
+                        'deleted' => 'Deleted',
+                        'permissions_updated' => 'Role Permissions Updated',
+                    ]),
                 SelectFilter::make('auditable_type')
                     ->label('Model')
                     ->options(fn () => AuditLog::query()
@@ -55,11 +67,15 @@ class AuditLogsTable
                         TextEntry::make('user.name')->label('By')->formatStateUsing(fn (?string $state) => $state ?? 'System'),
                         TextEntry::make('auditable_type')->label('Model')->formatStateUsing(fn (string $state) => Str::headline(class_basename($state))),
                         TextEntry::make('auditable_id')->label('Record #'),
-                        TextEntry::make('action')->badge(),
+                        TextEntry::make('action')->badge()->formatStateUsing(fn (string $state) => Str::headline($state)),
                         TextEntry::make('ip_address')->placeholder('—'),
-                        TextEntry::make('changes')
-                            ->label('Changes')
-                            ->formatStateUsing(fn (?array $state) => $state ? json_encode($state, JSON_PRETTY_PRINT) : '—')
+                        TextEntry::make('diff')
+                            ->label('Changes (old → new)')
+                            ->state(fn (AuditLog $record): array => collect($record->diffRows())
+                                ->map(fn (array $row): string => "{$row['field']}: {$row['old']} → {$row['new']}")
+                                ->all())
+                            ->listWithLineBreaks()
+                            ->placeholder('—')
                             ->columnSpanFull(),
                     ]),
             ])

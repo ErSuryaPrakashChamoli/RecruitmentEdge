@@ -42,3 +42,38 @@ test('a candidate with no matching mobile or email logs nothing', function (): v
 
     expect(CandidateDuplicateMatch::query()->where('candidate_id', $new->id)->count())->toBe(0);
 });
+
+test('changing a candidate mobile to an existing number logs a match on update', function (): void {
+    $existing = Candidate::factory()->create(['mobile' => '9000000001']);
+    $candidate = Candidate::factory()->create(['mobile' => '9000000002']);
+
+    expect(CandidateDuplicateMatch::query()->where('candidate_id', $candidate->id)->count())->toBe(0);
+
+    $candidate->update(['mobile' => '9000000001']);
+
+    expect(CandidateDuplicateMatch::query()
+        ->where('candidate_id', $candidate->id)
+        ->where('matched_candidate_id', $existing->id)
+        ->where('match_type', DuplicateMatchType::Mobile)
+        ->count())->toBe(1);
+});
+
+test('re-running detection on update never duplicates an existing match row', function (): void {
+    Candidate::factory()->create(['email' => 'same@example.com']);
+    $candidate = Candidate::factory()->create(['email' => 'same@example.com', 'mobile' => '9000000003']);
+
+    $candidate->update(['mobile' => '9000000004']);
+    $candidate->update(['email' => 'SAME@example.com']);
+    $candidate->update(['email' => 'same@example.com']);
+
+    expect(CandidateDuplicateMatch::query()->where('candidate_id', $candidate->id)->count())->toBe(1);
+});
+
+test('updating unrelated fields does not re-run duplicate detection', function (): void {
+    $candidate = Candidate::factory()->create(['mobile' => '9000000005']);
+    Candidate::withoutEvents(fn () => Candidate::factory()->create(['mobile' => '9000000005']));
+
+    $candidate->update(['remarks' => 'Called twice']);
+
+    expect(CandidateDuplicateMatch::query()->where('candidate_id', $candidate->id)->count())->toBe(0);
+});

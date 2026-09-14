@@ -1,16 +1,25 @@
 <x-filament-widgets::widget>
     <x-filament::section heading="Offer & Joining" collapsible collapsed>
-        @php $offers = $this->getOffers(); $joining = $this->getJoining(); $risks = $this->getRisks(); @endphp
+        @php
+            $offers = $this->getOffers();
+            $joining = $this->getJoining();
+            $risks = $this->getRisks();
+            $percent = fn ($value) => $value !== null ? $value.'%' : '—';
+        @endphp
 
-        <div class="mb-3 grid grid-cols-4 gap-2">
+        <div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <x-recruitment.kpi-card label="Offers" :value="$offers['generated']" />
-            <x-recruitment.kpi-card label="Accept Rate" :value="$offers['acceptance_percent'] !== null ? $offers['acceptance_percent'].'%' : '—'" />
-            <x-recruitment.kpi-card label="Joined" :value="$joining['joined']" />
-            <x-recruitment.kpi-card label="Selection→Joining" :value="$joining['joining_percent'] !== null ? $joining['joining_percent'].'%' : '—'" />
+            <x-recruitment.kpi-card label="Released" :value="$offers['released']" />
+            <x-recruitment.kpi-card label="Accept Rate (Released)" :value="$percent($offers['released_acceptance_percent'])" />
+            <x-recruitment.kpi-card label="Accept Rate (Decided)" :value="$percent($offers['acceptance_percent'])" />
+            <x-recruitment.kpi-card label="Avg Offered CTC" :value="$offers['average_offered_ctc'] !== null ? '₹'.number_format($offers['average_offered_ctc']) : '—'" />
+            <x-recruitment.kpi-card label="Avg Days Selection → Offer" :value="$offers['average_days_selection_to_offer'] ?? '—'" />
+            <x-recruitment.kpi-card label="Selection → Joining" :value="$percent($joining['joining_percent'])" />
+            <x-recruitment.kpi-card label="Offer Accepted → Joined" :value="$percent($joining['offer_to_join_percent'])" />
         </div>
 
         <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
-            Offers pending {{ $offers['pending'] }} &middot; rejected {{ $offers['rejected'] }} &middot; expired {{ $offers['expired'] }}
+            Joined {{ $joining['joined'] }} &middot; offers pending {{ $offers['pending'] }} &middot; rejected {{ $offers['rejected'] }} &middot; expired {{ $offers['expired'] }}
             &mdash; Joining today {{ $joining['today'] }}, tomorrow {{ $joining['tomorrow'] }}, next 7 days {{ $joining['next_7_days'] }}
         </p>
 

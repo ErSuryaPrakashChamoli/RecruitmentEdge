@@ -43,10 +43,13 @@ class FindAtRiskRequisitionsTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $rows = $this->analytics->vacancyAgeing($user)->map(fn (array $row) => [
+        // includeWithinThreshold: vacancyAgeing() returns only overdue rows by default, which would
+        // make the "X of Y open requisitions are overdue" summary always read X = Y.
+        $rows = $this->analytics->vacancyAgeing($user, includeWithinThreshold: true)->map(fn (array $row) => [
             'id' => $row['requisition']->id,
             'code' => $row['requisition']->code,
             'designation' => $row['requisition']->designation?->name,
+            'priority' => $row['priority'] ?? null,
             'ageing_days' => $row['ageing_days'],
             'is_overdue' => $row['is_overdue'],
         ]);

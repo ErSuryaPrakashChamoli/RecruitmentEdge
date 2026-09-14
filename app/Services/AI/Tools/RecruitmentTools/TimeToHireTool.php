@@ -56,8 +56,9 @@ class TimeToHireTool implements AiTool
         $departmentId = $arguments['department_id'] ?? null;
 
         $avgDays = $this->analytics->averageTimeToHireDays($start, $end, $user);
-        $costPerHire = $this->cost->costPerHire($start, $end, null, $departmentId);
-        $joins = $this->cost->successfulJoins($start, $end, null, $departmentId);
+        // Scoped to the caller's hierarchy, same as averageTimeToHireDays() above.
+        $costPerHire = $this->cost->costPerHire($start, $end, null, $departmentId, user: $user);
+        $joins = $this->cost->successfulJoins($start, $end, null, $departmentId, user: $user);
 
         return ToolResult::ok(
             data: [

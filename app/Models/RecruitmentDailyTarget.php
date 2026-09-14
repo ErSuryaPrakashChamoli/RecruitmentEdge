@@ -6,15 +6,17 @@ use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
 use App\Models\Concerns\Auditable;
 use Database\Factories\RecruitmentDailyTargetFactory;
+use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Exactly one of employee_id/department_id/designation_id should be set, giving the target's
+ * Exactly one of employee_id/department_id/designation_id must be set, giving the target's
  * scope (recruiter-specific targets win over designation targets, which win over department
- * targets) — enforced by TargetResolutionService, not a DB constraint.
+ * targets — see TargetResolutionService). Enforced by form validation and a saving guard here,
+ * not a DB constraint.
  */
 #[Fillable([
     'employee_id',
@@ -40,6 +42,22 @@ class RecruitmentDailyTarget extends Model
             'effective_from' => 'date',
             'effective_to' => 'date',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $target): void {
+            if (! $target->hasExactlyOneScope()) {
+                throw new DomainException('A target must be scoped to exactly one of a recruiter, a designation, or a department.');
+            }
+        });
+    }
+
+    public function hasExactlyOneScope(): bool
+    {
+        return collect([$this->employee_id, $this->designation_id, $this->department_id])
+            ->filter(fn (mixed $id): bool => filled($id))
+            ->count() === 1;
     }
 
     /**

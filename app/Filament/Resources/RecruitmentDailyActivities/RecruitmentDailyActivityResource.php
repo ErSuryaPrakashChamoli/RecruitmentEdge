@@ -27,6 +27,8 @@ class RecruitmentDailyActivityResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'Recruitment';
 
+    protected static ?string $navigationLabel = 'Daily Activities';
+
     public static function form(Schema $schema): Schema
     {
         return RecruitmentDailyActivityForm::configure($schema);

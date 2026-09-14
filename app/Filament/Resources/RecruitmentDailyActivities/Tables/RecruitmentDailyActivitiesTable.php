@@ -34,7 +34,7 @@ class RecruitmentDailyActivitiesTable
                 TextColumn::make('outcome')
                     ->badge()
                     ->formatStateUsing(fn (?ActivityOutcome $state) => $state?->label() ?? '—')
-                    ->color(fn (?ActivityOutcome $state) => $state?->isConnected() ? 'success' : 'gray'),
+                    ->color(fn (?ActivityOutcome $state) => $state?->color() ?? 'gray'),
                 TextColumn::make('remarks')
                     ->limit(50)
                     ->toggleable(),

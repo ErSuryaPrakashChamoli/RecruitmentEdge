@@ -26,14 +26,22 @@ class RecruitmentInsightsService
     ) {}
 
     /**
+     * @param  User  $user  The acting user — AI usage is attributed to them.
+     * @param  User|null  $scope  Whose hierarchy scope the facts use (e.g. a recruiter picked in the
+     *                            dashboard filter); defaults to $user.
+     * @param  bool  $narrate  False skips the AI call entirely (e.g. the viewer lacks `ai.query`).
      * @return array{facts: array<string, mixed>, narrative: string|null, configured: bool}
      */
-    public function generate(?Employee $viewer, User $user, CarbonInterface $start, CarbonInterface $end): array
+    public function generate(?Employee $viewer, User $user, CarbonInterface $start, CarbonInterface $end, ?User $scope = null, bool $narrate = true): array
     {
-        $facts = $this->gatherFacts($viewer, $user, $start, $end);
+        $facts = $this->gatherFacts($viewer, $scope ?? $user, $start, $end);
 
         if (! $this->gateway->isConfigured()) {
             return ['facts' => $facts, 'narrative' => null, 'configured' => false];
+        }
+
+        if (! $narrate) {
+            return ['facts' => $facts, 'narrative' => null, 'configured' => true];
         }
 
         $messages = [

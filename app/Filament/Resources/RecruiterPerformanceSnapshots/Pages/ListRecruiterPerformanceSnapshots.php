@@ -3,8 +3,6 @@
 namespace App\Filament\Resources\RecruiterPerformanceSnapshots\Pages;
 
 use App\Filament\Resources\RecruiterPerformanceSnapshots\RecruiterPerformanceSnapshotResource;
-use App\Models\CandidateApplication;
-use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\PerformanceEngine;
@@ -29,21 +27,10 @@ class ListRecruiterPerformanceSnapshots extends ListRecords
                     $user = Filament::auth()->user();
                     $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
 
-                    $recruiterIds = CandidateApplication::query()
-                        ->when($visibleIds !== null, fn ($q) => $q->whereIn('recruiter_id', $visibleIds))
-                        ->distinct()
-                        ->pluck('recruiter_id');
-
-                    $engine = app(PerformanceEngine::class);
-                    $start = now()->startOfMonth();
-                    $end = now()->endOfMonth();
-
-                    Employee::query()->whereIn('id', $recruiterIds)->get()->each(
-                        fn (Employee $recruiter) => $engine->snapshotFor($recruiter, $start, $end),
-                    );
+                    $count = app(PerformanceEngine::class)->snapshotAllRecruiters(now()->startOfMonth(), now()->endOfMonth(), $visibleIds);
 
                     Notification::make()
-                        ->title("Recalculated performance for {$recruiterIds->count()} recruiters")
+                        ->title("Recalculated performance for {$count} recruiters")
                         ->success()
                         ->send();
                 }),

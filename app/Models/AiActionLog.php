@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'entity_type',
     'entity_ids',
     'input',
+    'output',
     'result_summary',
     'status',
 ])]
@@ -31,6 +32,7 @@ class AiActionLog extends Model
             'risk_level' => AiRiskLevel::class,
             'entity_ids' => 'array',
             'input' => 'array',
+            'output' => 'array',
         ];
     }
 

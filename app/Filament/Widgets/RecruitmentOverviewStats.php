@@ -5,7 +5,6 @@ namespace App\Filament\Widgets;
 use App\Enums\CandidateStage;
 use App\Enums\RequisitionStatus;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
-use App\Models\User;
 use App\Services\CostPerHireService;
 use App\Services\RecruitmentAnalyticsService;
 use Filament\Facades\Filament;
@@ -41,8 +40,7 @@ class RecruitmentOverviewStats extends Widget
      */
     public function getCards(): array
     {
-        /** @var User $user */
-        $user = Filament::auth()->user();
+        $user = $this->filteredUser();
         $analytics = app(RecruitmentAnalyticsService::class);
 
         [$start, $end] = $this->resolvePeriod();
@@ -56,7 +54,7 @@ class RecruitmentOverviewStats extends Widget
         $turnUp = $analytics->turnUpAnalysis($start, $end, $user);
         $positionHealth = $analytics->positionHealth($user);
         $avgTimeToHire = $analytics->averageTimeToHireDays($start, $end, $user);
-        $costPerHire = app(CostPerHireService::class)->costPerHire($start, $end);
+        $costPerHire = app(CostPerHireService::class)->costPerHire($start, $end, user: $user);
 
         $openPositions = $positionHealth->filter(fn (array $row) => $row['requisition']->status === RequisitionStatus::Open)->count();
         $remaining = $positionHealth->sum('remaining');

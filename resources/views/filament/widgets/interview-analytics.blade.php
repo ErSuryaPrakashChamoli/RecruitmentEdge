@@ -46,5 +46,33 @@
                 </table>
             </div>
         @endif
+
+        @if (($a['by_round'] ?? collect())->isNotEmpty())
+            <p class="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">By Round</p>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 dark:text-gray-400">
+                            <th class="py-2 pr-4">Round</th>
+                            <th class="py-2 pr-3 text-right">Scheduled</th>
+                            <th class="py-2 pr-3 text-right">Completed</th>
+                            <th class="py-2 pr-3 text-right">No-show</th>
+                            <th class="py-2 text-right">Selected</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($a['by_round'] as $row)
+                            <tr class="border-t border-gray-100 dark:border-white/5">
+                                <td class="py-2 pr-4 font-medium">Round {{ $row['round'] }}</td>
+                                <td class="py-2 pr-3 text-right">{{ $row['scheduled'] }}</td>
+                                <td class="py-2 pr-3 text-right">{{ $row['completed'] }}</td>
+                                <td class="py-2 pr-3 text-right">{{ $row['no_show'] }}</td>
+                                <td class="py-2 text-right">{{ $row['selected'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </x-filament::section>
 </x-filament-widgets::widget>

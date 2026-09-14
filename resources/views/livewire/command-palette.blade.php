@@ -12,7 +12,7 @@
                     <input
                         type="text"
                         wire:model.live.debounce.300ms="search"
-                        placeholder="Search candidates, applications, or run a command..."
+                        placeholder="Search candidates, applications, requisitions, offers, pages, or run a command..."
                         autofocus
                         class="w-full border-0 bg-transparent text-sm text-gray-950 placeholder:text-gray-400 focus:outline-none focus:ring-0 dark:text-white"
                     />
@@ -43,8 +43,24 @@
                             {{ $command['label'] }}
                         </a>
                     @empty
-                        <p class="px-4 py-6 text-center text-sm text-gray-400">No matching commands.</p>
+                        <p class="px-4 py-3 text-center text-sm text-gray-400">No matching commands.</p>
                     @endforelse
+
+                    @if (count($navigation) > 0)
+                        <p class="px-4 pb-1 pt-2 text-xs font-semibold uppercase text-gray-400">Go to</p>
+                        @foreach ($navigation as $entry)
+                            <a
+                                href="{{ $entry['url'] }}"
+                                class="flex items-center justify-between px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-white/5"
+                            >
+                                <span class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                                    <x-filament::icon icon="heroicon-o-arrow-right-circle" class="h-4 w-4 text-gray-400" />
+                                    {{ $entry['label'] }}
+                                </span>
+                                <span class="text-xs text-gray-400">{{ $entry['group'] }}</span>
+                            </a>
+                        @endforeach
+                    @endif
                 </div>
             </div>
         </div>

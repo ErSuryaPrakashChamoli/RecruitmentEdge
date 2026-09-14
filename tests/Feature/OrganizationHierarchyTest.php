@@ -82,3 +82,21 @@ test('a recruiter without hierarchy.reassign cannot see the reassign action', fu
     Livewire::test(OrganizationHierarchy::class)
         ->assertActionHidden(TestAction::make('reassignManager')->arguments(['employeeId' => $recruiter->id]));
 });
+
+test('hierarchy drill-down links pass filters under the filters query key the list pages bind to', function (): void {
+    $user = User::factory()->create();
+    $user->assignRole('chro');
+    actingAs($user);
+
+    $page = Livewire::test(OrganizationHierarchy::class)->instance();
+
+    $queryOf = function (string $url): array {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return $query;
+    };
+
+    expect($queryOf($page->candidatesUrl(7))['filters']['recruiter']['value'])->toBe('7')
+        ->and($queryOf($page->vacanciesUrl(7))['filters']['manager']['value'])->toBe('7')
+        ->and($queryOf($page->performanceUrl(7))['filters']['employee']['value'])->toBe('7');
+});

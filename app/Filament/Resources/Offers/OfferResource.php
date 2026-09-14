@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Offers;
 use App\Filament\Resources\Offers\Pages\CreateOffer;
 use App\Filament\Resources\Offers\Pages\EditOffer;
 use App\Filament\Resources\Offers\Pages\ListOffers;
+use App\Filament\Resources\Offers\RelationManagers\StatusHistoryRelationManager;
 use App\Filament\Resources\Offers\Schemas\OfferForm;
 use App\Filament\Resources\Offers\Tables\OffersTable;
 use App\Models\Offer;
@@ -17,6 +18,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use UnitEnum;
 
 class OfferResource extends Resource
@@ -55,10 +57,42 @@ class OfferResource extends Resource
         return $query->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds));
     }
 
+    /**
+     * Powers the panel's global search — inherits hierarchy scoping since it builds on
+     * getEloquentQuery() by default.
+     *
+     * @return array<int, string>
+     */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['offer_code', 'candidateApplication.candidate.full_name'];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return "{$record->offer_code} — {$record->candidateApplication?->candidate?->full_name}";
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return [
+            'Status' => $record->status->label(),
+            'Designation' => $record->designation?->name ?? '—',
+        ];
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['candidateApplication.candidate', 'designation']);
+    }
+
     public static function getRelations(): array
     {
         return [
-            //
+            StatusHistoryRelationManager::class,
         ];
     }
 

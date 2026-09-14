@@ -5,8 +5,12 @@ use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\CandidateSource;
+use App\Models\Employee;
 use App\Models\RecruitmentCost;
+use App\Models\RecruitmentRequisition;
+use App\Models\User;
 use App\Services\CostPerHireService;
+use Database\Seeders\RolePermissionSeeder;
 
 beforeEach(function (): void {
     $this->service = app(CostPerHireService::class);
@@ -70,4 +74,35 @@ test('costPerHire scoped to a source only counts joins sourced from it', functio
 
     expect($this->service->costPerHire($this->start, $this->end, sourceId: $naukri->id))->toBe(10000.0)
         ->and($this->service->costPerHire($this->start, $this->end, sourceId: $referral->id))->toBe(5000.0);
+});
+
+test('costPerHire scoped to a user counts only joins and requisition costs within their hierarchy', function (): void {
+    $this->seed(RolePermissionSeeder::class);
+
+    $manager = Employee::factory()->create();
+    $recruiter = Employee::factory()->reportingTo($manager)->create();
+    $outsider = Employee::factory()->create();
+
+    $teamRequisition = RecruitmentRequisition::factory()->create(['manager_id' => $manager->id]);
+    $otherRequisition = RecruitmentRequisition::factory()->create();
+
+    RecruitmentCost::factory()->create(['amount' => 9000, 'incurred_on' => now(), 'requisition_id' => $teamRequisition->id]);
+    RecruitmentCost::factory()->create(['amount' => 50000, 'incurred_on' => now(), 'requisition_id' => $otherRequisition->id]);
+
+    CandidateJoining::factory()->create([
+        'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id])->id,
+        'status' => JoiningStatus::Joined,
+        'actual_doj' => now(),
+    ]);
+    CandidateJoining::factory()->count(2)->create([
+        'candidate_application_id' => fn () => CandidateApplication::factory()->create(['recruiter_id' => $outsider->id])->id,
+        'status' => JoiningStatus::Joined,
+        'actual_doj' => now(),
+    ]);
+
+    $user = User::factory()->create(['employee_id' => $manager->id]);
+    $user->assignRole('manager');
+
+    expect($this->service->costPerHire($this->start, $this->end, user: $user))->toBe(9000.0)
+        ->and($this->service->costPerHire($this->start, $this->end))->toBe(round(59000 / 3, 2));
 });

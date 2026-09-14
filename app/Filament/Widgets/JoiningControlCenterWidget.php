@@ -5,6 +5,7 @@ namespace App\Filament\Widgets;
 use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
+use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Models\CandidateJoining;
 use App\Models\RecruitmentDailyActivity;
 use App\Models\RecruitmentFollowup;
@@ -26,11 +27,22 @@ use Illuminate\Support\Collection;
  */
 class JoiningControlCenterWidget extends Widget
 {
+    /**
+     * Rows shown per risk group; the group header always shows the full count and a "view all" link
+     * when truncated.
+     */
+    public const int RISK_GROUP_LIMIT = 5;
+
     protected static bool $isLazy = false;
 
     protected string $view = 'filament.widgets.joining-control-center';
 
     protected int|string|array $columnSpan = 'full';
+
+    /**
+     * @var Collection<int, CandidateJoining>|null
+     */
+    private ?Collection $activeJoiningsCache = null;
 
     /**
      * @return array{today: int, tomorrow: int, this_week: int, confirmed: int, needs_followup: int, high_risk: int, no_show: int, joined: int}
@@ -39,17 +51,16 @@ class JoiningControlCenterWidget extends Widget
     {
         /** @var User $user */
         $user = Filament::auth()->user();
-        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
         $analytics = app(RecruitmentAnalyticsService::class)->joiningAnalytics(now()->startOfMonth(), now()->endOfMonth(), $user);
 
-        $active = $this->activeJoinings($visibleIds);
+        $active = $this->activeJoinings();
         $byRisk = $active->groupBy(fn (CandidateJoining $j) => $j->riskLevel());
 
         return [
             'today' => $analytics['today'],
             'tomorrow' => $analytics['tomorrow'],
             'this_week' => $analytics['next_7_days'],
-            'confirmed' => $byRisk->get('green', collect())->count(),
+            'confirmed' => $active->where('status', JoiningStatus::Confirmed)->count(),
             'needs_followup' => $byRisk->get('yellow', collect())->count(),
             'high_risk' => $byRisk->get('red', collect())->count(),
             'no_show' => $analytics['no_show'],
@@ -79,19 +90,33 @@ class JoiningControlCenterWidget extends Widget
     }
 
     /**
+     * The first RISK_GROUP_LIMIT joinings per risk level, soonest DOJ first — see getRiskGroupTotals()
+     * for the untruncated counts.
+     *
      * @return array{green: Collection<int, CandidateJoining>, yellow: Collection<int, CandidateJoining>, red: Collection<int, CandidateJoining>}
      */
     public function getRiskGroups(): array
     {
-        /** @var User $user */
-        $user = Filament::auth()->user();
-        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
-        $byRisk = $this->activeJoinings($visibleIds)->groupBy(fn (CandidateJoining $j) => $j->riskLevel());
+        $byRisk = $this->activeJoinings()->groupBy(fn (CandidateJoining $j) => $j->riskLevel());
 
         return [
-            'green' => $byRisk->get('green', collect())->take(5)->values(),
-            'yellow' => $byRisk->get('yellow', collect())->take(5)->values(),
-            'red' => $byRisk->get('red', collect())->take(5)->values(),
+            'green' => $byRisk->get('green', collect())->take(self::RISK_GROUP_LIMIT)->values(),
+            'yellow' => $byRisk->get('yellow', collect())->take(self::RISK_GROUP_LIMIT)->values(),
+            'red' => $byRisk->get('red', collect())->take(self::RISK_GROUP_LIMIT)->values(),
+        ];
+    }
+
+    /**
+     * @return array{green: int, yellow: int, red: int}
+     */
+    public function getRiskGroupTotals(): array
+    {
+        $byRisk = $this->activeJoinings()->countBy(fn (CandidateJoining $j) => $j->riskLevel());
+
+        return [
+            'green' => $byRisk->get('green', 0),
+            'yellow' => $byRisk->get('yellow', 0),
+            'red' => $byRisk->get('red', 0),
         ];
     }
 
@@ -146,16 +171,58 @@ class JoiningControlCenterWidget extends Widget
         return CandidateApplicationResource::getUrl('view', ['record' => $joining->candidateApplication]);
     }
 
+    public function joiningsIndexUrl(): string
+    {
+        return CandidateJoiningResource::getUrl('index');
+    }
+
     /**
-     * @param  Collection<int, int>|null  $visibleIds
+     * Signed day count from today to the expected DOJ (negative once overdue).
+     */
+    public function daysToDoj(CandidateJoining $joining): int
+    {
+        return (int) now()->startOfDay()->diffInDays($joining->expected_doj->copy()->startOfDay(), false);
+    }
+
+    public function daysToDojLabel(CandidateJoining $joining): string
+    {
+        $days = $this->daysToDoj($joining);
+
+        return match (true) {
+            $days === 0 => 'Joining today',
+            $days === 1 => 'In 1 day',
+            $days > 1 => "In {$days} days",
+            $days === -1 => '1 day overdue',
+            default => abs($days).' days overdue',
+        };
+    }
+
+    public function isConfirmed(CandidateJoining $joining): bool
+    {
+        return $joining->status === JoiningStatus::Confirmed;
+    }
+
+    /**
+     * Active (Expected/Confirmed) joinings in the viewer's hierarchy, soonest DOJ first. Memoized for
+     * the render so the summary, risk groups, and totals share one query.
+     *
      * @return Collection<int, CandidateJoining>
      */
-    private function activeJoinings(?Collection $visibleIds): Collection
+    private function activeJoinings(): Collection
     {
-        return CandidateJoining::query()
+        if ($this->activeJoiningsCache !== null) {
+            return $this->activeJoiningsCache;
+        }
+
+        /** @var User $user */
+        $user = Filament::auth()->user();
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        return $this->activeJoiningsCache = CandidateJoining::query()
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
             ->with(['candidateApplication.candidate', 'candidateApplication.requisition.designation'])
+            ->orderBy('expected_doj')
             ->get();
     }
 }

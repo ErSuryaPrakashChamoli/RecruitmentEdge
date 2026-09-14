@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\RecruitmentRequisitions;
 
+use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\CreateRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\EditRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\ListRecruitmentRequisitions;
+use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\ApplicationsRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\StatusHistoryRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\Schemas\RecruitmentRequisitionForm;
 use App\Filament\Resources\RecruitmentRequisitions\Tables\RecruitmentRequisitionsTable;
@@ -18,6 +20,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use UnitEnum;
 
@@ -70,9 +73,25 @@ class RecruitmentRequisitionResource extends Resource
         });
     }
 
+    /**
+     * Requisitions a new application may be raised against: Open, and visible to the current user
+     * via the same hierarchy scoping as the list. Used for the requisition select options and as
+     * the server-side guard when an application is created.
+     *
+     * @param  Builder<RecruitmentRequisition>|null  $query
+     * @return Builder<RecruitmentRequisition>
+     */
+    public static function applicationTargetQuery(?Builder $query = null): Builder
+    {
+        return ($query ?? RecruitmentRequisition::query())
+            ->where('recruitment_requisitions.status', RequisitionStatus::Open->value)
+            ->whereIn('recruitment_requisitions.id', static::getEloquentQuery()->select('recruitment_requisitions.id'));
+    }
+
     public static function getRelations(): array
     {
         return [
+            ApplicationsRelationManager::class,
             StatusHistoryRelationManager::class,
         ];
     }
@@ -92,5 +111,37 @@ class RecruitmentRequisitionResource extends Resource
             ->withoutGlobalScopes([
                 SoftDeletingScope::class,
             ]);
+    }
+
+    /**
+     * Powers the panel's global search (Cmd/Ctrl+K) — inherits hierarchy scoping from
+     * getEloquentQuery() via getGlobalSearchEloquentQuery().
+     *
+     * @return array<int, string>
+     */
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['code', 'designation.name', 'department.name'];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return "{$record->code} — ".($record->designation?->name ?? 'Requisition');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return [
+            'Department' => $record->department?->name ?? '—',
+            'Status' => $record->status->label(),
+        ];
+    }
+
+    public static function getGlobalSearchEloquentQuery(): Builder
+    {
+        return parent::getGlobalSearchEloquentQuery()->with(['designation', 'department']);
     }
 }

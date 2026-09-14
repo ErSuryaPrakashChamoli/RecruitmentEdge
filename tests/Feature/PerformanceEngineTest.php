@@ -2,8 +2,11 @@
 
 use App\Enums\ActivityOutcome;
 use App\Enums\ActivityType;
+use App\Enums\EmployeeStatus;
+use App\Enums\MetricAccountability;
 use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
+use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruiterPerformanceRule;
 use App\Models\RecruiterPerformanceSnapshot;
@@ -112,4 +115,53 @@ test('snapshotFor upserts a single snapshot per recruiter and period', function 
 
     expect(RecruiterPerformanceSnapshot::query()->count())->toBe(1)
         ->and((float) RecruiterPerformanceSnapshot::query()->first()->score)->toBe(100.0);
+});
+
+test('compositeScoreFor returns the live composite score, or null when no targets resolve', function (): void {
+    $recruiter = Employee::factory()->create();
+
+    RecruiterPerformanceRule::factory()->create(['metric' => TargetMetric::Calls, 'weightage' => 100, 'effective_from' => $this->start]);
+
+    expect($this->engine->compositeScoreFor($recruiter, $this->start, $this->end))->toBeNull();
+
+    RecruitmentDailyTarget::factory()->create([
+        'employee_id' => $recruiter->id, 'metric' => TargetMetric::Calls, 'target_value' => 10, 'period_type' => TargetPeriodType::Monthly, 'effective_from' => $this->start,
+    ]);
+    makeCallActivities($recruiter, total: 5, connected: 0);
+
+    expect($this->engine->compositeScoreFor($recruiter, $this->start, $this->end))->toBe(50.0);
+});
+
+test('snapshotAllRecruiters snapshots only active employees assigned as recruiters, within the visible set', function (): void {
+    $active = Employee::factory()->create();
+    $inactive = Employee::factory()->create(['status' => EmployeeStatus::Inactive]);
+    $outOfScope = Employee::factory()->create();
+    Employee::factory()->create();
+
+    foreach ([$active, $inactive, $outOfScope] as $recruiter) {
+        CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    }
+
+    $count = $this->engine->snapshotAllRecruiters($this->start, $this->end, collect([$active->id, $inactive->id]));
+
+    expect($count)->toBe(1)
+        ->and(RecruiterPerformanceSnapshot::query()->pluck('employee_id')->all())->toBe([$active->id]);
+});
+
+test('summarizeByAccountability groups a breakdown into controllable and influenced metrics', function (): void {
+    $summary = PerformanceEngine::summarizeByAccountability([
+        ['metric' => TargetMetric::Calls->value, 'weight' => 50, 'target' => 10, 'actual' => 12, 'achievement' => 120.0],
+        ['metric' => TargetMetric::Screening->value, 'weight' => 20, 'target' => 10, 'actual' => 5, 'achievement' => 50.0],
+        ['metric' => TargetMetric::Offers->value, 'weight' => 30, 'target' => null, 'actual' => 1, 'achievement' => null],
+    ]);
+
+    expect($summary[MetricAccountability::Controllable->value])
+        ->rows->toHaveCount(2)
+        ->measured->toBe(2)
+        ->met->toBe(1)
+        ->average_achievement->toBe(85.0)
+        ->and($summary[MetricAccountability::Influenced->value])
+        ->rows->toHaveCount(1)
+        ->measured->toBe(0)
+        ->average_achievement->toBeNull();
 });

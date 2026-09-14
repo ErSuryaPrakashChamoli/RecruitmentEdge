@@ -9,6 +9,7 @@ use App\Filament\Exports\CandidateApplicationExporter;
 use App\Models\CandidateApplication;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\StageTransitionService;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -20,6 +21,7 @@ use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
+use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -91,6 +93,7 @@ class CandidateApplicationsTable
                 self::advanceStageAction(),
                 self::rejectAction(),
                 self::dropoutAction(),
+                self::holdAction(),
                 self::reactivateAction(),
                 EditAction::make(),
             ])
@@ -124,16 +127,15 @@ class CandidateApplicationsTable
                     ->required(),
                 Textarea::make('remarks'),
             ])
-            ->action(function (CandidateApplication $record, array $data): void {
-                app(StageTransitionService::class)->transitionTo(
+            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
+                fn (StageTransitionService $service) => $service->transitionTo(
                     $record,
                     CandidateStage::from($data['stage']),
                     auth()->user()?->employee,
                     $data['remarks'] ?? null,
-                );
-
-                Notification::make()->title('Stage updated')->success()->send();
-            });
+                ),
+                'Stage updated',
+            ));
     }
 
     public static function rejectAction(): Action
@@ -145,23 +147,18 @@ class CandidateApplicationsTable
             ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
                 && (bool) auth()->user()?->can('update', $record))
             ->schema([
-                Select::make('rejection_reason_id')
-                    ->label('Reason')
-                    ->relationship('rejectionReason', 'name')
-                    ->required()
-                    ->searchable(),
+                self::reasonSelect('rejection_reason_id'),
                 Textarea::make('remarks'),
             ])
-            ->action(function (CandidateApplication $record, array $data): void {
-                app(StageTransitionService::class)->reject(
+            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
+                fn (StageTransitionService $service) => $service->reject(
                     $record,
                     RecruitmentRejectionReason::query()->findOrFail($data['rejection_reason_id']),
                     auth()->user()?->employee,
                     $data['remarks'] ?? null,
-                );
-
-                Notification::make()->title('Application rejected')->success()->send();
-            });
+                ),
+                'Application rejected',
+            ));
     }
 
     public static function dropoutAction(): Action
@@ -173,23 +170,40 @@ class CandidateApplicationsTable
             ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
                 && (bool) auth()->user()?->can('update', $record))
             ->schema([
-                Select::make('dropout_reason_id')
-                    ->label('Reason')
-                    ->relationship('dropoutReason', 'name')
-                    ->required()
-                    ->searchable(),
+                self::reasonSelect('dropout_reason_id'),
                 Textarea::make('remarks'),
             ])
-            ->action(function (CandidateApplication $record, array $data): void {
-                app(StageTransitionService::class)->dropout(
+            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
+                fn (StageTransitionService $service) => $service->dropout(
                     $record,
                     RecruitmentRejectionReason::query()->findOrFail($data['dropout_reason_id']),
                     auth()->user()?->employee,
                     $data['remarks'] ?? null,
-                );
+                ),
+                'Application marked as dropout',
+            ));
+    }
 
-                Notification::make()->title('Application marked as dropout')->success()->send();
-            });
+    public static function holdAction(): Action
+    {
+        return Action::make('hold')
+            ->label('Put On Hold')
+            ->color('warning')
+            ->icon('heroicon-o-pause-circle')
+            ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
+                && (bool) auth()->user()?->can('update', $record))
+            ->schema([
+                Textarea::make('remarks')
+                    ->required(),
+            ])
+            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
+                fn (StageTransitionService $service) => $service->hold(
+                    $record,
+                    auth()->user()?->employee,
+                    $data['remarks'],
+                ),
+                'Application put on hold',
+            ));
     }
 
     public static function reactivateAction(): Action
@@ -200,11 +214,55 @@ class CandidateApplicationsTable
             ->icon('heroicon-o-arrow-path')
             ->visible(fn (CandidateApplication $record): bool => $record->status !== ApplicationStatus::Active
                 && (bool) auth()->user()?->can('update', $record))
-            ->requiresConfirmation()
-            ->action(function (CandidateApplication $record): void {
-                app(StageTransitionService::class)->reactivate($record, auth()->user()?->employee);
+            ->modalSubmitActionLabel('Reactivate')
+            ->schema([
+                Textarea::make('remarks'),
+            ])
+            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
+                fn (StageTransitionService $service) => $service->reactivate(
+                    $record,
+                    auth()->user()?->employee,
+                    $data['remarks'] ?? null,
+                ),
+                'Application reactivated',
+            ));
+    }
 
-                Notification::make()->title('Application reactivated')->success()->send();
-            });
+    /**
+     * Rejection/dropout reason picker: only active reasons, grouped by RejectionCategory.
+     * StageTransitionService re-checks that the chosen reason is still active.
+     */
+    public static function reasonSelect(string $name): Select
+    {
+        return Select::make($name)
+            ->label('Reason')
+            ->options(fn (): array => RecruitmentRejectionReason::groupedActiveOptions())
+            ->required()
+            ->searchable();
+    }
+
+    /**
+     * StageTransitionService enforces the state machine for every write path, so its guards
+     * arrive here as DomainException. Surface them as a notification and halt the action — an
+     * uncaught one renders a 500 error page over the panel.
+     *
+     * @param  callable(StageTransitionService): mixed  $transition
+     */
+    public static function performTransition(callable $transition, string $successTitle): void
+    {
+        try {
+            $transition(app(StageTransitionService::class));
+        } catch (DomainException $e) {
+            Notification::make()
+                ->title('Application could not be updated')
+                ->body($e->getMessage())
+                ->danger()
+                ->persistent()
+                ->send();
+
+            throw new Halt;
+        }
+
+        Notification::make()->title($successTitle)->success()->send();
     }
 }

@@ -31,9 +31,16 @@
     </div>
 
     <div class="mt-2 flex items-center justify-between">
-        <x-filament::badge :color="$application->priority->color()" size="xs">
-            {{ $application->priority->label() }}
-        </x-filament::badge>
+        <div class="flex items-center gap-2">
+            <x-filament::badge :color="$application->priority->color()" size="xs">
+                {{ $application->priority->label() }}
+            </x-filament::badge>
+            @unless ($isActiveBoard ?? true)
+                <x-filament::badge :color="$application->status->color()" size="xs">
+                    {{ $application->status->label() }}
+                </x-filament::badge>
+            @endunless
+        </div>
         @if ($application->stage_age_days !== null)
             <span class="text-xs text-gray-400 dark:text-gray-500">{{ $application->stage_age_days }}d in stage</span>
         @endif
@@ -46,12 +53,33 @@
         </p>
     @endif
 
-    <button
-        type="button"
-        wire:click="mountAction('moveApplication', { applicationId: {{ $application->id }} })"
-        wire:sort:ignore
-        class="mt-2 w-full rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20"
-    >
-        Move to…
-    </button>
+    @if ($isActiveBoard ?? true)
+        <button
+            type="button"
+            wire:click="mountAction('moveApplication', { applicationId: {{ $application->id }} })"
+            wire:sort:ignore
+            class="mt-2 w-full rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20"
+        >
+            Move to…
+        </button>
+
+        <div class="mt-2 flex items-center gap-2">
+            <button
+                type="button"
+                wire:click="mountAction('rejectApplication', { applicationId: {{ $application->id }} })"
+                wire:sort:ignore
+                class="flex-1 rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:underline dark:bg-rose-500/10 dark:text-rose-400"
+            >
+                Reject
+            </button>
+            <button
+                type="button"
+                wire:click="mountAction('dropoutApplication', { applicationId: {{ $application->id }} })"
+                wire:sort:ignore
+                class="flex-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 hover:underline dark:bg-amber-500/10 dark:text-amber-400"
+            >
+                Drop Out
+            </button>
+        </div>
+    @endif
 </div>

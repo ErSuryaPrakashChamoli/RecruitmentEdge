@@ -64,7 +64,7 @@ class NullProvider implements EmbeddingProviderInterface, LLMProviderInterface, 
      */
     public function embed(array $texts, ?string $model = null, string $context = 'document'): array
     {
-        throw new AiProviderUnavailableException('No embedding provider is configured (set GEMINI_API_KEY or OPENAI_API_KEY).');
+        throw new AiProviderUnavailableException('No embedding provider is configured (set AI_EMBEDDING_PROVIDER and its API key — GEMINI_API_KEY for the default Gemini provider, or OPENAI_API_KEY).');
     }
 
     /**
@@ -73,12 +73,13 @@ class NullProvider implements EmbeddingProviderInterface, LLMProviderInterface, 
      */
     public function search(string $query, array $options = []): array
     {
-        throw new AiProviderUnavailableException('No web search provider is configured (set OPENAI_API_KEY).');
+        throw new AiProviderUnavailableException('No web search provider is configured (set AI_WEB_SEARCH_PROVIDER and its API key — GEMINI_API_KEY for the default Gemini provider, or OPENAI_API_KEY).');
     }
 
     private function message(): string
     {
-        return 'AI is not configured yet. Ask an administrator to add an OPENAI_API_KEY so I can '
-            .'answer with real reasoning — the rest of the app works normally in the meantime.';
+        return 'AI is not configured yet. Ask an administrator to set AI_PROVIDER and its API key '
+            .'(GEMINI_API_KEY for the default Gemini provider, or OPENAI_API_KEY) so I can answer with '
+            .'real reasoning — the rest of the app works normally in the meantime.';
     }
 }

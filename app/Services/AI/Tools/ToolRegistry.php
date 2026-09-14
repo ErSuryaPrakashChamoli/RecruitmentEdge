@@ -3,6 +3,7 @@
 namespace App\Services\AI\Tools;
 
 use App\Models\User;
+use App\Services\AI\Actions\ConfirmationGate;
 use App\Services\AI\DTO\ToolDefinition;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -11,6 +12,10 @@ use App\Services\AI\Tools\Contracts\AiTool;
  * AiServiceProvider from ToolRegistrar::CLASSES. Permission filtering happens here so a user can
  * never even be offered a tool call they're not authorized for — the model never sees it, and
  * AiOrchestrator never executes it.
+ *
+ * Write/External/HighImpact tools are only offered when AI actions are enabled AND the user holds
+ * ai.actions.execute — offering a user an action nobody in their session can approve only produces
+ * dead-end pending cards.
  */
 class ToolRegistry
 {
@@ -42,17 +47,9 @@ class ToolRegistry
      */
     public function forUser(User $user): array
     {
-        $actionsEnabled = (bool) config('ai.features.actions_enabled');
-
         return array_values(array_filter(
             $this->tools,
-            function (AiTool $tool) use ($user, $actionsEnabled) {
-                if ($tool->riskLevel()->requiresConfirmation() && ! $actionsEnabled) {
-                    return false;
-                }
-
-                return $tool->permission() === null || $user->can($tool->permission());
-            },
+            fn (AiTool $tool) => $this->isOfferedTo($user, $tool),
         ));
     }
 
@@ -76,5 +73,24 @@ class ToolRegistry
         $tool = $this->find($toolName);
 
         return $tool !== null && ($tool->permission() === null || $user->can($tool->permission()));
+    }
+
+    /**
+     * Whether $tool would be included in the tool definitions sent to the model for $user.
+     */
+    public function isOfferedTo(User $user, AiTool|string $tool): bool
+    {
+        $tool = is_string($tool) ? $this->find($tool) : $tool;
+
+        if ($tool === null || ! $this->userMayUse($user, $tool->name())) {
+            return false;
+        }
+
+        if (! $tool->riskLevel()->requiresConfirmation()) {
+            return true;
+        }
+
+        return (bool) config('ai.features.actions_enabled')
+            && $user->can(ConfirmationGate::APPROVAL_PERMISSION);
     }
 }

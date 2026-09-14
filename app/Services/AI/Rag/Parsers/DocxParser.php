@@ -8,17 +8,23 @@ use PhpOffice\PhpWord\Element\Text;
 use PhpOffice\PhpWord\Element\TextRun;
 use PhpOffice\PhpWord\IOFactory;
 
+/**
+ * Word documents: .docx via PhpWord's Word2007 reader, legacy binary .doc via its MsDoc reader
+ * (text extraction from .doc is best-effort — complex layouts may lose structure, but plain body
+ * text comes through, which is all RAG chunking needs).
+ */
 class DocxParser implements DocumentParserInterface
 {
     public function supports(string $mimeType, string $extension): bool
     {
-        return $extension === 'docx'
-            || $mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        return in_array($extension, ['docx', 'doc'], true)
+            || in_array($mimeType, ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'], true);
     }
 
     public function extractText(string $absolutePath): string
     {
-        $document = IOFactory::load($absolutePath);
+        $reader = strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION)) === 'doc' ? 'MsDoc' : 'Word2007';
+        $document = IOFactory::load($absolutePath, $reader);
         $lines = [];
 
         foreach ($document->getSections() as $section) {

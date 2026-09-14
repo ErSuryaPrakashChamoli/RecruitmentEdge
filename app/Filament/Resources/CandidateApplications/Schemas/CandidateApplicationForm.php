@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CandidateApplications\Schemas;
 
 use App\Enums\Priority;
+use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -10,6 +11,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 
 class CandidateApplicationForm
 {
@@ -33,7 +35,14 @@ class CandidateApplicationForm
                             ->searchable()
                             ->preload(),
                         Select::make('requisition_id')
-                            ->relationship('requisition', 'code')
+                            ->relationship(
+                                'requisition',
+                                'code',
+                                modifyQueryUsing: fn (Builder $query, string $operation): Builder => $operation === 'create'
+                                    ? RecruitmentRequisitionResource::applicationTargetQuery($query)
+                                    : $query,
+                            )
+                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? 'Only Open requisitions accept new applications.' : null)
                             ->required()
                             ->searchable()
                             ->preload(),

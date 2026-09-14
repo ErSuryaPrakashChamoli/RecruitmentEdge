@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\AiActionLogs\Tables;
 
+use App\Models\AiActionLog;
+use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -30,6 +32,11 @@ class AiActionLogsTable
                     }),
                 TextColumn::make('entity_type')
                     ->placeholder('—'),
+                TextColumn::make('entity_ids')
+                    ->label('Entity IDs')
+                    ->state(fn (AiActionLog $record) => filled($record->entity_ids) ? implode(', ', (array) $record->entity_ids) : null)
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('result_summary')
                     ->limit(60)
                     ->wrap(),
@@ -58,6 +65,10 @@ class AiActionLogsTable
                         'rejected' => 'Rejected',
                         'failed' => 'Failed',
                     ]),
+            ])
+            ->recordActions([
+                ViewAction::make()
+                    ->label('Details'),
             ]);
     }
 }

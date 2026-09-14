@@ -3,6 +3,14 @@
         <x-slot name="afterHeader">
             <div class="ms-auto flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                 <span class="flex items-center gap-1.5">
+                    <span class="h-2 w-2 rounded-full bg-amber-500"></span>
+                    Follow-up
+                </span>
+                <span class="flex items-center gap-1.5">
+                    <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+                    Overdue
+                </span>
+                <span class="flex items-center gap-1.5">
                     <span class="h-2 w-2 rounded-full bg-blue-500"></span>
                     Interview
                 </span>
@@ -39,6 +47,7 @@
                 @php
                     $interviewCounts = $this->getInterviewCountsInMonth();
                     $joiningCounts = $this->getJoiningCountsInMonth();
+                    $followupCounts = $this->getFollowupCountsInMonth();
                     $today = now()->toDateString();
                 @endphp
 
@@ -63,7 +72,9 @@
                                         $isToday = $dateStr === $today;
                                         $interviewCount = $interviewCounts->get($dateStr, 0);
                                         $joiningCount = $joiningCounts->get($dateStr, 0);
-                                        $hasEvents = $interviewCount > 0 || $joiningCount > 0;
+                                        $followupCount = $followupCounts->get($dateStr)['total'] ?? 0;
+                                        $overdueCount = $followupCounts->get($dateStr)['overdue'] ?? 0;
+                                        $hasEvents = $interviewCount > 0 || $joiningCount > 0 || $followupCount > 0;
                                     @endphp
                                     <button
                                         type="button"
@@ -86,6 +97,16 @@
                                         </span>
 
                                         <div class="flex flex-col gap-1">
+                                            @if ($followupCount > 0)
+                                                <span @class([
+                                                    'inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm',
+                                                    'bg-rose-500' => $overdueCount > 0,
+                                                    'bg-amber-500' => $overdueCount === 0,
+                                                ])>
+                                                    <x-filament::icon icon="heroicon-m-phone-arrow-up-right" class="h-2.5 w-2.5" />
+                                                    {{ $followupCount }} {{ Str::plural('Follow-up', $followupCount) }}
+                                                </span>
+                                            @endif
                                             @if ($interviewCount > 0)
                                                 <span class="inline-flex w-fit items-center gap-1 rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
                                                     <x-filament::icon icon="heroicon-m-video-camera" class="h-2.5 w-2.5" />
@@ -110,16 +131,69 @@
             <div class="lg:col-span-2">
                 <div class="rounded-xl border border-gray-200 p-4 dark:border-white/10">
                     <p class="text-sm font-semibold">
-                        Follow-ups on {{ \Illuminate\Support\Carbon::parse($this->selectedDate)->format('d M Y') }}
+                        Agenda for {{ \Illuminate\Support\Carbon::parse($this->selectedDate)->format('d M Y') }}
                     </p>
                     <p class="text-xs text-gray-500 dark:text-gray-400">
-                        Click any date on the calendar to see that day's interviews and joinings here.
+                        Click any date on the calendar to see that day's follow-ups, interviews and joinings here.
                     </p>
 
                     @php
+                        $followups = $this->getFollowupsForSelectedDate();
                         $interviews = $this->getInterviewsForSelectedDate();
                         $joinings = $this->getJoiningsForSelectedDate();
                     @endphp
+
+                    <div class="mt-4">
+                        <div class="mb-2 flex items-center justify-between">
+                            <h4 class="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                                Follow-ups
+                            </h4>
+                            <x-filament::badge color="warning" size="xs">{{ $followups->count() }}</x-filament::badge>
+                        </div>
+
+                        @if ($followups->isEmpty())
+                            <x-recruitment.empty-state compact heading="No follow-ups due on this day" />
+                        @else
+                            <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-white/10">
+                                <table class="w-full text-sm">
+                                    <thead>
+                                        <tr class="bg-gray-50 text-left text-xs text-gray-500 dark:bg-white/5 dark:text-gray-400">
+                                            <th class="px-3 py-2 font-medium">Candidate</th>
+                                            <th class="px-3 py-2 font-medium">Type</th>
+                                            <th class="px-3 py-2 font-medium">Time</th>
+                                            <th class="px-3 py-2 font-medium">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($followups as $followup)
+                                            @php $isOverdue = $followup->isOverdue(); @endphp
+                                            <tr @class([
+                                                'border-t border-gray-100 dark:border-white/5',
+                                                'bg-rose-50 dark:bg-rose-500/10' => $isOverdue,
+                                            ])>
+                                                <td class="px-3 py-2 font-medium">
+                                                    {{ $followup->candidateApplication?->candidate?->full_name ?? '—' }}
+                                                </td>
+                                                <td class="px-3 py-2 text-gray-500 dark:text-gray-400">
+                                                    {{ $followup->followup_type?->label() ?? '—' }}
+                                                </td>
+                                                <td class="px-3 py-2 whitespace-nowrap">
+                                                    {{ $followup->followup_date->format('h:i A') }}
+                                                </td>
+                                                <td class="px-3 py-2">
+                                                    @if ($isOverdue)
+                                                        <x-filament::badge color="danger" size="xs">Overdue</x-filament::badge>
+                                                    @else
+                                                        <x-filament::badge size="xs">{{ $followup->status->label() }}</x-filament::badge>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
 
                     <div class="mt-4">
                         <div class="mb-2 flex items-center justify-between">

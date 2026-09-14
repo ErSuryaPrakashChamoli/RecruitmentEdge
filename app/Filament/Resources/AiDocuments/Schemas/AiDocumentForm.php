@@ -30,10 +30,10 @@ class AiDocumentForm
                     ->label('Document')
                     ->disk('local')
                     ->directory('ai-documents')
-                    ->acceptedFileTypes(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown', 'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
+                    ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown', 'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
                     ->storeFileNamesIn('original_file_name')
                     ->required()
-                    ->helperText('PDF, DOCX, XLSX, CSV, or TXT. Indexed for AI search automatically after upload.'),
+                    ->helperText('PDF, DOC, DOCX, XLSX, CSV, or TXT. Indexed for AI search automatically after upload.'),
                 Toggle::make('is_published')
                     ->default(true)
                     ->helperText('Only published, indexed documents are searchable by the Copilot.')

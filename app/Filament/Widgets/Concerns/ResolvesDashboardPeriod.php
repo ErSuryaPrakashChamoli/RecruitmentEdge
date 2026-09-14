@@ -4,6 +4,7 @@ namespace App\Filament\Widgets\Concerns;
 
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\HierarchyService;
 use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 
@@ -38,16 +39,29 @@ trait ResolvesDashboardPeriod
     }
 
     /**
-     * The acting user, honoring the "recruiter" filter when the viewer has selected one specific
-     * recruiter to inspect (still bounded by that viewer's own hierarchy — see the widgets that
-     * call this: they resolve visibility from this user, never from the raw filter value).
+     * The user whose hierarchy scope every widget query should use. With no recruiter selected
+     * (or a selected recruiter the viewer is not allowed to see — a tampered filter value), this is
+     * the logged-in viewer. With a visible recruiter selected, it is a transient, never-persisted
+     * User carrying only that recruiter's employee_id: HierarchyService then scopes to exactly that
+     * recruiter and anyone below them, regardless of the recruiter's own login/permissions (they
+     * may have no User account at all). Never use this for auditing or AI usage attribution — use
+     * Filament::auth()->user() for "who is acting".
      */
     protected function filteredUser(): User
     {
-        /** @var User $user */
-        $user = Filament::auth()->user();
+        /** @var User $viewer */
+        $viewer = Filament::auth()->user();
+        $recruiter = $this->filteredRecruiter();
 
-        return $user;
+        if ($recruiter === null || ! app(HierarchyService::class)->canView($viewer, $recruiter)) {
+            return $viewer;
+        }
+
+        $scopedUser = new User;
+        $scopedUser->forceFill(['employee_id' => $recruiter->id, 'name' => $recruiter->fullName()]);
+        $scopedUser->setRelation('employee', $recruiter);
+
+        return $scopedUser;
     }
 
     protected function filteredRecruiterId(): ?int

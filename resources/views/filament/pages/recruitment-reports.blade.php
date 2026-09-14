@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <x-filament::section heading="Period">
+    <x-filament::section heading="Filters" description="The period applies to every report; requisition, department and source narrow Cost per Hire only.">
         {{ $this->form }}
     </x-filament::section>
 
@@ -115,15 +115,18 @@
                     <tr class="text-left text-gray-500 dark:text-gray-400">
                         <th class="py-2 pr-4">Requisition</th>
                         <th class="py-2 pr-4">Designation</th>
+                        <th class="py-2 pr-4">Priority</th>
                         <th class="py-2 pr-4 text-right">Ageing (days)</th>
                         <th class="py-2 text-right">Overdue</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($this->getVacancyAgeing() as $row)
+                        @php $priority = $this->priorityLabel($row['priority'] ?? null); @endphp
                         <tr class="border-t border-gray-100 dark:border-white/5">
                             <td class="py-2 pr-4 font-medium">{{ $row['requisition']->code }}</td>
                             <td class="py-2 pr-4">{{ $row['requisition']->designation?->name }}</td>
+                            <td class="py-2 pr-4">{{ $priority ?? '—' }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['ageing_days'] }}</td>
                             <td class="py-2 text-right">
                                 @if ($row['is_overdue'])
@@ -135,7 +138,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4">
+                            <td colspan="5">
                                 <x-recruitment.empty-state
                                     icon="heroicon-o-briefcase"
                                     heading="No open or on-hold requisitions"

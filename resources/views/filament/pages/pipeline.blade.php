@@ -12,6 +12,17 @@
 
     {{-- Filters --}}
     <div class="mt-4 flex flex-wrap items-center gap-2">
+        <select wire:model.live="statusFilter" class="fi-select-input block rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white">
+            @foreach ($this->statusOptions() as $option)
+                <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
+            @endforeach
+        </select>
+        <select wire:model.live="departmentId" class="fi-select-input block rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white">
+            <option value="">All Departments</option>
+            @foreach ($this->departmentOptions() as $option)
+                <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
+            @endforeach
+        </select>
         <select wire:model.live="requisitionId" class="fi-select-input block rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-white/5 dark:text-white">
             <option value="">All Requisitions</option>
             @foreach ($this->requisitionOptions() as $option)
@@ -30,8 +41,8 @@
                 <option value="{{ $priority->value }}">{{ $priority->label() }}</option>
             @endforeach
         </select>
-        @if ($requisitionId || $recruiterId || $priorityFilter)
-            <button type="button" wire:click="$set('requisitionId', null); $set('recruiterId', null); $set('priorityFilter', null)" class="text-xs font-medium text-gray-500 hover:underline dark:text-gray-400">
+        @if ($this->hasActiveFilters())
+            <button type="button" wire:click="clearFilters" class="text-xs font-medium text-gray-500 hover:underline dark:text-gray-400">
                 Clear filters
             </button>
         @endif
@@ -54,6 +65,7 @@
         </div>
     @endif
 
+    @php $isActiveBoard = $this->isActiveBoard(); @endphp
     <div class="mt-4 flex gap-4 overflow-x-auto pb-4">
         @foreach ($this->getColumns() as $column)
             @php $data = $this->getCardsFor($column['stages']); @endphp
@@ -70,11 +82,11 @@
                     @endif
                 </div>
 
-                @if ($column['dragStage'] !== null)
+                @if ($column['dragStage'] !== null && $isActiveBoard)
                     <div wire:sort="handleSort" wire:sort:group="pipeline-cards" wire:sort:group-id="{{ $column['key'] }}" class="flex flex-col gap-2 p-2">
                         @forelse ($data['applications'] as $application)
                             <div wire:key="card-{{ $application->id }}" wire:sort:item="{{ $application->id }}">
-                                @include('filament.pages.pipeline-card', ['application' => $application])
+                                @include('filament.pages.pipeline-card', ['application' => $application, 'isActiveBoard' => $isActiveBoard])
                             </div>
                         @empty
                             <p class="px-1 py-4 text-center text-xs text-gray-400 dark:text-gray-500">No candidates here</p>
@@ -83,7 +95,7 @@
                 @else
                     <div class="flex flex-col gap-2 p-2">
                         @forelse ($data['applications'] as $application)
-                            @include('filament.pages.pipeline-card', ['application' => $application])
+                            @include('filament.pages.pipeline-card', ['application' => $application, 'isActiveBoard' => $isActiveBoard])
                         @empty
                             <p class="px-1 py-4 text-center text-xs text-gray-400 dark:text-gray-500">No candidates here</p>
                         @endforelse

@@ -12,9 +12,10 @@ use Filament\Widgets\Widget;
 
 /**
  * "Smart Recommendations" (Section 24): user-triggered (never eager/polling, to control AI cost
- * and avoid the rate-limited `advanced` model — see config/ai.php) narration over the same facts
- * the rest of the Command Center already computed, via the existing provider-agnostic AiGateway.
- * Hidden entirely when AI isn't configured or the viewer lacks ai.query, so the dashboard never
+ * and avoid the rate-limited `advanced` model — see config/ai.php). Always visible: the database
+ * facts (funnel, turn-up, positions at risk, accountability, alerts, pending work) render for
+ * everyone, scoped to the dashboard's period and recruiter filters. The AI narration section only
+ * appears when an AI provider is configured AND the viewer holds `ai.query` — the dashboard never
  * depends on AI being present.
  */
 class SmartRecommendationsWidget extends Widget
@@ -34,7 +35,7 @@ class SmartRecommendationsWidget extends Widget
      */
     public ?array $result = null;
 
-    public static function canView(): bool
+    public function canNarrate(): bool
     {
         return (bool) Filament::auth()->user()?->can('ai.query') && app(AiGateway::class)->isConfigured();
     }
@@ -43,9 +44,17 @@ class SmartRecommendationsWidget extends Widget
     {
         [$start, $end] = $this->resolvePeriod();
 
-        /** @var User $user */
-        $user = Filament::auth()->user();
+        /** @var User $viewer */
+        $viewer = Filament::auth()->user();
+        $scopeUser = $this->filteredUser();
 
-        $this->result = app(RecruitmentInsightsService::class)->generate($user->employee, $user, $start, $end);
+        $this->result = app(RecruitmentInsightsService::class)->generate(
+            viewer: $scopeUser->employee,
+            user: $viewer,
+            start: $start,
+            end: $end,
+            scope: $scopeUser,
+            narrate: (bool) $viewer->can('ai.query'),
+        );
     }
 }

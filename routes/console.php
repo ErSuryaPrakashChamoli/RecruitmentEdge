@@ -10,3 +10,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('incentives:release-matured')->daily();
 Schedule::command('notifications:dispatch-alerts')->hourly();
+Schedule::command('performance:snapshot')->dailyAt('00:30');
+Schedule::command('offers:expire-lapsed')->dailyAt('00:15');

@@ -32,9 +32,12 @@
 
         {{-- Risk panel --}}
         <x-filament::section heading="Joining Risk">
-            @php $risk = $this->getRiskGroups(); @endphp
+            @php
+                $risk = $this->getRiskGroups();
+                $riskTotals = $this->getRiskGroupTotals();
+            @endphp
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                @foreach ([['key' => 'green', 'label' => 'Confirmed', 'color' => 'emerald'], ['key' => 'yellow', 'label' => 'Follow-up Required', 'color' => 'amber'], ['key' => 'red', 'label' => 'High Risk', 'color' => 'rose']] as $group)
+                @foreach ([['key' => 'green', 'label' => 'On Track', 'color' => 'emerald'], ['key' => 'yellow', 'label' => 'Follow-up Required', 'color' => 'amber'], ['key' => 'red', 'label' => 'High Risk', 'color' => 'rose']] as $group)
                     <div>
                         <p @class([
                             'mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide',
@@ -48,17 +51,33 @@
                                 'bg-amber-500' => $group['color'] === 'amber',
                                 'bg-rose-500' => $group['color'] === 'rose',
                             ])></span>
-                            {{ $group['label'] }} ({{ $risk[$group['key']]->count() }})
+                            {{ $group['label'] }} ({{ $riskTotals[$group['key']] }})
                         </p>
                         <div class="space-y-1.5">
                             @forelse ($risk[$group['key']] as $joining)
+                                @php $daysToDoj = $this->daysToDoj($joining); @endphp
                                 <a href="{{ $this->candidateUrl($joining) }}" class="block rounded-lg border border-gray-100 px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
-                                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ $joining->candidateApplication->candidate->full_name }}</span>
-                                    <span class="block text-gray-400 dark:text-gray-500">Expected {{ $joining->expected_doj->format('d M Y') }}</span>
+                                    <span class="flex items-center justify-between gap-2">
+                                        <span class="font-medium text-gray-700 dark:text-gray-300">{{ $joining->candidateApplication->candidate->full_name }}</span>
+                                        <x-filament::badge :color="$this->isConfirmed($joining) ? 'info' : 'gray'" size="xs">
+                                            {{ $this->isConfirmed($joining) ? 'Confirmed' : 'Not confirmed' }}
+                                        </x-filament::badge>
+                                    </span>
+                                    <span class="block text-gray-400 dark:text-gray-500">
+                                        Expected {{ $joining->expected_doj->format('d M Y') }} &middot;
+                                        <span @class(['text-rose-600 dark:text-rose-400' => $daysToDoj < 0])>{{ $this->daysToDojLabel($joining) }}</span>
+                                    </span>
                                 </a>
                             @empty
                                 <p class="text-xs text-gray-400 dark:text-gray-500">None</p>
                             @endforelse
+
+                            @if ($riskTotals[$group['key']] > $risk[$group['key']]->count())
+                                <p class="flex items-center justify-between pt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    <span>Showing {{ $risk[$group['key']]->count() }} of {{ $riskTotals[$group['key']] }}</span>
+                                    <a href="{{ $this->joiningsIndexUrl() }}" class="font-medium text-primary-600 hover:underline dark:text-primary-400">View all →</a>
+                                </p>
+                            @endif
                         </div>
                     </div>
                 @endforeach
@@ -95,7 +114,10 @@
                             </div>
 
                             <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                                <span>{{ $joining->confirmed_at ? 'Confirmed' : 'Not confirmed' }}</span>
+                                <span>{{ $this->daysToDojLabel($joining) }}</span>
+                                <x-filament::badge :color="$this->isConfirmed($joining) ? 'info' : 'gray'" size="xs">
+                                    {{ $this->isConfirmed($joining) ? 'Confirmed' : 'Not confirmed' }}
+                                </x-filament::badge>
                                 <span>Last contact: {{ $row['lastContact']?->diffForHumans() ?? '—' }}</span>
                                 <x-filament::badge :color="$riskLevel === 'green' ? 'success' : ($riskLevel === 'yellow' ? 'warning' : 'danger')" size="xs">
                                     {{ $riskLevel === 'green' ? 'On Track' : ($riskLevel === 'yellow' ? 'Follow-up' : 'High Risk') }}

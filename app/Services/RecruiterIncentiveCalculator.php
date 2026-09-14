@@ -11,6 +11,7 @@ use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Section 31's incentive calculator. For a given trigger event, finds every active, in-scope
@@ -27,6 +28,7 @@ class RecruiterIncentiveCalculator
     public function __construct(
         private readonly TargetResolutionService $targets,
         private readonly RecruiterDailyMetricsService $metrics,
+        private readonly IncentiveApprovalService $approvals,
     ) {}
 
     /**
@@ -78,6 +80,7 @@ class RecruiterIncentiveCalculator
             ->where('effective_from', '<=', $eventDate)
             ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $eventDate))
             ->get()
+            // Recruiter/department/designation/location scope, matched against the recruiter's own employee record.
             ->filter(fn (RecruitmentIncentiveRule $rule) => $rule->appliesTo($recruiter))
             ->filter(fn (RecruitmentIncentiveRule $rule) => $rule->employment_type === null
                 || $rule->employment_type === $application->requisition->employment_type);
@@ -135,23 +138,36 @@ class RecruiterIncentiveCalculator
             'candidate_id' => $application->candidate_id,
             'achievement' => $achievement,
             'amount' => $slab->amount,
-            'status' => $status,
             'retention_due_at' => $retentionDueAt,
             'calculated_at' => now(),
         ];
 
-        if ($existing !== null) {
-            $existing->update($attributes);
+        // Status is never written directly here: IncentiveApprovalService owns every status change
+        // and its trail row (creation, the no-retention move to Pending Verification, and any
+        // status a recalculation re-derives).
+        return DB::transaction(function () use ($existing, $attributes, $status, $rule, $application, $periodStart, $periodEnd): RecruiterIncentiveCalculation {
+            if ($existing !== null) {
+                $existing->update($attributes);
 
-            return $existing;
-        }
+                return $this->approvals->applyRecalculatedStatus($existing, $status);
+            }
 
-        return RecruiterIncentiveCalculation::query()->create([
-            'incentive_rule_id' => $rule->id,
-            'candidate_application_id' => $application->id,
-            'period_start' => $periodStart->toDateString(),
-            'period_end' => $periodEnd->toDateString(),
-            ...$attributes,
-        ]);
+            $calculation = RecruiterIncentiveCalculation::query()->create([
+                'incentive_rule_id' => $rule->id,
+                'candidate_application_id' => $application->id,
+                'period_start' => $periodStart->toDateString(),
+                'period_end' => $periodEnd->toDateString(),
+                'status' => IncentiveCalculationStatus::Calculated,
+                ...$attributes,
+            ]);
+
+            $this->approvals->recordCalculated($calculation);
+
+            if ($status === IncentiveCalculationStatus::PendingVerification) {
+                $this->approvals->submitForVerification($calculation, remarks: 'No retention hold');
+            }
+
+            return $calculation;
+        });
     }
 }

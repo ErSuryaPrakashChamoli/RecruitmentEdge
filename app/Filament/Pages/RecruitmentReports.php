@@ -3,7 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Enums\CandidateStage;
+use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\CandidateSource;
+use App\Models\Department;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\CostPerHireService;
@@ -13,6 +15,7 @@ use BackedEnum;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Pages\Page;
@@ -20,13 +23,16 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use UnitEnum;
 
 /**
  * A single consolidated report combining Sections 32 (funnel), 33 (source analytics), 36 (vacancy
  * ageing), 34 (cost per hire), and 35 (time to hire) — all read through RecruitmentAnalyticsService
- * and CostPerHireService, hierarchy-scoped to the viewer.
+ * and CostPerHireService, hierarchy-scoped to the viewer. The requisition/department/source filters
+ * apply to Cost per Hire only (the other report services don't take those dimensions), and are
+ * labelled as such so no control silently does nothing.
  */
 class RecruitmentReports extends Page implements HasForms
 {
@@ -66,10 +72,30 @@ class RecruitmentReports extends Page implements HasForms
                     DatePicker::make('start')->label('From')->required()->live(),
                     DatePicker::make('end')->label('To')->required()->live(),
                 ]),
+                Grid::make(3)->schema([
+                    Select::make('requisition_id')
+                        ->label('Cost per Hire: Requisition')
+                        ->options(fn () => RecruitmentRequisitionResource::getEloquentQuery()->orderBy('code')->pluck('code', 'id'))
+                        ->searchable()
+                        ->live(),
+                    Select::make('department_id')
+                        ->label('Cost per Hire: Department')
+                        ->options(fn () => Department::query()->orderBy('name')->pluck('name', 'id'))
+                        ->searchable()
+                        ->live(),
+                    Select::make('source_id')
+                        ->label('Cost per Hire: Source')
+                        ->options(fn () => CandidateSource::query()->orderBy('name')->pluck('name', 'id'))
+                        ->searchable()
+                        ->live(),
+                ]),
             ])
             ->statePath('data');
     }
 
+    /**
+     * @return array{0: Carbon, 1: Carbon}
+     */
     private function period(): array
     {
         $state = $this->form->getState();
@@ -80,15 +106,20 @@ class RecruitmentReports extends Page implements HasForms
         ];
     }
 
+    private function viewer(): User
+    {
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
+        return $user;
+    }
+
     /** @return Collection<int, array{stage: CandidateStage, count: int, conversion_from_sourced: float|null}> */
     public function getFunnel(): Collection
     {
         [$start, $end] = $this->period();
 
-        /** @var User $user */
-        $user = Filament::auth()->user();
-
-        return app(RecruitmentAnalyticsService::class)->funnel($start, $end, $user);
+        return app(RecruitmentAnalyticsService::class)->funnel($start, $end, $this->viewer());
     }
 
     /** @return Collection<int, array{source: CandidateSource, spend: float, sourced: int, connected: int, interested: int, interviewed: int, selected: int, offers: int, joined: int, conversion_percent: float|null, cost_per_interview: float|null, cost_per_selection: float|null, cost_per_join: float|null}> */
@@ -96,36 +127,49 @@ class RecruitmentReports extends Page implements HasForms
     {
         [$start, $end] = $this->period();
 
-        /** @var User $user */
-        $user = Filament::auth()->user();
-
-        return app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $user);
+        return app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $this->viewer());
     }
 
-    /** @return Collection<int, array{requisition: RecruitmentRequisition, ageing_days: int, is_overdue: bool}> */
+    /** @return Collection<int, array{requisition: RecruitmentRequisition, ageing_days: int, is_overdue: bool, priority: string|null}> */
     public function getVacancyAgeing(): Collection
     {
-        /** @var User $user */
-        $user = Filament::auth()->user();
-
-        return app(RecruitmentAnalyticsService::class)->vacancyAgeing($user);
+        return app(RecruitmentAnalyticsService::class)->vacancyAgeing($this->viewer());
     }
 
     public function getAverageTimeToHire(): ?float
     {
         [$start, $end] = $this->period();
 
-        /** @var User $user */
-        $user = Filament::auth()->user();
-
-        return app(RecruitmentAnalyticsService::class)->averageTimeToHireDays($start, $end, $user);
+        return app(RecruitmentAnalyticsService::class)->averageTimeToHireDays($start, $end, $this->viewer());
     }
 
     public function getCostPerHire(): ?float
     {
         [$start, $end] = $this->period();
+        $state = $this->form->getState();
 
-        return app(CostPerHireService::class)->costPerHire($start, $end);
+        return app(CostPerHireService::class)->costPerHire(
+            $start,
+            $end,
+            filled($state['requisition_id'] ?? null) ? (int) $state['requisition_id'] : null,
+            filled($state['department_id'] ?? null) ? (int) $state['department_id'] : null,
+            filled($state['source_id'] ?? null) ? (int) $state['source_id'] : null,
+            $this->viewer(),
+        );
+    }
+
+    /**
+     * Display label for a vacancy-ageing row's priority, whether it arrives as an enum or a plain
+     * string key.
+     */
+    public function priorityLabel(mixed $priority): ?string
+    {
+        return match (true) {
+            $priority === null || $priority === '' => null,
+            $priority instanceof BackedEnum && method_exists($priority, 'label') => $priority->label(),
+            $priority instanceof BackedEnum => Str::headline((string) $priority->value),
+            default => Str::headline((string) $priority),
+        };
     }
 
     public function canExport(): bool
@@ -184,13 +228,14 @@ class RecruitmentReports extends Page implements HasForms
         $rows = $this->getVacancyAgeing()->map(fn (array $row) => [
             $row['requisition']->code,
             $row['requisition']->designation?->name,
+            $this->priorityLabel($row['priority'] ?? null) ?? '',
             $row['ageing_days'],
             $row['is_overdue'] ? 'Yes' : 'No',
         ]);
 
         return app(ReportExportService::class)->streamCsv(
             'vacancy-ageing.csv',
-            ['Requisition', 'Designation', 'Ageing (days)', 'Overdue'],
+            ['Requisition', 'Designation', 'Priority', 'Ageing (days)', 'Overdue'],
             $rows,
         );
     }

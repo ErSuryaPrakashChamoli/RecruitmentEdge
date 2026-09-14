@@ -41,6 +41,8 @@ class RecruitmentDailyTargetsTable
             ->filters([
                 SelectFilter::make('metric')
                     ->options(collect(TargetMetric::cases())->mapWithKeys(fn (TargetMetric $m) => [$m->value => $m->label()])),
+                SelectFilter::make('period_type')
+                    ->options(collect(TargetPeriodType::cases())->mapWithKeys(fn (TargetPeriodType $p) => [$p->value => $p->label()])),
             ])
             ->recordActions([
                 EditAction::make(),

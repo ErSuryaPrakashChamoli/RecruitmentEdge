@@ -10,6 +10,7 @@ use App\Filament\Resources\RecruiterIncentiveCalculations\RelationManagers\Appro
 use App\Filament\Resources\RecruiterIncentiveCalculations\RelationManagers\PaymentsRelationManager;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Schemas\RecruiterIncentiveCalculationForm;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Tables\RecruiterIncentiveCalculationsTable;
+use App\Filament\Resources\RecruitmentIncentiveRules\RecruitmentIncentiveRuleResource;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\User;
 use App\Services\HierarchyService;
@@ -64,13 +65,18 @@ class RecruiterIncentiveCalculationResource extends Resource
                 ->schema([
                     TextEntry::make('employee.first_name')->label('Recruiter')->formatStateUsing(fn ($record) => $record->employee->fullName()),
                     TextEntry::make('candidate.full_name')->label('Candidate'),
+                    TextEntry::make('candidateApplication.application_code')->label('Application')->placeholder('—'),
                     TextEntry::make('period_start')->label('Period')->formatStateUsing(fn ($record) => $record->period_start->format('M Y')),
                 ]),
             Section::make('Calculation')
                 ->description('Which slab of the rule matched this recruiter\'s achievement %, and the resulting amount.')
                 ->columns(3)
                 ->schema([
-                    TextEntry::make('incentiveRule.name')->label('Rule'),
+                    TextEntry::make('incentiveRule.name')
+                        ->label('Rule')
+                        ->url(fn ($record): ?string => $record->incentiveRule !== null && auth()->user()?->can('update', $record->incentiveRule)
+                            ? RecruitmentIncentiveRuleResource::getUrl('edit', ['record' => $record->incentiveRule])
+                            : null),
                     TextEntry::make('achievement')->label('Achievement')->formatStateUsing(fn (?string $state) => $state !== null ? number_format((float) $state, 1).'%' : '—'),
                     TextEntry::make('incentiveSlab.achievement_min')
                         ->label('Slab Band')

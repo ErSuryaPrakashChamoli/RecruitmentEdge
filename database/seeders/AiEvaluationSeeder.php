@@ -128,6 +128,47 @@ class AiEvaluationSeeder extends Seeder
                 'expected_permission' => 'pipeline.transition',
                 'assertions' => ['requires_confirmation' => true],
             ],
+            [
+                'name' => 'Recommend a next step (advisory)',
+                'category' => 'recommendation',
+                'question' => 'What should I do next with this candidate?',
+                'expected_intent' => 'recommend_action',
+                'expected_tool' => 'recommend_next_step',
+                'expected_permission' => 'candidates.viewAny',
+                'assertions' => ['requires_confirmation' => false],
+            ],
+            [
+                'name' => 'Search interviews by status and date',
+                'category' => 'internal',
+                'question' => 'Which interviews are scheduled for this week?',
+                'expected_intent' => 'read_internal_data',
+                'expected_tool' => 'search_interviews',
+                'expected_permission' => 'interviews.manage',
+            ],
+            [
+                'name' => 'Search offers by status',
+                'category' => 'internal',
+                'question' => 'List all released offers that are still awaiting a decision.',
+                'expected_intent' => 'read_internal_data',
+                'expected_tool' => 'search_offers',
+                'expected_permission' => 'offers.manage',
+            ],
+            [
+                'name' => 'Pipeline for one requisition',
+                'category' => 'internal',
+                'question' => 'Show me the pipeline for this requisition by stage.',
+                'expected_intent' => 'read_internal_data',
+                'expected_tool' => 'get_requisition_pipeline',
+                'expected_permission' => 'requisitions.viewAny',
+            ],
+            [
+                'name' => 'Overdue follow-ups',
+                'category' => 'internal',
+                'question' => 'Which follow-ups are overdue?',
+                'expected_intent' => 'read_internal_data',
+                'expected_tool' => 'list_overdue_followups',
+                'expected_permission' => 'followups.manage',
+            ],
         ];
 
         foreach ($cases as $case) {

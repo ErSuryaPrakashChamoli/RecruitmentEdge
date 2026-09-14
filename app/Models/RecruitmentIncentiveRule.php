@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Section 24: incentive rules are scoped by any combination of recruiter/department/designation/
- * employment type (all nullable — omit a scope to apply it broadly), fire on a configurable
+ * location/employment type (all nullable — omit a scope to apply it broadly), fire on a configurable
  * trigger event, and pay according to whichever RecruitmentIncentiveSlab band the recruiter's
  * achievement on `achievement_metric` falls into. `retention_days`, when set, delays a
  * calculation's move out of Calculated until that many days after the triggering fact (Section 26).
@@ -27,6 +27,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'employee_id',
     'department_id',
     'designation_id',
+    'location_id',
     'employment_type',
     'retention_days',
     'effective_from',
@@ -76,6 +77,14 @@ class RecruitmentIncentiveRule extends Model
     }
 
     /**
+     * @return BelongsTo<Location, $this>
+     */
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
+    }
+
+    /**
      * @return BelongsTo<Employee, $this>
      */
     public function createdBy(): BelongsTo
@@ -99,6 +108,7 @@ class RecruitmentIncentiveRule extends Model
     {
         return ($this->employee_id === null || $this->employee_id === $recruiter->id)
             && ($this->department_id === null || $this->department_id === $recruiter->department_id)
-            && ($this->designation_id === null || $this->designation_id === $recruiter->designation_id);
+            && ($this->designation_id === null || $this->designation_id === $recruiter->designation_id)
+            && ($this->location_id === null || $this->location_id === $recruiter->location_id);
     }
 }

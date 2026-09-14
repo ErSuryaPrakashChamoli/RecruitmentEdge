@@ -14,7 +14,7 @@
         </div>
 
         @php
-            $interviewCounts = $this->getInterviewCountsInMonth();
+            $interviewStatusCounts = $this->getInterviewStatusCountsInMonth();
             $today = now()->toDateString();
         @endphp
 
@@ -37,8 +37,8 @@
                                 $dateStr = $day->toDateString();
                                 $isSelected = $dateStr === $selectedDate;
                                 $isToday = $dateStr === $today;
-                                $interviewCount = $interviewCounts->get($dateStr, 0);
-                                $hasEvents = $interviewCount > 0;
+                                $statusCounts = $interviewStatusCounts->get($dateStr, collect());
+                                $hasEvents = $statusCounts->sum() > 0;
                             @endphp
                             <button
                                 type="button"
@@ -60,10 +60,18 @@
                                     {{ $day->day }}
                                 </span>
 
-                                @if ($interviewCount > 0)
-                                    <span class="inline-flex w-fit items-center gap-1 rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
-                                        <x-filament::icon icon="heroicon-m-video-camera" class="h-2.5 w-2.5" />
-                                        {{ $interviewCount }} {{ Str::plural('Interview', $interviewCount) }}
+                                @if ($hasEvents)
+                                    <span class="flex flex-wrap gap-0.5">
+                                        @foreach (\App\Enums\InterviewStatus::cases() as $status)
+                                            @if ($statusCounts->get($status->value, 0) > 0)
+                                                <span
+                                                    title="{{ $statusCounts->get($status->value) }} {{ $status->label() }}"
+                                                    class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none shadow-sm {{ $this->statusBadgeClasses($status) }}"
+                                                >
+                                                    {{ $statusCounts->get($status->value) }}
+                                                </span>
+                                            @endif
+                                        @endforeach
                                     </span>
                                 @endif
                             </button>
@@ -76,9 +84,14 @@
 
     <div class="lg:col-span-2">
         <div class="rounded-xl border border-gray-200 p-4 dark:border-white/10">
-            <p class="text-sm font-semibold">
-                Interviews on {{ \Illuminate\Support\Carbon::parse($selectedDate)->format('d M Y') }}
-            </p>
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-sm font-semibold">
+                    Interviews on {{ \Illuminate\Support\Carbon::parse($selectedDate)->format('d M Y') }}
+                </p>
+                <button type="button" wire:click="openDay('{{ $selectedDate }}')" class="text-xs font-medium text-primary-600 hover:underline dark:text-primary-400">
+                    Day view &rarr;
+                </button>
+            </div>
 
             @php $interviews = $this->getInterviewsForSelectedDate(); @endphp
 

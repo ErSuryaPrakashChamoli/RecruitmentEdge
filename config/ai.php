@@ -110,6 +110,45 @@ return [
 
     'web_search' => [
         'provider' => env('AI_WEB_SEARCH_PROVIDER', 'gemini'),
+        // Resolved via ModelRouter::forWebSearch() — set this to a model id of whichever vendor
+        // AI_WEB_SEARCH_PROVIDER names (it is NOT the chat model when the two providers differ).
+        'model' => env('AI_WEB_SEARCH_MODEL', 'gemini-3.6-flash'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pricing (USD per 1M tokens)
+    |--------------------------------------------------------------------------
+    |
+    | Used by AiGateway to fill ai_usage_logs.cost. Keyed by the exact model id
+    | the request was routed to. A model with no entry here is logged with a
+    | null cost (never a guessed zero). `cached_input` is optional and falls
+    | back to the `input` rate. Defaults are indicative list prices — verify
+    | them against your provider's current pricing page and override via env.
+    |
+    */
+
+    'pricing' => [
+        'gemini-3.5-flash-lite' => [
+            'input' => (float) env('AI_PRICE_GEMINI_FLASH_LITE_INPUT', 0.10),
+            'output' => (float) env('AI_PRICE_GEMINI_FLASH_LITE_OUTPUT', 0.40),
+        ],
+        'gemini-3.6-flash' => [
+            'input' => (float) env('AI_PRICE_GEMINI_FLASH_INPUT', 0.30),
+            'output' => (float) env('AI_PRICE_GEMINI_FLASH_OUTPUT', 2.50),
+        ],
+        'gemini-3.1-pro-preview' => [
+            'input' => (float) env('AI_PRICE_GEMINI_PRO_INPUT', 2.00),
+            'output' => (float) env('AI_PRICE_GEMINI_PRO_OUTPUT', 12.00),
+        ],
+        'gemini-embedding-001' => [
+            'input' => (float) env('AI_PRICE_GEMINI_EMBEDDING_INPUT', 0.15),
+            'output' => 0.0,
+        ],
+        'text-embedding-3-small' => [
+            'input' => (float) env('AI_PRICE_OPENAI_EMBEDDING_SMALL_INPUT', 0.02),
+            'output' => 0.0,
+        ],
     ],
 
     /*

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 
+use App\Filament\Resources\RecruiterIncentiveCalculations\Actions\IncentiveLifecycleActions;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Services\Export\ReportExportService;
@@ -10,7 +11,7 @@ use Filament\Resources\Pages\ViewRecord;
 
 /**
  * No EditAction: calculations have no editable fields — see RecruiterIncentiveCalculationForm.
- * This page exists only to host the Approvals/Adjustments/Payments relation manager tabs.
+ * This page hosts the lifecycle actions plus the Approvals/Adjustments/Payments relation manager tabs.
  */
 class ViewRecruiterIncentiveCalculation extends ViewRecord
 {
@@ -19,6 +20,7 @@ class ViewRecruiterIncentiveCalculation extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            ...IncentiveLifecycleActions::make(),
             $this->downloadStatementAction(),
         ];
     }

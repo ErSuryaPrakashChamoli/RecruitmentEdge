@@ -23,6 +23,7 @@ use App\Services\AI\Rag\Parsers\DocxParser;
 use App\Services\AI\Rag\Parsers\PdfParser;
 use App\Services\AI\Rag\Parsers\PlainTextParser;
 use App\Services\AI\Rag\Parsers\SpreadsheetParser;
+use App\Services\AI\Tools\ToolExecutionContext;
 use App\Services\AI\Tools\ToolRegistrar;
 use App\Services\AI\Tools\ToolRegistry;
 use Illuminate\Support\ServiceProvider;
@@ -60,6 +61,7 @@ class AiServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(NullProvider::class);
+        $this->app->scoped(ToolExecutionContext::class);
         $this->app->singleton(AiProviderManager::class);
 
         $this->app->bind(LLMProviderInterface::class, fn ($app) => $app->make(AiProviderManager::class)->llm());

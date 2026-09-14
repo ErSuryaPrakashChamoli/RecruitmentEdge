@@ -10,7 +10,9 @@ use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\AI\Tools\ToolExecutionContext;
 use App\Services\AI\Tools\ToolRegistry;
+use DomainException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
@@ -18,14 +20,16 @@ use Throwable;
 /**
  * The only class allowed to actually run an AiTool::handle(). AiOrchestrator calls run() directly
  * for Read/Recommend tools (no confirmation needed); Write/External/HighImpact tools only ever
- * reach run() via approve(), which is gated on ai.actions.execute and a Pending status check —
- * nothing the model outputs can skip this (spec section 26).
+ * reach run() via approve(), which is gated on ai.actions.execute, the tool's own permission, the
+ * ai.features.actions_enabled flag, and a Pending status check — all re-evaluated at approval time,
+ * since a permission or flag can change between the proposal and the click (spec section 26).
  */
 class ActionExecutor
 {
     public function __construct(
         private readonly ToolRegistry $registry,
         private readonly ConfirmationGate $gate,
+        private readonly ToolExecutionContext $toolContext,
     ) {}
 
     /**
@@ -39,22 +43,30 @@ class ActionExecutor
 
     /**
      * Executes a previously-pending Write/External/HighImpact tool call after a human with
-     * ai.actions.execute has approved it.
+     * ai.actions.execute (and the tool's own permission) has approved it.
      */
     public function approve(AiToolCall $toolCall, User $actor): ToolResult
     {
         if (! $this->gate->canApprove($actor)) {
-            throw new \DomainException('You do not have permission to approve AI actions.');
+            throw new DomainException('You do not have permission to approve AI actions.');
         }
 
         if ($toolCall->status !== AiToolCallStatus::Pending) {
-            throw new \DomainException('This action has already been decided.');
+            throw new DomainException('This action has already been decided.');
         }
 
         $tool = $this->registry->find($toolCall->tool_name);
 
         if ($tool === null) {
-            throw new \DomainException('This tool is no longer available.');
+            throw new DomainException('This tool is no longer available.');
+        }
+
+        if (! config('ai.features.actions_enabled')) {
+            throw new DomainException('AI actions are currently disabled, so this action cannot be approved.');
+        }
+
+        if (! $this->registry->userMayUse($actor, $tool->name())) {
+            throw new DomainException("You do not have the permission this action requires ({$tool->permission()}).");
         }
 
         if (RateLimiter::tooManyAttempts("ai-action:{$actor->id}", (int) config('ai.limits.action_rate_limit_per_minute'))) {
@@ -75,11 +87,11 @@ class ActionExecutor
     public function reject(AiToolCall $toolCall, User $actor, ?string $reason = null): void
     {
         if (! $this->gate->canApprove($actor)) {
-            throw new \DomainException('You do not have permission to decide on AI actions.');
+            throw new DomainException('You do not have permission to decide on AI actions.');
         }
 
         if ($toolCall->status !== AiToolCallStatus::Pending) {
-            throw new \DomainException('This action has already been decided.');
+            throw new DomainException('This action has already been decided.');
         }
 
         $toolCall->forceFill([
@@ -89,6 +101,7 @@ class ActionExecutor
         ])->save();
 
         $summary = $reason ?? 'The user declined to approve this action.';
+        $output = ['success' => false, 'error' => $summary];
 
         $toolCall->result()->create([
             'output' => ['declined' => true],
@@ -96,7 +109,7 @@ class ActionExecutor
             'error' => $summary,
         ]);
 
-        $this->appendToolOutputMessage($toolCall, ['success' => false, 'error' => $summary]);
+        $this->appendToolOutputMessage($toolCall, $output);
 
         AiActionLog::query()->create([
             'user_id' => $actor->id,
@@ -104,6 +117,7 @@ class ActionExecutor
             'tool_name' => $toolCall->tool_name,
             'risk_level' => $toolCall->risk_level,
             'input' => $toolCall->arguments,
+            'output' => $output + ['declined' => true],
             'result_summary' => $summary,
             'status' => 'rejected',
         ]);
@@ -120,8 +134,13 @@ class ActionExecutor
 
     private function execute(AiToolCall $toolCall, AiTool $tool, User $user): ToolResult
     {
+        $conversationId = $toolCall->message->conversation_id;
+
         try {
-            $result = $tool->handle($toolCall->arguments ?? [], $user);
+            $result = $this->toolContext->runInConversation(
+                $conversationId,
+                fn (): ToolResult => $tool->handle($toolCall->arguments ?? [], $user),
+            );
         } catch (Throwable $e) {
             Log::error('AI tool execution failed', ['tool' => $tool->name(), 'exception' => $e->getMessage()]);
             $result = ToolResult::fail('Something went wrong while running this tool. The recruitment data itself was not affected.');
@@ -142,12 +161,13 @@ class ActionExecutor
 
         AiActionLog::query()->create([
             'user_id' => $user->id,
-            'conversation_id' => $toolCall->message->conversation_id,
+            'conversation_id' => $conversationId,
             'tool_name' => $tool->name(),
             'risk_level' => $tool->riskLevel(),
             'entity_type' => $result->data['entity_type'] ?? null,
             'entity_ids' => $result->data['entity_ids'] ?? null,
             'input' => $toolCall->arguments,
+            'output' => $result->toArray(),
             'result_summary' => $result->summary ?? ($result->success ? 'Completed' : $result->error),
             'status' => $result->success ? 'executed' : 'failed',
         ]);

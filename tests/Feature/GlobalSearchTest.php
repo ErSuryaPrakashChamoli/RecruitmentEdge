@@ -49,3 +49,18 @@ test('candidate application global search finds an application by its code', fun
     expect($results)->not->toBeEmpty()
         ->and($results->first()->title)->toContain($application->application_code);
 });
+
+test('candidate application global search finds an application by candidate name and requisition code', function (): void {
+    $recruiter = Employee::factory()->create();
+    $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $application->candidate->update(['full_name' => 'Zephyrine Quaddle', 'email' => 'zephyrine@example.test']);
+
+    $user = User::factory()->create(['employee_id' => $recruiter->id]);
+    $user->assignRole('chro');
+    actingAs($user);
+
+    expect(CandidateApplicationResource::getGlobalSearchResults('Zephyrine')->pluck('title'))
+        ->toContain("Zephyrine Quaddle — {$application->application_code}")
+        ->and(CandidateApplicationResource::getGlobalSearchResults('zephyrine@example.test'))->not->toBeEmpty()
+        ->and(CandidateApplicationResource::getGlobalSearchResults($application->requisition->code))->not->toBeEmpty();
+});

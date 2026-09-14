@@ -7,10 +7,13 @@ use App\Models\User;
 use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\AI\Tools\Concerns\CallsLanguageModel;
 use App\Services\AI\Tools\Contracts\AiTool;
 
 class GenerateInterviewPlanTool implements AiTool
 {
+    use CallsLanguageModel;
+
     public function __construct(private readonly AiGateway $gateway) {}
 
     public function name(): string
@@ -48,8 +51,12 @@ class GenerateInterviewPlanTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
+        if (blank($arguments['role'] ?? null)) {
+            return ToolResult::fail('A role is required.');
+        }
+
         if (! $this->gateway->isConfigured()) {
-            return ToolResult::fail('AI is not configured, so I cannot generate an interview plan right now.');
+            return $this->modelUnavailable($this->gateway, 'generate an interview plan');
         }
 
         $rounds = $arguments['number_of_rounds'] ?? 'a sensible number of';
@@ -59,10 +66,14 @@ class GenerateInterviewPlanTool implements AiTool
             LlmMessage::user("Role: {$arguments['role']}\nLevel: ".($arguments['level'] ?? 'not specified')."\nUse {$rounds} rounds."),
         ];
 
-        $response = $this->gateway->generate($messages, [], 'generation', $user);
+        $text = $this->generateText($this->gateway, $messages, 'generation', $user);
+
+        if ($text === null) {
+            return $this->modelUnavailable($this->gateway, 'generate an interview plan');
+        }
 
         return ToolResult::ok(
-            data: ['interview_plan' => $response->content],
+            data: ['interview_plan' => $text],
             summary: "Generated an interview plan for {$arguments['role']}.",
             type: 'text',
         );

@@ -14,14 +14,18 @@ use App\Services\AI\Tools\CandidateTools\FindDuplicateCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\FindStuckCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\GetCandidateTimelineTool;
 use App\Services\AI\Tools\CandidateTools\GetCandidateTool;
+use App\Services\AI\Tools\CandidateTools\ListOverdueFollowupsTool;
+use App\Services\AI\Tools\CandidateTools\RecommendNextStepTool;
 use App\Services\AI\Tools\CandidateTools\SearchCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\SummarizeCandidateTool;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewPlanTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewQuestionsTool;
+use App\Services\AI\Tools\InterviewTools\SearchInterviewsTool;
 use App\Services\AI\Tools\InterviewTools\SummarizeInterviewFeedbackTool;
 use App\Services\AI\Tools\JobTools\FindAtRiskRequisitionsTool;
 use App\Services\AI\Tools\JobTools\GenerateJdTool;
+use App\Services\AI\Tools\JobTools\GetRequisitionPipelineTool;
 use App\Services\AI\Tools\JobTools\GetRequisitionTool;
 use App\Services\AI\Tools\JobTools\ImproveJdTool;
 use App\Services\AI\Tools\JobTools\SearchRequisitionsTool;
@@ -29,6 +33,7 @@ use App\Services\AI\Tools\KnowledgeTools\SearchKnowledgeBaseTool;
 use App\Services\AI\Tools\OfferTools\AnalyzeJoiningConversionTool;
 use App\Services\AI\Tools\OfferTools\AnalyzeOffersTool;
 use App\Services\AI\Tools\OfferTools\FindJoiningRisksTool;
+use App\Services\AI\Tools\OfferTools\SearchOffersTool;
 use App\Services\AI\Tools\PlannerTools\BuildRecruitmentPlanTool;
 use App\Services\AI\Tools\RecruiterTools\CompareRecruitersTool;
 use App\Services\AI\Tools\RecruiterTools\FindInactiveRecruitersTool;
@@ -59,9 +64,12 @@ class ToolRegistrar
         FindStuckCandidatesTool::class,
         FindDuplicateCandidatesTool::class,
         GetCandidateTimelineTool::class,
+        ListOverdueFollowupsTool::class,
+        RecommendNextStepTool::class,
         // Job / requisition
         SearchRequisitionsTool::class,
         GetRequisitionTool::class,
+        GetRequisitionPipelineTool::class,
         GenerateJdTool::class,
         ImproveJdTool::class,
         FindAtRiskRequisitionsTool::class,
@@ -79,10 +87,12 @@ class ToolRegistrar
         GenerateInterviewQuestionsTool::class,
         GenerateInterviewPlanTool::class,
         SummarizeInterviewFeedbackTool::class,
+        SearchInterviewsTool::class,
         // Offer / joining
         AnalyzeOffersTool::class,
         AnalyzeJoiningConversionTool::class,
         FindJoiningRisksTool::class,
+        SearchOffersTool::class,
         // Knowledge / research / planning
         SearchKnowledgeBaseTool::class,
         WebResearchTool::class,

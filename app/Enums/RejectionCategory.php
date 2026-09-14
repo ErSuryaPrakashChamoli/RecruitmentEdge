@@ -3,8 +3,9 @@
 namespace App\Enums;
 
 /**
- * Lets the rejection-reason dropdown be filtered contextually (e.g. only "offer" reasons when
- * withdrawing an offer) once Interviews/Offers exist in later phases — not enforced yet.
+ * Groups rejection/dropout reasons in every reason dropdown (Select option groups, via
+ * RecruitmentRejectionReason::groupedActiveOptions()), in the case order declared here. Only
+ * active reasons are offered, and StageTransitionService refuses an inactive one.
  */
 enum RejectionCategory: string
 {

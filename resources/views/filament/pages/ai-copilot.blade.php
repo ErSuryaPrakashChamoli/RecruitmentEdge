@@ -1,15 +1,46 @@
 <x-filament-panels::page>
     @if (! $this->isAiConfigured())
         <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-            AI is not configured yet. I can still show you what the Copilot will do, but responses will say so until an administrator adds an <code>OPENAI_API_KEY</code>. The rest of the app works normally either way.
+            Full AI is not configured, so the Copilot answers from a keyword search of the published knowledge base. An administrator can enable it by setting <code>AI_PROVIDER</code> and its API key — <code>GEMINI_API_KEY</code> for the default Gemini provider, or <code>OPENAI_API_KEY</code>. The rest of the app works normally either way.
         </div>
     @endif
 
     <div class="flex flex-col gap-4">
+        <div class="flex flex-wrap items-end gap-2">
+            <x-filament::button
+                size="sm"
+                icon="heroicon-m-plus"
+                wire:click="newConversation"
+                wire:loading.attr="disabled"
+            >
+                New conversation
+            </x-filament::button>
+
+            @php($recentConversations = $this->recentConversations())
+
+            @if ($recentConversations->count() > 1)
+                <div class="max-w-2xl">
+                    <x-filament::input.wrapper>
+                        <x-filament::input.select
+                            aria-label="Switch conversation"
+                            wire:change="switchConversation($event.target.value)"
+                        >
+                            @foreach ($recentConversations as $recent)
+                                <option value="{{ $recent->id }}" @selected($recent->id === $conversationId)>
+                                    {{ \Illuminate\Support\Str::limit($recent->title ?: 'Untitled conversation', 60) }}
+                                    · {{ $recent->last_message_at?->diffForHumans() }}
+                                </option>
+                            @endforeach
+                        </x-filament::input.select>
+                    </x-filament::input.wrapper>
+                </div>
+            @endif
+        </div>
+
         <div class="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-gray-900">
             <div class="flex flex-col gap-4 p-4 max-h-[60vh] overflow-y-auto" id="ai-copilot-messages">
                 @forelse ($this->visibleMessages() as $message)
-                    <div class="flex {{ $message['role'] === 'user' ? 'justify-end' : 'justify-start' }}">
+                    <div class="flex {{ $message['role'] === 'user' ? 'justify-end' : 'justify-start' }}" wire:key="ai-message-{{ $message['id'] }}">
                         <div class="max-w-2xl rounded-2xl px-4 py-2.5 text-sm {{ $message['role'] === 'user' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-950 dark:bg-white/5 dark:text-gray-100' }}">
                             @if (filled($message['content']))
                                 {{-- html_input 'strip' + allow_unsafe_links false: AI-generated/retrieved

@@ -42,7 +42,7 @@ class SourcePerformanceWidget extends ChartWidget
     {
         [$start, $end] = $this->resolvePeriod();
 
-        $best = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end)
+        $best = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $this->filteredUser())
             ->filter(fn (array $row) => $row['sourced'] > 0)
             ->map(fn (array $row) => [
                 'name' => $row['source']->name,
@@ -60,7 +60,7 @@ class SourcePerformanceWidget extends ChartWidget
     {
         [$start, $end] = $this->resolvePeriod();
 
-        $rows = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end)
+        $rows = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $this->filteredUser())
             ->filter(fn (array $row) => $row['sourced'] > 0)
             ->sortByDesc('sourced');
 

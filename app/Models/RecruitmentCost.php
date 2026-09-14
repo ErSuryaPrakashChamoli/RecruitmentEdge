@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\RecruitmentCostStatus;
 use App\Enums\RecruitmentCostType;
+use App\Models\Concerns\Auditable;
 use Database\Factories\RecruitmentCostFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['requisition_id', 'department_id', 'source_id', 'location_id', 'cost_type', 'campaign', 'amount', 'status', 'incurred_on', 'remarks', 'created_by'])]
 class RecruitmentCost extends Model
 {
+    use Auditable;
+
     /** @use HasFactory<RecruitmentCostFactory> */
     use HasFactory;
 

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\CandidateJoinings\RelationManagers;
 
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
+use App\Filament\Resources\Candidates\RelationManagers\DocumentsRelationManager as CandidateDocumentsRelationManager;
 use App\Models\CandidateDocument;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
@@ -11,6 +12,7 @@ use Filament\Actions\EditAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -28,10 +30,17 @@ class DocumentsRelationManager extends RelationManager
                 Select::make('document_type')
                     ->options(collect(DocumentType::cases())->mapWithKeys(fn (DocumentType $t) => [$t->value => $t->label()]))
                     ->required(),
+                Select::make('status')
+                    ->options(collect(DocumentStatus::cases())->mapWithKeys(fn (DocumentStatus $s) => [$s->value => $s->label()]))
+                    ->default(DocumentStatus::Submitted->value)
+                    ->required(),
                 FileUpload::make('file_path')
                     ->disk('local')
                     ->visibility('private')
-                    ->directory('candidate-documents'),
+                    ->directory('candidate-documents')
+                    ->columnSpanFull(),
+                Textarea::make('remarks')
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -47,17 +56,16 @@ class DocumentsRelationManager extends RelationManager
                     ->badge()
                     ->formatStateUsing(fn (DocumentStatus $state) => $state->label())
                     ->color(fn (DocumentStatus $state) => $state->color()),
+                TextColumn::make('remarks')
+                    ->wrap()
+                    ->placeholder('—'),
                 TextColumn::make('verifiedBy.first_name')
                     ->label('Verified By')
                     ->formatStateUsing(fn ($record) => $record->verifiedBy?->fullName() ?? '—'),
             ])
             ->headerActions([
                 CreateAction::make()
-                    ->mutateFormDataUsing(function (array $data): array {
-                        $data['status'] = DocumentStatus::Submitted;
-
-                        return $data;
-                    }),
+                    ->mutateFormDataUsing(fn (array $data): array => CandidateDocumentsRelationManager::stampVerification($data)),
             ])
             ->recordActions([
                 Action::make('verify')
@@ -80,7 +88,8 @@ class DocumentsRelationManager extends RelationManager
                     ->visible(fn (CandidateDocument $record) => $record->status !== DocumentStatus::Rejected)
                     ->requiresConfirmation()
                     ->action(fn (CandidateDocument $record) => $record->update(['status' => DocumentStatus::Rejected])),
-                EditAction::make(),
+                EditAction::make()
+                    ->mutateFormDataUsing(fn (array $data): array => CandidateDocumentsRelationManager::stampVerification($data)),
             ])
             ->toolbarActions([]);
     }
