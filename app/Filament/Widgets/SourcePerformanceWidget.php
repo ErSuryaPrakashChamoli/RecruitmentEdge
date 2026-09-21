@@ -62,7 +62,10 @@ class SourcePerformanceWidget extends ChartWidget
 
         $rows = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $this->filteredUser())
             ->filter(fn (array $row) => $row['sourced'] > 0)
-            ->sortByDesc('sourced');
+            ->sortByDesc('sourced')
+            // Re-index: filtered/sorted keys would make the labels encode as a JSON object, which
+            // Chart.js can't read (it needs an array of labels).
+            ->values();
 
         /** @var User $user */
         $user = Filament::auth()->user();

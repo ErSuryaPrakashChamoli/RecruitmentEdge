@@ -111,3 +111,13 @@ test('the candidate applications relation manager rejects a non-open requisition
 
     expect($this->candidate->applications()->pluck('requisition_id')->all())->toBe([$open->id]);
 });
+
+test('helper text explains an empty requisition list when requisitions await opening', function (): void {
+    RecruitmentRequisition::factory()->count(2)->create(['status' => RequisitionStatus::Draft]);
+
+    expect(RecruitmentRequisitionResource::applicationTargetHelperText())->toContain('2 requisition(s) are still Draft or awaiting approval');
+
+    RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
+
+    expect(RecruitmentRequisitionResource::applicationTargetHelperText())->toBe('Only Open requisitions accept new applications.');
+});

@@ -34,7 +34,7 @@ class ApplicationsRelationManager extends RelationManager
                             ? RecruitmentRequisitionResource::applicationTargetQuery($query)
                             : $query,
                     )
-                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? 'Only Open requisitions accept new applications.' : null)
+                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : null)
                     ->required()
                     ->searchable()
                     ->preload(),
