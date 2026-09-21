@@ -4,6 +4,7 @@ namespace App\Filament\Resources\CandidateApplications\RelationManagers;
 
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
+use App\Enums\InterviewRoundNumber;
 use App\Enums\InterviewStatus;
 use App\Filament\Resources\Interviews\Schemas\InterviewForm;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
@@ -39,7 +40,8 @@ class InterviewsRelationManager extends RelationManager
             ->recordTitleAttribute('round_number')
             ->columns([
                 TextColumn::make('round_number')
-                    ->label('Round'),
+                    ->label('Round')
+                    ->formatStateUsing(fn (int $state): string => InterviewRoundNumber::tryFrom($state)?->label() ?? (string) $state),
                 TextColumn::make('interviewer.first_name')
                     ->label('Interviewer')
                     ->formatStateUsing(fn (Interview $record) => $record->interviewer?->fullName() ?? '—'),

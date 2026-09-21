@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentIncentiveRules;
 use App\Filament\Resources\RecruitmentIncentiveRules\Pages\CreateRecruitmentIncentiveRule;
 use App\Filament\Resources\RecruitmentIncentiveRules\Pages\EditRecruitmentIncentiveRule;
 use App\Filament\Resources\RecruitmentIncentiveRules\Pages\ListRecruitmentIncentiveRules;
+use App\Filament\Resources\RecruitmentIncentiveRules\Pages\ViewRecruitmentIncentiveRule;
 use App\Filament\Resources\RecruitmentIncentiveRules\RelationManagers\SlabsRelationManager;
 use App\Filament\Resources\RecruitmentIncentiveRules\Schemas\RecruitmentIncentiveRuleForm;
 use App\Filament\Resources\RecruitmentIncentiveRules\Tables\RecruitmentIncentiveRulesTable;
@@ -48,6 +49,7 @@ class RecruitmentIncentiveRuleResource extends Resource
         return [
             'index' => ListRecruitmentIncentiveRules::route('/'),
             'create' => CreateRecruitmentIncentiveRule::route('/create'),
+            'view' => ViewRecruitmentIncentiveRule::route('/{record}'),
             'edit' => EditRecruitmentIncentiveRule::route('/{record}/edit'),
         ];
     }

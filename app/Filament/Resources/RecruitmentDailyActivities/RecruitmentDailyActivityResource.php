@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentDailyActivities;
 use App\Filament\Resources\RecruitmentDailyActivities\Pages\CreateRecruitmentDailyActivity;
 use App\Filament\Resources\RecruitmentDailyActivities\Pages\EditRecruitmentDailyActivity;
 use App\Filament\Resources\RecruitmentDailyActivities\Pages\ListRecruitmentDailyActivities;
+use App\Filament\Resources\RecruitmentDailyActivities\Pages\ViewRecruitmentDailyActivity;
 use App\Filament\Resources\RecruitmentDailyActivities\Schemas\RecruitmentDailyActivityForm;
 use App\Filament\Resources\RecruitmentDailyActivities\Tables\RecruitmentDailyActivitiesTable;
 use App\Models\RecruitmentDailyActivity;
@@ -63,6 +64,7 @@ class RecruitmentDailyActivityResource extends Resource
         return [
             'index' => ListRecruitmentDailyActivities::route('/'),
             'create' => CreateRecruitmentDailyActivity::route('/create'),
+            'view' => ViewRecruitmentDailyActivity::route('/{record}'),
             'edit' => EditRecruitmentDailyActivity::route('/{record}/edit'),
         ];
     }

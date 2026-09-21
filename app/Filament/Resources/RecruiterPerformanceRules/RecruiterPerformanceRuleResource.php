@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruiterPerformanceRules;
 use App\Filament\Resources\RecruiterPerformanceRules\Pages\CreateRecruiterPerformanceRule;
 use App\Filament\Resources\RecruiterPerformanceRules\Pages\EditRecruiterPerformanceRule;
 use App\Filament\Resources\RecruiterPerformanceRules\Pages\ListRecruiterPerformanceRules;
+use App\Filament\Resources\RecruiterPerformanceRules\Pages\ViewRecruiterPerformanceRule;
 use App\Filament\Resources\RecruiterPerformanceRules\Schemas\RecruiterPerformanceRuleForm;
 use App\Filament\Resources\RecruiterPerformanceRules\Tables\RecruiterPerformanceRulesTable;
 use App\Models\RecruiterPerformanceRule;
@@ -47,6 +48,7 @@ class RecruiterPerformanceRuleResource extends Resource
         return [
             'index' => ListRecruiterPerformanceRules::route('/'),
             'create' => CreateRecruiterPerformanceRule::route('/create'),
+            'view' => ViewRecruiterPerformanceRule::route('/{record}'),
             'edit' => EditRecruiterPerformanceRule::route('/{record}/edit'),
         ];
     }

@@ -6,6 +6,7 @@ use App\Filament\Pages\InterviewWorkspace;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruitmentSetting;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -143,7 +144,7 @@ test('an interview can be scheduled from the workspace for an application in the
     Livewire::test(InterviewWorkspace::class)
         ->callAction('scheduleInterview', data: [
             'candidate_application_id' => $application->id,
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'scheduled_at' => now()->addDay(),
             'mode' => 'in_person',
         ])

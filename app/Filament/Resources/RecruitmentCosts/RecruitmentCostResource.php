@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentCosts;
 use App\Filament\Resources\RecruitmentCosts\Pages\CreateRecruitmentCost;
 use App\Filament\Resources\RecruitmentCosts\Pages\EditRecruitmentCost;
 use App\Filament\Resources\RecruitmentCosts\Pages\ListRecruitmentCosts;
+use App\Filament\Resources\RecruitmentCosts\Pages\ViewRecruitmentCost;
 use App\Filament\Resources\RecruitmentCosts\Schemas\RecruitmentCostForm;
 use App\Filament\Resources\RecruitmentCosts\Tables\RecruitmentCostsTable;
 use App\Models\RecruitmentCost;
@@ -47,6 +48,7 @@ class RecruitmentCostResource extends Resource
         return [
             'index' => ListRecruitmentCosts::route('/'),
             'create' => CreateRecruitmentCost::route('/create'),
+            'view' => ViewRecruitmentCost::route('/{record}'),
             'edit' => EditRecruitmentCost::route('/{record}/edit'),
         ];
     }

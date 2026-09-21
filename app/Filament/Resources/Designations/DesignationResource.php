@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Designations;
 use App\Filament\Resources\Designations\Pages\CreateDesignation;
 use App\Filament\Resources\Designations\Pages\EditDesignation;
 use App\Filament\Resources\Designations\Pages\ListDesignations;
+use App\Filament\Resources\Designations\Pages\ViewDesignation;
 use App\Filament\Resources\Designations\Schemas\DesignationForm;
 use App\Filament\Resources\Designations\Tables\DesignationsTable;
 use App\Models\Designation;
@@ -49,6 +50,7 @@ class DesignationResource extends Resource
         return [
             'index' => ListDesignations::route('/'),
             'create' => CreateDesignation::route('/create'),
+            'view' => ViewDesignation::route('/{record}'),
             'edit' => EditDesignation::route('/{record}/edit'),
         ];
     }

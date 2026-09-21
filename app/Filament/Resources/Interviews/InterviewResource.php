@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Interviews;
 use App\Filament\Resources\Interviews\Pages\CreateInterview;
 use App\Filament\Resources\Interviews\Pages\EditInterview;
 use App\Filament\Resources\Interviews\Pages\ListInterviews;
+use App\Filament\Resources\Interviews\Pages\ViewInterview;
 use App\Filament\Resources\Interviews\RelationManagers\FeedbackRelationManager;
 use App\Filament\Resources\Interviews\Schemas\InterviewForm;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
@@ -69,6 +70,7 @@ class InterviewResource extends Resource
         return [
             'index' => ListInterviews::route('/'),
             'create' => CreateInterview::route('/create'),
+            'view' => ViewInterview::route('/{record}'),
             'edit' => EditInterview::route('/{record}/edit'),
         ];
     }

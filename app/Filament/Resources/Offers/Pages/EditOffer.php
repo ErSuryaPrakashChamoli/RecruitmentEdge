@@ -15,6 +15,8 @@ class EditOffer extends EditRecord
     {
         return [
             OffersTable::releaseAction(),
+            OffersTable::customizeOfferLetterAction(),
+            OffersTable::resetOfferLetterAction(),
             OffersTable::downloadOfferLetterAction(),
             DeleteAction::make(),
         ];

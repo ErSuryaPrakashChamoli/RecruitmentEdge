@@ -4,8 +4,12 @@ namespace App\Filament\Resources\Interviews\Schemas;
 
 use App\Enums\ApplicationStatus;
 use App\Enums\InterviewMode;
+use App\Enums\InterviewRoundName;
+use App\Enums\InterviewRoundNumber;
+use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Models\CandidateApplication;
-use App\Models\Employee;
+use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\User;
 use App\Services\HierarchyService;
 use Filament\Facades\Filament;
@@ -16,6 +20,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 class InterviewForm
 {
@@ -23,12 +28,7 @@ class InterviewForm
     {
         return $schema
             ->components([
-                Select::make('candidate_application_id')
-                    ->label('Application')
-                    ->relationship('candidateApplication', 'application_code', fn (Builder $query) => self::scopeApplicationsToViewer($query))
-                    ->required()
-                    ->searchable()
-                    ->preload(),
+                self::applicationSelect(),
                 ...self::schedulingFields(),
             ]);
     }
@@ -44,18 +44,18 @@ class InterviewForm
     public static function schedulingFields(?CandidateApplication $application = null): array
     {
         return [
-            TextInput::make('round_number')
-                ->numeric()
-                ->minValue(1)
-                ->default(fn (): ?int => $application !== null ? $application->interviews()->count() + 1 : null)
+            Select::make('round_number')
+                ->options(collect(InterviewRoundNumber::cases())->mapWithKeys(fn (InterviewRoundNumber $round) => [$round->value => $round->label()]))
+                ->default(fn (): ?int => $application !== null ? InterviewRoundNumber::tryFrom($application->interviews()->count() + 1)?->value : null)
                 ->placeholder('Next round')
                 ->helperText('Leave blank to use the next round number.')
                 ->required(fn (?string $operation): bool => $operation === 'edit'),
-            TextInput::make('round_name')
-                ->maxLength(255),
+            Select::make('round_name')
+                ->options(collect(InterviewRoundName::cases())->mapWithKeys(fn (InterviewRoundName $round) => [$round->value => $round->label()])),
             Select::make('interviewer_id')
                 ->label('Interviewer')
-                ->options(fn () => Employee::query()->get()->mapWithKeys(fn (Employee $employee) => [$employee->id => $employee->fullName()]))
+                ->options(fn (?Model $record): array => Interviewer::selectOptions($record instanceof Interview ? $record->interviewer_id : null))
+                ->helperText('Only employees on the interviewer list (Administration → Interviewers) are shown.')
                 ->required()
                 ->searchable(),
             DateTimePicker::make('scheduled_at')
@@ -75,22 +75,13 @@ class InterviewForm
     }
 
     /**
-     * Active applications the current user may see (Section 27 hierarchy scoping) — used wherever
-     * an application has to be picked before scheduling.
+     * Hierarchy-scoped application picker (Section 27) used wherever an application has to be picked
+     * before scheduling. Only Active applications are offered, since InterviewService::schedule()
+     * refuses any other status.
      */
     public static function applicationSelect(): Select
     {
-        return Select::make('candidate_application_id')
-            ->label('Application')
-            ->options(fn () => self::scopeApplicationsToViewer(CandidateApplication::query())
-                ->where('status', ApplicationStatus::Active)
-                ->with('candidate')
-                ->orderByDesc('id')
-                ->get()
-                ->mapWithKeys(fn (CandidateApplication $application) => [
-                    $application->id => "{$application->application_code} — {$application->candidate?->full_name}",
-                ]))
-            ->searchable()
+        return ApplicationPicker::make(modifyOptionsQueryUsing: fn (Builder $query): Builder => $query->where('status', ApplicationStatus::Active))
             ->required();
     }
 

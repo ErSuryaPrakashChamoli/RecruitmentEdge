@@ -6,7 +6,9 @@ use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
 use App\Filament\Exports\CandidateApplicationExporter;
+use App\Filament\Resources\Offers\OfferResource;
 use App\Models\CandidateApplication;
+use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\StageTransitionService;
 use DomainException;
@@ -90,6 +92,9 @@ class CandidateApplicationsTable
             ])
             ->recordActions([
                 ViewAction::make(),
+                self::raiseOfferAction()
+                    ->button()
+                    ->size('sm'),
                 self::advanceStageAction(),
                 self::rejectAction(),
                 self::dropoutAction(),
@@ -107,6 +112,23 @@ class CandidateApplicationsTable
             ->emptyStateHeading('No applications found')
             ->emptyStateDescription('Try changing your filters, or add a new candidate to a requisition to create one.')
             ->emptyStateIcon('heroicon-o-queue-list');
+    }
+
+    /**
+     * Opens the offer form with this application already selected, so an offer is raised from the
+     * candidate being looked at rather than by picking an application code from memory. Offered on
+     * any active application until an offer has been accepted.
+     */
+    public static function raiseOfferAction(): Action
+    {
+        return Action::make('raiseOffer')
+            ->label('Raise Offer')
+            ->color('success')
+            ->icon('heroicon-o-document-plus')
+            ->url(fn (CandidateApplication $record): string => OfferResource::getUrl('create', ['application' => $record->getKey()]))
+            ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
+                && $record->current_stage->order() < CandidateStage::OfferAccepted->order()
+                && (bool) auth()->user()?->can('create', Offer::class));
     }
 
     public static function advanceStageAction(): Action

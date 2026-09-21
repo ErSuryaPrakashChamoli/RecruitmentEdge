@@ -7,6 +7,7 @@ use App\Enums\CandidateStage;
 use App\Enums\FeedbackRecommendation;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
+use App\Enums\InterviewRoundNumber;
 use App\Enums\InterviewStatus;
 use App\Filament\Exports\InterviewExporter;
 use App\Filament\Resources\Interviews\InterviewResource;
@@ -56,6 +57,7 @@ class InterviewsTable
                     ->searchable(),
                 TextColumn::make('round_number')
                     ->label('Round')
+                    ->formatStateUsing(fn (int $state): string => InterviewRoundNumber::tryFrom($state)?->label() ?? (string) $state)
                     ->sortable(),
                 TextColumn::make('interviewer.first_name')
                     ->label('Interviewer')

@@ -26,6 +26,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'accepted_at',
     'expected_joining_date',
     'remarks',
+    'offer_letter_template_id',
+    'offer_letter_body',
     'created_by',
 ])]
 class Offer extends Model
@@ -70,6 +72,17 @@ class Offer extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    /**
+     * The template this offer's letter was started from; see OfferLetterRenderer for how the letter
+     * body is resolved.
+     *
+     * @return BelongsTo<OfferLetterTemplate, $this>
+     */
+    public function offerLetterTemplate(): BelongsTo
+    {
+        return $this->belongsTo(OfferLetterTemplate::class);
     }
 
     /**

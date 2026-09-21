@@ -101,7 +101,7 @@ class IncentiveDashboard extends Page
     }
 
     /**
-     * @return Collection<int, array{calculation: RecruiterIncentiveCalculation, target: int|null, adjustmentsTotal: float, final: float, slabProgress: array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool}|null}>
+     * @return Collection<int, array{calculation: RecruiterIncentiveCalculation, target: int|null, adjustmentsTotal: float, final: float, slabProgress: array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool, currentLabel: string, nextLabel: string|null, remainingLabel: string|null}|null}>
      */
     public function getMyScorecard(): Collection
     {
@@ -143,17 +143,21 @@ class IncentiveDashboard extends Page
     }
 
     /**
-     * Progress within the current band toward the next band's lower bound. When there is no higher
-     * band (including the open-ended top band) there is nothing to progress toward, so
-     * `topBandReached` is true and `progressPct` is null rather than a fabricated 100%.
+     * Progress within the current band toward the next band's lower bound, measured in the rule's
+     * unit (occurrence count for Slab by count, achievement % otherwise; fixed-rate rules have no
+     * slabs and so no progress). When there is no higher band (including the open-ended top band)
+     * there is nothing to progress toward, so `topBandReached` is true and `progressPct` is null
+     * rather than a fabricated 100%.
      *
-     * @return array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool}|null
+     * @return array{current: RecruitmentIncentiveSlab, next: RecruitmentIncentiveSlab|null, remaining: float|null, progressPct: float|null, potentialAdditional: float|null, nextAmount: float|null, topBandReached: bool, currentLabel: string, nextLabel: string|null, remainingLabel: string|null}|null
      */
     private function slabProgressFor(RecruiterIncentiveCalculation $calculation): ?array
     {
-        $slabs = $calculation->incentiveRule?->slabs;
+        $rule = $calculation->incentiveRule;
+        $slabs = $rule?->slabs;
+        $basis = $calculation->slabBasis();
 
-        if ($slabs === null || $slabs->isEmpty() || $calculation->achievement === null) {
+        if ($slabs === null || $slabs->isEmpty() || $basis === null) {
             return null;
         }
 
@@ -165,7 +169,6 @@ class IncentiveDashboard extends Page
 
         $current = $slabs[$currentIndex];
         $next = $slabs[$currentIndex + 1] ?? null;
-        $achievement = (float) $calculation->achievement;
 
         if ($next === null) {
             return [
@@ -176,20 +179,27 @@ class IncentiveDashboard extends Page
                 'potentialAdditional' => null,
                 'nextAmount' => null,
                 'topBandReached' => true,
+                'currentLabel' => $current->bandLabel($rule),
+                'nextLabel' => null,
+                'remainingLabel' => null,
             ];
         }
 
         $bandMin = (float) $current->achievement_min;
         $nextMin = (float) $next->achievement_min;
+        $remaining = max(0.0, $nextMin - $basis);
 
         return [
             'current' => $current,
             'next' => $next,
-            'remaining' => max(0.0, $nextMin - $achievement),
-            'progressPct' => $nextMin > $bandMin ? (float) min(100, max(0, ($achievement - $bandMin) / ($nextMin - $bandMin) * 100)) : 0.0,
+            'remaining' => $remaining,
+            'progressPct' => $nextMin > $bandMin ? (float) min(100, max(0, ($basis - $bandMin) / ($nextMin - $bandMin) * 100)) : 0.0,
             'potentialAdditional' => (float) $next->amount - (float) $current->amount,
             'nextAmount' => (float) $next->amount,
             'topBandReached' => false,
+            'currentLabel' => $current->bandLabel($rule),
+            'nextLabel' => $rule->formatSlabBasis($nextMin),
+            'remainingLabel' => $rule->formatSlabBasis($remaining),
         ];
     }
 

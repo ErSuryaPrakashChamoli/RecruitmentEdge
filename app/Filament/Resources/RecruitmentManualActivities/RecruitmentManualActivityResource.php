@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentManualActivities;
 use App\Filament\Resources\RecruitmentManualActivities\Pages\CreateRecruitmentManualActivity;
 use App\Filament\Resources\RecruitmentManualActivities\Pages\EditRecruitmentManualActivity;
 use App\Filament\Resources\RecruitmentManualActivities\Pages\ListRecruitmentManualActivities;
+use App\Filament\Resources\RecruitmentManualActivities\Pages\ViewRecruitmentManualActivity;
 use App\Filament\Resources\RecruitmentManualActivities\Schemas\RecruitmentManualActivityForm;
 use App\Filament\Resources\RecruitmentManualActivities\Tables\RecruitmentManualActivitiesTable;
 use App\Models\RecruitmentManualActivity;
@@ -63,6 +64,7 @@ class RecruitmentManualActivityResource extends Resource
         return [
             'index' => ListRecruitmentManualActivities::route('/'),
             'create' => CreateRecruitmentManualActivity::route('/create'),
+            'view' => ViewRecruitmentManualActivity::route('/{record}'),
             'edit' => EditRecruitmentManualActivity::route('/{record}/edit'),
         ];
     }

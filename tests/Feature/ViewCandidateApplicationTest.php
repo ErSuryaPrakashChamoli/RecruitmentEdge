@@ -4,6 +4,7 @@ use App\Filament\Resources\CandidateApplications\Pages\ViewCandidateApplication;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
 use App\Models\User;
@@ -40,7 +41,7 @@ test('the candidate application 360 view renders with interviews, offers, and st
 
 test('a recruiter can schedule an interview from the candidate 360 header', function (): void {
     $recruiter = Employee::factory()->create();
-    $interviewer = Employee::factory()->create();
+    $interviewer = Interviewer::factory()->create()->employee;
     $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
 
     $user = User::factory()->create(['employee_id' => $recruiter->id]);

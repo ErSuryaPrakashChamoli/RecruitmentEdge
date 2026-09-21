@@ -6,6 +6,7 @@ use App\Filament\Resources\RecruitmentSettings\Pages\CreateRecruitmentSetting;
 use App\Filament\Resources\RecruitmentSettings\Pages\EditRecruitmentSetting;
 use App\Filament\Resources\RecruitmentSettings\Pages\ListRecruitmentSettings;
 use App\Filament\Resources\RecruitmentSettings\Pages\ManageRecruitmentConfiguration;
+use App\Filament\Resources\RecruitmentSettings\Pages\ViewRecruitmentSetting;
 use App\Filament\Resources\RecruitmentSettings\Schemas\RecruitmentSettingForm;
 use App\Filament\Resources\RecruitmentSettings\Tables\RecruitmentSettingsTable;
 use App\Models\RecruitmentSetting;
@@ -51,6 +52,7 @@ class RecruitmentSettingResource extends Resource
             'index' => ListRecruitmentSettings::route('/'),
             'configure' => ManageRecruitmentConfiguration::route('/configure'),
             'create' => CreateRecruitmentSetting::route('/create'),
+            'view' => ViewRecruitmentSetting::route('/{record}'),
             'edit' => EditRecruitmentSetting::route('/{record}/edit'),
         ];
     }

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\CandidateJoinings;
 use App\Filament\Resources\CandidateJoinings\Pages\CreateCandidateJoining;
 use App\Filament\Resources\CandidateJoinings\Pages\EditCandidateJoining;
 use App\Filament\Resources\CandidateJoinings\Pages\ListCandidateJoinings;
+use App\Filament\Resources\CandidateJoinings\Pages\ViewCandidateJoining;
 use App\Filament\Resources\CandidateJoinings\RelationManagers\DocumentsRelationManager;
 use App\Filament\Resources\CandidateJoinings\Schemas\CandidateJoiningForm;
 use App\Filament\Resources\CandidateJoinings\Tables\CandidateJoiningsTable;
@@ -68,6 +69,7 @@ class CandidateJoiningResource extends Resource
         return [
             'index' => ListCandidateJoinings::route('/'),
             'create' => CreateCandidateJoining::route('/create'),
+            'view' => ViewCandidateJoining::route('/{record}'),
             'edit' => EditCandidateJoining::route('/{record}/edit'),
         ];
     }

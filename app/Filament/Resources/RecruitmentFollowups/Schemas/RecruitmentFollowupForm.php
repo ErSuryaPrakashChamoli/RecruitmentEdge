@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RecruitmentFollowups\Schemas;
 
 use App\Enums\FollowupType;
+use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Models\Employee;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
@@ -16,12 +17,8 @@ class RecruitmentFollowupForm
     {
         return $schema
             ->components([
-                Select::make('candidate_application_id')
-                    ->label('Application')
-                    ->relationship('candidateApplication', 'application_code')
-                    ->required()
-                    ->searchable()
-                    ->preload(),
+                ApplicationPicker::make()
+                    ->required(),
                 Select::make('recruiter_id')
                     ->label('Recruiter')
                     ->relationship('recruiter', 'first_name')

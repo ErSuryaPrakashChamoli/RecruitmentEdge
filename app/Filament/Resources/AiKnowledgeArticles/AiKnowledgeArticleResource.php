@@ -5,6 +5,7 @@ namespace App\Filament\Resources\AiKnowledgeArticles;
 use App\Filament\Resources\AiKnowledgeArticles\Pages\CreateAiKnowledgeArticle;
 use App\Filament\Resources\AiKnowledgeArticles\Pages\EditAiKnowledgeArticle;
 use App\Filament\Resources\AiKnowledgeArticles\Pages\ListAiKnowledgeArticles;
+use App\Filament\Resources\AiKnowledgeArticles\Pages\ViewAiKnowledgeArticle;
 use App\Filament\Resources\AiKnowledgeArticles\Schemas\AiKnowledgeArticleForm;
 use App\Filament\Resources\AiKnowledgeArticles\Tables\AiKnowledgeArticlesTable;
 use App\Models\AiKnowledgeArticle;
@@ -47,6 +48,7 @@ class AiKnowledgeArticleResource extends Resource
         return [
             'index' => ListAiKnowledgeArticles::route('/'),
             'create' => CreateAiKnowledgeArticle::route('/create'),
+            'view' => ViewAiKnowledgeArticle::route('/{record}'),
             'edit' => EditAiKnowledgeArticle::route('/{record}/edit'),
         ];
     }

@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\Offers\Schemas;
 
+use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
+use App\Models\CandidateApplication;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 class OfferForm
@@ -19,12 +22,16 @@ class OfferForm
                     ->disabled()
                     ->dehydrated(false)
                     ->hidden(fn (string $operation): bool => $operation === 'create'),
-                Select::make('candidate_application_id')
-                    ->label('Application')
-                    ->relationship('candidateApplication', 'application_code')
+                ApplicationPicker::make()
                     ->required()
-                    ->searchable()
-                    ->preload(),
+                    ->live()
+                    ->afterStateUpdated(function (mixed $state, Set $set): void {
+                        $application = filled($state) ? ApplicationPicker::selectableApplications()->with('requisition')->find($state) : null;
+
+                        foreach (self::requisitionDefaults($application) as $field => $value) {
+                            $set($field, $value);
+                        }
+                    }),
                 Section::make('Compensation')
                     ->columns(2)
                     ->schema([
@@ -57,5 +64,18 @@ class OfferForm
                 Textarea::make('remarks')
                     ->columnSpanFull(),
             ]);
+    }
+
+    /**
+     * Designation/location the offer should default to, taken from the application's requisition.
+     *
+     * @return array{designation_id?: int, location_id?: int}
+     */
+    public static function requisitionDefaults(?CandidateApplication $application): array
+    {
+        return array_filter([
+            'designation_id' => $application?->requisition?->designation_id,
+            'location_id' => $application?->requisition?->location_id,
+        ]);
     }
 }

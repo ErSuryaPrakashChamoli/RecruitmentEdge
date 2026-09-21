@@ -6,6 +6,7 @@ use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\CreateRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\EditRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\ListRecruitmentRequisitions;
+use App\Filament\Resources\RecruitmentRequisitions\Pages\ViewRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\ApplicationsRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\StatusHistoryRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\Schemas\RecruitmentRequisitionForm;
@@ -101,6 +102,7 @@ class RecruitmentRequisitionResource extends Resource
         return [
             'index' => ListRecruitmentRequisitions::route('/'),
             'create' => CreateRecruitmentRequisition::route('/create'),
+            'view' => ViewRecruitmentRequisition::route('/{record}'),
             'edit' => EditRecruitmentRequisition::route('/{record}/edit'),
         ];
     }

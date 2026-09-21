@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentRejectionReasons;
 use App\Filament\Resources\RecruitmentRejectionReasons\Pages\CreateRecruitmentRejectionReason;
 use App\Filament\Resources\RecruitmentRejectionReasons\Pages\EditRecruitmentRejectionReason;
 use App\Filament\Resources\RecruitmentRejectionReasons\Pages\ListRecruitmentRejectionReasons;
+use App\Filament\Resources\RecruitmentRejectionReasons\Pages\ViewRecruitmentRejectionReason;
 use App\Filament\Resources\RecruitmentRejectionReasons\Schemas\RecruitmentRejectionReasonForm;
 use App\Filament\Resources\RecruitmentRejectionReasons\Tables\RecruitmentRejectionReasonsTable;
 use App\Models\RecruitmentRejectionReason;
@@ -51,6 +52,7 @@ class RecruitmentRejectionReasonResource extends Resource
         return [
             'index' => ListRecruitmentRejectionReasons::route('/'),
             'create' => CreateRecruitmentRejectionReason::route('/create'),
+            'view' => ViewRecruitmentRejectionReason::route('/{record}'),
             'edit' => EditRecruitmentRejectionReason::route('/{record}/edit'),
         ];
     }

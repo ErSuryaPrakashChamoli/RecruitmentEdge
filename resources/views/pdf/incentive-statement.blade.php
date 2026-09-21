@@ -24,16 +24,11 @@
         <tr><th>Candidate</th><td>{{ $calculation->candidate?->full_name }}</td></tr>
         <tr><th>Incentive Rule</th><td>{{ $calculation->incentiveRule?->name }}</td></tr>
         <tr><th>Period</th><td>{{ $calculation->period_start->format('d M Y') }} &ndash; {{ $calculation->period_end->format('d M Y') }}</td></tr>
-        <tr><th>Achievement</th><td>{{ $calculation->achievement !== null ? number_format((float) $calculation->achievement, 1).'%' : '&mdash;' }}</td></tr>
+        <tr><th>Payout Type</th><td>{{ $calculation->incentiveRule?->payout_type?->label() ?? '—' }}</td></tr>
+        <tr><th>Slab Matched On</th><td>{{ $calculation->slabBasis() !== null ? $calculation->incentiveRule->formatSlabBasis($calculation->slabBasis()) : '—' }}</td></tr>
         <tr>
             <th>Applicable Slab</th>
-            <td>
-                @if ($calculation->incentiveSlab)
-                    {{ (float) $calculation->incentiveSlab->achievement_min }}% &ndash; {{ $calculation->incentiveSlab->achievement_max !== null ? (float) $calculation->incentiveSlab->achievement_max.'%' : 'and above' }}
-                @else
-                    &mdash;
-                @endif
-            </td>
+            <td>{{ $calculation->incentiveSlab?->bandLabel($calculation->incentiveRule) ?? '—' }}</td>
         </tr>
         <tr><th>Base Amount</th><td>&#8377;{{ number_format((float) $calculation->amount, 2) }}</td></tr>
         <tr><th>Status</th><td>{{ $calculation->status->label() }}</td></tr>

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentFollowups;
 use App\Filament\Resources\RecruitmentFollowups\Pages\CreateRecruitmentFollowup;
 use App\Filament\Resources\RecruitmentFollowups\Pages\EditRecruitmentFollowup;
 use App\Filament\Resources\RecruitmentFollowups\Pages\ListRecruitmentFollowups;
+use App\Filament\Resources\RecruitmentFollowups\Pages\ViewRecruitmentFollowup;
 use App\Filament\Resources\RecruitmentFollowups\Schemas\RecruitmentFollowupForm;
 use App\Filament\Resources\RecruitmentFollowups\Tables\RecruitmentFollowupsTable;
 use App\Models\RecruitmentFollowup;
@@ -63,6 +64,7 @@ class RecruitmentFollowupResource extends Resource
         return [
             'index' => ListRecruitmentFollowups::route('/'),
             'create' => CreateRecruitmentFollowup::route('/create'),
+            'view' => ViewRecruitmentFollowup::route('/{record}'),
             'edit' => EditRecruitmentFollowup::route('/{record}/edit'),
         ];
     }

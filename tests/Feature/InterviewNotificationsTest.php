@@ -6,6 +6,7 @@ use App\Filament\Resources\Interviews\Pages\ListInterviews;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Filament\Actions\Testing\TestAction;
@@ -22,7 +23,7 @@ beforeEach(function (): void {
 });
 
 test('scheduling an interview notifies the interviewer', function (): void {
-    $interviewer = Employee::factory()->create();
+    $interviewer = Interviewer::factory()->create()->employee;
     $interviewerUser = User::factory()->create(['employee_id' => $interviewer->id]);
     $application = CandidateApplication::factory()->create();
 

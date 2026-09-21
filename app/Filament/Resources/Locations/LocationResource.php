@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Locations;
 use App\Filament\Resources\Locations\Pages\CreateLocation;
 use App\Filament\Resources\Locations\Pages\EditLocation;
 use App\Filament\Resources\Locations\Pages\ListLocations;
+use App\Filament\Resources\Locations\Pages\ViewLocation;
 use App\Filament\Resources\Locations\Schemas\LocationForm;
 use App\Filament\Resources\Locations\Tables\LocationsTable;
 use App\Models\Location;
@@ -49,6 +50,7 @@ class LocationResource extends Resource
         return [
             'index' => ListLocations::route('/'),
             'create' => CreateLocation::route('/create'),
+            'view' => ViewLocation::route('/{record}'),
             'edit' => EditLocation::route('/{record}/edit'),
         ];
     }

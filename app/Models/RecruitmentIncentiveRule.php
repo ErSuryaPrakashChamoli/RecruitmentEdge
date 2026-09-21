@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use App\Enums\EmploymentType;
+use App\Enums\IncentivePayoutType;
+use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
 use App\Enums\TargetMetric;
 use App\Models\Concerns\Auditable;
 use Database\Factories\RecruitmentIncentiveRuleFactory;
+use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,15 +18,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Section 24: incentive rules are scoped by any combination of recruiter/department/designation/
- * location/employment type (all nullable — omit a scope to apply it broadly), fire on a configurable
- * trigger event, and pay according to whichever RecruitmentIncentiveSlab band the recruiter's
- * achievement on `achievement_metric` falls into. `retention_days`, when set, delays a
- * calculation's move out of Calculated until that many days after the triggering fact (Section 26).
+ * location/employment type (all nullable — omit a scope to apply it broadly) and fire on a
+ * configurable trigger event. `payout_type` decides the amount per occurrence: a `fixed_amount`, or
+ * the RecruitmentIncentiveSlab band matching the recruiter's occurrence count / achievement on
+ * `achievement_metric` for the month, with `slab_upgrade_mode` deciding whether a higher band also
+ * re-prices the month's earlier occurrences. `retention_days`, when set, delays a calculation's move
+ * out of Calculated until that many days after the triggering fact (Section 26).
  */
 #[Fillable([
     'name',
     'trigger_event',
     'achievement_metric',
+    'payout_type',
+    'fixed_amount',
+    'slab_upgrade_mode',
     'employee_id',
     'department_id',
     'designation_id',
@@ -40,11 +48,23 @@ class RecruitmentIncentiveRule extends Model
     /** @use HasFactory<RecruitmentIncentiveRuleFactory> */
     use Auditable, HasFactory;
 
+    protected static function booted(): void
+    {
+        static::saving(function (RecruitmentIncentiveRule $rule): void {
+            if ($rule->payout_type === IncentivePayoutType::Fixed && (float) $rule->fixed_amount <= 0) {
+                throw new DomainException('A fixed-rate incentive rule needs an amount greater than zero.');
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [
             'trigger_event' => IncentiveTriggerEvent::class,
             'achievement_metric' => TargetMetric::class,
+            'payout_type' => IncentivePayoutType::class,
+            'fixed_amount' => 'decimal:2',
+            'slab_upgrade_mode' => IncentiveSlabUpgradeMode::class,
             'employment_type' => EmploymentType::class,
             'effective_from' => 'date',
             'effective_to' => 'date',
@@ -110,5 +130,15 @@ class RecruitmentIncentiveRule extends Model
             && ($this->department_id === null || $this->department_id === $recruiter->department_id)
             && ($this->designation_id === null || $this->designation_id === $recruiter->designation_id)
             && ($this->location_id === null || $this->location_id === $recruiter->location_id);
+    }
+
+    /**
+     * A slab-basis value in this rule's unit: "4 joinings" for Slab by count, "80.0%" otherwise.
+     */
+    public function formatSlabBasis(float $value): string
+    {
+        return $this->payout_type === IncentivePayoutType::SlabByCount
+            ? number_format($value).' '.$this->trigger_event->countNoun()
+            : number_format($value, 1).'%';
     }
 }

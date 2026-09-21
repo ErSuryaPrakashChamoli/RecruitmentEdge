@@ -24,4 +24,28 @@ enum IncentiveTriggerEvent: string
             self::Joining => 'On Joining',
         };
     }
+
+    /**
+     * Singular name of one occurrence, e.g. for "Amount per joining".
+     */
+    public function occurrenceNoun(): string
+    {
+        return match ($this) {
+            self::Selection => 'selection',
+            self::OfferAccepted => 'accepted offer',
+            self::Joining => 'joining',
+        };
+    }
+
+    /**
+     * Plural name used for slab-by-count bands, e.g. "1 – 3 joinings".
+     */
+    public function countNoun(): string
+    {
+        return match ($this) {
+            self::Selection => 'selections',
+            self::OfferAccepted => 'accepted offers',
+            self::Joining => 'joinings',
+        };
+    }
 }

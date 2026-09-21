@@ -72,7 +72,7 @@ class RecruitmentRequisitionsTable
                 TrashedFilter::make(),
             ])
             ->recordActions([
-                RequisitionLifecycleActions::group(),
+                ...RequisitionLifecycleActions::make(),
                 EditAction::make(),
             ])
             ->toolbarActions([

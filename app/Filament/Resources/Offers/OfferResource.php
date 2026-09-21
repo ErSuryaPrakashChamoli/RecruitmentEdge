@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Offers;
 use App\Filament\Resources\Offers\Pages\CreateOffer;
 use App\Filament\Resources\Offers\Pages\EditOffer;
 use App\Filament\Resources\Offers\Pages\ListOffers;
+use App\Filament\Resources\Offers\Pages\ViewOffer;
 use App\Filament\Resources\Offers\RelationManagers\StatusHistoryRelationManager;
 use App\Filament\Resources\Offers\Schemas\OfferForm;
 use App\Filament\Resources\Offers\Tables\OffersTable;
@@ -101,6 +102,7 @@ class OfferResource extends Resource
         return [
             'index' => ListOffers::route('/'),
             'create' => CreateOffer::route('/create'),
+            'view' => ViewOffer::route('/{record}'),
             'edit' => EditOffer::route('/{record}/edit'),
         ];
     }

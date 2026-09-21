@@ -1,8 +1,10 @@
 <?php
 
 use App\Enums\ApplicationStatus;
+use App\Enums\CandidateStage;
 use App\Enums\RejectionCategory;
 use App\Filament\Resources\CandidateApplications\Pages\ListCandidateApplications;
+use App\Filament\Resources\Offers\OfferResource;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
@@ -23,6 +25,27 @@ beforeEach(function (): void {
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');
     actingAs($user);
+});
+
+test('the Raise Offer action links to the offer form for an active application', function (): void {
+    Livewire::test(ListCandidateApplications::class)
+        ->assertActionVisible(TestAction::make('raiseOffer')->table($this->application))
+        ->assertActionHasUrl(
+            TestAction::make('raiseOffer')->table($this->application),
+            OfferResource::getUrl('create', ['application' => $this->application->id]),
+        );
+});
+
+test('the Raise Offer action is hidden once an offer is accepted or the application is inactive', function (): void {
+    $this->application->forceFill(['current_stage' => CandidateStage::OfferAccepted])->save();
+
+    Livewire::test(ListCandidateApplications::class)
+        ->assertActionHidden(TestAction::make('raiseOffer')->table($this->application));
+
+    $this->application->forceFill(['current_stage' => CandidateStage::Selected, 'status' => ApplicationStatus::Rejected])->save();
+
+    Livewire::test(ListCandidateApplications::class)
+        ->assertActionHidden(TestAction::make('raiseOffer')->table($this->application));
 });
 
 test('the Put On Hold action requires remarks', function (): void {

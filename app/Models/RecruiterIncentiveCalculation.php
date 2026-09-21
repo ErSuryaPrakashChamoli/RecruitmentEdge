@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\IncentiveCalculationStatus;
+use App\Enums\IncentivePayoutType;
 use Database\Factories\RecruiterIncentiveCalculationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'period_start',
     'period_end',
     'achievement',
+    'occurrence_count',
     'amount',
     'status',
     'retention_due_at',
@@ -44,6 +46,7 @@ class RecruiterIncentiveCalculation extends Model
             'period_end' => 'date',
             'retention_due_at' => 'date',
             'achievement' => 'decimal:2',
+            'occurrence_count' => 'integer',
             'amount' => 'decimal:2',
             'calculated_at' => 'datetime',
         ];
@@ -56,6 +59,19 @@ class RecruiterIncentiveCalculation extends Model
     public function effectiveAmount(): float
     {
         return (float) $this->amount + (float) $this->adjustments()->sum('amount_delta');
+    }
+
+    /**
+     * The figure the slab was matched on: the occurrence count for a Slab-by-count rule, the
+     * achievement % otherwise. Null when the calculation was not slab-priced on a figure.
+     */
+    public function slabBasis(): ?float
+    {
+        $value = $this->incentiveRule?->payout_type === IncentivePayoutType::SlabByCount
+            ? $this->occurrence_count
+            : $this->achievement;
+
+        return $value !== null ? (float) $value : null;
     }
 
     /**

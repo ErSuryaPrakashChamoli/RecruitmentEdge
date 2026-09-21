@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\Offers\Tables;
 
+use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
 use App\Filament\Exports\OfferExporter;
 use App\Models\Offer;
+use App\Models\OfferLetterTemplate;
 use App\Models\RecruitmentRejectionReason;
-use App\Services\Export\ReportExportService;
+use App\Services\OfferLetterRenderer;
 use App\Services\OfferService;
 use DomainException;
 use Filament\Actions\Action;
@@ -14,10 +16,12 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -26,6 +30,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OffersTable
 {
+    /**
+     * The letter can be tailored until the candidate has decided on the offer.
+     */
+    private const LETTER_EDITABLE_STATUSES = [
+        OfferStatus::Draft,
+        OfferStatus::Initiated,
+        OfferStatus::Released,
+    ];
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -72,6 +85,7 @@ class OffersTable
             ->recordActions([
                 self::releaseAction(),
                 self::changeStatusAction(),
+                self::customizeOfferLetterAction(),
                 self::downloadOfferLetterAction(),
                 EditAction::make(),
             ])
@@ -128,6 +142,77 @@ class OffersTable
             ->action(fn (Offer $record, array $data) => self::performStatusChange($record, OfferStatus::from($data['to_status']), $data));
     }
 
+    /**
+     * Tailors the letter for this one candidate: start from a template, then edit the wording. Merge
+     * tags stay live, so later changes to the offer's salary or dates still flow into the PDF.
+     */
+    public static function customizeOfferLetterAction(): Action
+    {
+        return Action::make('customizeOfferLetter')
+            ->label('Customize Offer Letter')
+            ->icon('heroicon-o-pencil-square')
+            ->color('gray')
+            ->visible(fn (Offer $record): bool => in_array($record->status, self::LETTER_EDITABLE_STATUSES, true)
+                && (bool) auth()->user()?->can('update', $record))
+            ->modalWidth('5xl')
+            ->fillForm(function (Offer $record): array {
+                $template = $record->offerLetterTemplate ?? OfferLetterTemplate::defaultTemplate();
+                $richTextTemplate = $template?->format === OfferLetterTemplateFormat::RichText ? $template : null;
+
+                return [
+                    'offer_letter_template_id' => $richTextTemplate?->getKey(),
+                    'offer_letter_body' => filled($record->offer_letter_body) ? $record->offer_letter_body : $richTextTemplate?->body,
+                ];
+            })
+            ->schema([
+                Select::make('offer_letter_template_id')
+                    ->label('Start from template')
+                    ->options(fn (): array => OfferLetterTemplate::query()
+                        ->where('is_active', true)
+                        ->where('format', OfferLetterTemplateFormat::RichText)
+                        ->orderBy('name')
+                        ->pluck('name', 'id')
+                        ->all())
+                    ->helperText('Choosing a template replaces the letter below with that template\'s wording. A letter written here is used for this offer instead of any Word template.')
+                    ->live()
+                    ->afterStateUpdated(fn (Set $set, mixed $state) => $set('offer_letter_body', OfferLetterTemplate::query()->find($state)?->body)),
+                RichEditor::make('offer_letter_body')
+                    ->label('Letter')
+                    ->mergeTags(OfferLetterRenderer::MERGE_TAGS)
+                    ->helperText('Insert merge tags such as Candidate name or Offered CTC from the editor — they are filled from this offer when the PDF is generated.')
+                    ->required(),
+            ])
+            ->action(function (Offer $record, array $data): void {
+                $record->update([
+                    'offer_letter_template_id' => $data['offer_letter_template_id'] ?? null,
+                    'offer_letter_body' => $data['offer_letter_body'],
+                ]);
+
+                Notification::make()->title('Offer letter saved')->success()->send();
+            });
+    }
+
+    /**
+     * Discards the offer's tailored wording so the letter follows its template again.
+     */
+    public static function resetOfferLetterAction(): Action
+    {
+        return Action::make('resetOfferLetter')
+            ->label('Reset Letter to Template')
+            ->icon('heroicon-o-arrow-uturn-left')
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalDescription('This discards the wording customised for this offer; the letter will use its template again.')
+            ->visible(fn (Offer $record): bool => filled($record->offer_letter_body)
+                && in_array($record->status, self::LETTER_EDITABLE_STATUSES, true)
+                && (bool) auth()->user()?->can('update', $record))
+            ->action(function (Offer $record): void {
+                $record->update(['offer_letter_body' => null]);
+
+                Notification::make()->title('Offer letter reset to template')->success()->send();
+            });
+    }
+
     public static function downloadOfferLetterAction(): Action
     {
         return Action::make('downloadOfferLetter')
@@ -143,13 +228,15 @@ class OffersTable
                     'candidateApplication.requisition.location',
                     'designation',
                     'location',
+                    'offerLetterTemplate',
                 ]);
 
-                return app(ReportExportService::class)->streamPdf(
-                    "offer-letter-{$record->offer_code}.pdf",
-                    'pdf.offer-letter',
-                    ['offer' => $record],
-                );
+                // Candidates always receive a PDF, whatever format the template is maintained in.
+                $pdf = app(OfferLetterRenderer::class)->pdf($record);
+
+                return response()->streamDownload(function () use ($pdf): void {
+                    echo $pdf;
+                }, "offer-letter-{$record->offer_code}.pdf", ['Content-Type' => 'application/pdf']);
             });
     }
 

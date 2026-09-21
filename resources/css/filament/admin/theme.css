@@ -481,3 +481,69 @@ html {
 :root[data-app-theme="graphite"] .fi-topbar {
     background: linear-gradient(90deg, var(--gray-800) 0%, #05070d 100%);
 }
+
+/*
+ * Row hover + expanding action strip, on every table. AppServiceProvider puts record actions in the
+ * first column project-wide; here that column collapses to zero width. Hovering a row tints it and
+ * grows it downwards (extra bottom padding on its cells), and the row's actions appear on one line
+ * inside that new space, aligned with the first column's text. Because the strip lives inside the
+ * row, moving down onto the next row collapses this one and expands that one in the same frame —
+ * the pointer stays within the newly hovered row, so there's no flicker.
+ *
+ * Filament's .fi-ta-actions is `max-width: 100%` + `justify-content: flex-end`; inside a zero-width
+ * cell that squeezes the container to 0px and spills the buttons leftwards off the table, so both
+ * are reset below. A keyboard-focused or open dropdown action keeps its row expanded. Touch devices
+ * (no hover) keep Filament's normal inline actions.
+ */
+@media (hover: hover) and (pointer: fine) {
+    .fi-ta-table th.fi-ta-actions-header-cell {
+        width: 0;
+        padding: 0 !important;
+    }
+
+    .fi-ta-table td.fi-ta-cell:has(> .fi-ta-actions) {
+        position: relative;
+        width: 0;
+        padding: 0 !important;
+    }
+
+    .fi-ta-table td.fi-ta-cell > .fi-ta-actions {
+        position: absolute;
+        bottom: 0.75rem;
+        left: 0.75rem;
+        z-index: 10;
+        display: none;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        width: max-content;
+        max-width: none;
+        gap: 1rem;
+        white-space: nowrap;
+    }
+
+    .fi-ta-table > tbody > .fi-ta-row:is(
+        :hover,
+        :has(> td.fi-ta-cell > .fi-ta-actions :focus-visible),
+        :has(> td.fi-ta-cell > .fi-ta-actions [aria-expanded="true"])
+    ) {
+        background-color: var(--primary-50);
+
+        & > td:first-child {
+            box-shadow: inset 3px 0 0 var(--primary-500);
+        }
+
+        &:has(> td.fi-ta-cell > .fi-ta-actions > *) {
+            & > td:not(:has(> .fi-ta-actions)) {
+                padding-bottom: 3rem;
+            }
+
+            & > td.fi-ta-cell > .fi-ta-actions {
+                display: flex;
+            }
+        }
+    }
+
+    .dark .fi-ta-table > tbody > .fi-ta-row:hover {
+        background-color: rgb(255 255 255 / 6%);
+    }
+}

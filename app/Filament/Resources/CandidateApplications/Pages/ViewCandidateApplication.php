@@ -42,6 +42,7 @@ class ViewCandidateApplication extends ViewRecord
         return [
             CandidateApplicationsTable::advanceStageAction(),
             $this->selectCandidateAction(),
+            CandidateApplicationsTable::raiseOfferAction(),
             CandidateApplicationsTable::rejectAction(),
             CandidateApplicationsTable::dropoutAction(),
             CandidateApplicationsTable::holdAction(),

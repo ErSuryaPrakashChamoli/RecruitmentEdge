@@ -74,6 +74,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libicu-dev \
         libonig-dev \
         libxml2-dev \
+        libreoffice-writer-nogui \
+        fonts-dejavu-core \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" \
         gd \

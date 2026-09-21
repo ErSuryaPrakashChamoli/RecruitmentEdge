@@ -61,7 +61,7 @@ class RecruiterIncentiveCalculationsTable
             ])
             ->recordActions([
                 ViewAction::make(),
-                IncentiveLifecycleActions::group(),
+                ...IncentiveLifecycleActions::make(),
                 self::adjustAction(),
             ])
             ->toolbarActions([])

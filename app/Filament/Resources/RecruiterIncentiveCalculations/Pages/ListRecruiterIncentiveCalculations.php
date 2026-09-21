@@ -3,8 +3,8 @@
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 
 use App\Enums\IncentiveTriggerEvent;
+use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
-use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\IncentiveStatementService;
@@ -27,11 +27,7 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                 ->icon('heroicon-o-calculator')
                 ->visible(fn (): bool => (bool) auth()->user()?->can('incentives.calculate'))
                 ->schema([
-                    Select::make('candidate_application_id')
-                        ->label('Application')
-                        ->relationship('candidateApplication', 'application_code')
-                        ->searchable()
-                        ->preload()
+                    ApplicationPicker::make()
                         ->required(),
                     Select::make('trigger_event')
                         ->options(collect(IncentiveTriggerEvent::cases())->mapWithKeys(fn (IncentiveTriggerEvent $e) => [$e->value => $e->label()]))
@@ -40,7 +36,7 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                         ->helperText('Joining-triggered incentives are already calculated automatically when a candidate is marked Joined — use this for Selection/Offer-Accepted rules, or to backfill/recalculate.'),
                 ])
                 ->action(function (array $data): void {
-                    $application = CandidateApplication::query()->findOrFail($data['candidate_application_id']);
+                    $application = ApplicationPicker::selectableApplications()->findOrFail($data['candidate_application_id']);
                     $event = IncentiveTriggerEvent::from($data['trigger_event']);
                     $calculator = app(RecruiterIncentiveCalculator::class);
 

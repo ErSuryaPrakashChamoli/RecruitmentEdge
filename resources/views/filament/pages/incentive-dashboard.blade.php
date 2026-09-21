@@ -15,7 +15,8 @@
                         @php
                             $calculation = $row['calculation'];
                             $progress = $row['slabProgress'];
-                            $achievementPct = $calculation->achievement !== null ? max(0, (float) $calculation->achievement) : null;
+                            $slabBasis = $calculation->slabBasis();
+                            $basisLabel = $slabBasis !== null ? $calculation->incentiveRule->formatSlabBasis(max(0, $slabBasis)) : null;
                             $ruleUrl = $this->ruleUrl($calculation->incentiveRule);
                         @endphp
                         <div class="rounded-lg border border-gray-100 p-4 dark:border-white/5">
@@ -48,7 +49,7 @@
                                 </div>
                                 <div>
                                     <p class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Achievement</p>
-                                    <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $achievementPct !== null ? number_format($achievementPct, 1).'%' : '—' }}</p>
+                                    <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $basisLabel ?? '—' }}</p>
                                 </div>
                                 <div>
                                     <p class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">Base Incentive</p>
@@ -63,9 +64,9 @@
                             @if ($progress)
                                 <div class="mt-4">
                                     <div class="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
-                                        <span>Slab: {{ number_format((float) $progress['current']->achievement_min, 1) }}%{{ $progress['current']->achievement_max !== null ? ' – '.number_format((float) $progress['current']->achievement_max, 1).'%' : '+' }} &middot; ₹{{ number_format((float) $progress['current']->amount, 2) }}</span>
+                                        <span>Slab: {{ $progress['currentLabel'] }} &middot; ₹{{ number_format((float) $progress['current']->amount, 2) }}</span>
                                         @if ($progress['next'])
-                                            <span>Next band at {{ number_format((float) $progress['next']->achievement_min, 1) }}% &middot; ₹{{ number_format($progress['nextAmount'], 2) }}</span>
+                                            <span>Next band at {{ $progress['nextLabel'] }} &middot; ₹{{ number_format($progress['nextAmount'], 2) }}</span>
                                         @endif
                                     </div>
                                     @if ($progress['topBandReached'])
@@ -77,7 +78,7 @@
                                             <span class="block h-full rounded-full bg-primary-500" style="width: {{ $progress['progressPct'] }}%"></span>
                                         </span>
                                         <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                                            {{ number_format($progress['remaining'], 1) }}% more to reach the next band (₹{{ number_format($progress['nextAmount'], 2) }})
+                                            {{ $progress['remainingLabel'] }} more to reach the next band (₹{{ number_format($progress['nextAmount'], 2) }})
                                             @if ($progress['potentialAdditional'] !== null)
                                                 — potential additional ₹{{ number_format($progress['potentialAdditional'], 2) }}
                                             @endif

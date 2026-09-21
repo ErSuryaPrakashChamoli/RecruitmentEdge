@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\IncentivePayoutType;
 use Database\Factories\RecruitmentIncentiveSlabFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -10,8 +11,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One achievement-% band -> flat amount (Section 24's example table). `achievement_max` of null
- * means "no upper bound" (the top, uncapped slab).
+ * One band -> amount per occurrence (Section 24's example table). The band bounds are read in the
+ * unit of the owning rule's payout type: achievement % for Slab by achievement, occurrence count
+ * (e.g. joinings) for Slab by count. `achievement_max` of null means "no upper bound" (the top,
+ * uncapped slab).
  *
  * Bands within one rule must never overlap (both ends are inclusive — see matches()), `max` must
  * exceed `min`, and only the highest band may be open-ended. That keeps
@@ -53,6 +56,29 @@ class RecruitmentIncentiveSlab extends Model
     {
         return $achievement >= (float) $this->achievement_min
             && ($this->achievement_max === null || $achievement <= (float) $this->achievement_max);
+    }
+
+    /**
+     * The band in the owning rule's unit: "1 – 3 joinings" / "7+ joinings" for Slab by count,
+     * "80.0% – 99.0%" / "120.0%+" otherwise.
+     */
+    public function bandLabel(?RecruitmentIncentiveRule $rule = null): string
+    {
+        $rule ??= $this->incentiveRule;
+        $min = (float) $this->achievement_min;
+        $max = $this->achievement_max !== null ? (float) $this->achievement_max : null;
+
+        if ($rule?->payout_type === IncentivePayoutType::SlabByCount) {
+            $noun = $rule->trigger_event->countNoun();
+
+            return $max === null
+                ? number_format($min).'+ '.$noun
+                : number_format($min).' – '.number_format($max).' '.$noun;
+        }
+
+        return $max === null
+            ? number_format($min, 1).'%+'
+            : number_format($min, 1).'% – '.number_format($max, 1).'%';
     }
 
     /**

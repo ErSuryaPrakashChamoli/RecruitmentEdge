@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CandidateJoinings\Schemas;
 
 use App\Enums\DocumentStatus;
+use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -14,12 +15,8 @@ class CandidateJoiningForm
     {
         return $schema
             ->components([
-                Select::make('candidate_application_id')
-                    ->label('Application')
-                    ->relationship('candidateApplication', 'application_code')
-                    ->required()
-                    ->searchable()
-                    ->preload(),
+                ApplicationPicker::make()
+                    ->required(),
                 Select::make('offer_id')
                     ->relationship('offer', 'offer_code')
                     ->searchable()

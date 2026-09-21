@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentDailyTargets;
 use App\Filament\Resources\RecruitmentDailyTargets\Pages\CreateRecruitmentDailyTarget;
 use App\Filament\Resources\RecruitmentDailyTargets\Pages\EditRecruitmentDailyTarget;
 use App\Filament\Resources\RecruitmentDailyTargets\Pages\ListRecruitmentDailyTargets;
+use App\Filament\Resources\RecruitmentDailyTargets\Pages\ViewRecruitmentDailyTarget;
 use App\Filament\Resources\RecruitmentDailyTargets\Schemas\RecruitmentDailyTargetForm;
 use App\Filament\Resources\RecruitmentDailyTargets\Tables\RecruitmentDailyTargetsTable;
 use App\Models\RecruitmentDailyTarget;
@@ -47,6 +48,7 @@ class RecruitmentDailyTargetResource extends Resource
         return [
             'index' => ListRecruitmentDailyTargets::route('/'),
             'create' => CreateRecruitmentDailyTarget::route('/create'),
+            'view' => ViewRecruitmentDailyTarget::route('/{record}'),
             'edit' => EditRecruitmentDailyTarget::route('/{record}/edit'),
         ];
     }

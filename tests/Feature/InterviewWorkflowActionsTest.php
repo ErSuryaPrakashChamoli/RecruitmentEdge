@@ -3,6 +3,8 @@
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\InterviewResult;
+use App\Enums\InterviewRoundName;
+use App\Enums\InterviewRoundNumber;
 use App\Enums\InterviewStatus;
 use App\Filament\Resources\CandidateApplications\Pages\ViewCandidateApplication;
 use App\Filament\Resources\CandidateApplications\RelationManagers\InterviewsRelationManager;
@@ -11,12 +13,13 @@ use App\Filament\Resources\Interviews\Pages\EditInterview;
 use App\Filament\Resources\Interviews\Pages\ListInterviews;
 use App\Filament\Resources\Interviews\RelationManagers\FeedbackRelationManager;
 use App\Models\CandidateApplication;
-use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\InterviewFeedback;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Filament\Actions\Testing\TestAction;
+use Filament\Forms\Components\Select;
 use Livewire\Livewire;
 use Spatie\Permission\PermissionRegistrar;
 
@@ -36,7 +39,7 @@ test('the create interview page schedules through the service and advances the s
     Livewire::test(CreateInterview::class)
         ->fillForm([
             'candidate_application_id' => $application->id,
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'scheduled_at' => now()->addDay(),
             'mode' => 'in_person',
             'location' => 'Office',
@@ -48,13 +51,46 @@ test('the create interview page schedules through the service and advances the s
         ->and($application->refresh()->current_stage)->toBe(CandidateStage::InterviewScheduled);
 });
 
+test('the create interview page offers fixed round number and round name options', function (): void {
+    Livewire::test(CreateInterview::class)
+        ->assertFormFieldExists('round_number', fn (Select $field): bool => $field->getOptions() === [1 => 'First', 2 => 'Second', 3 => 'Third', 4 => 'Fourth', 5 => 'Final'])
+        ->assertFormFieldExists('round_name', fn (Select $field): bool => array_values($field->getOptions()) === ['HR Round', 'Sales Round', 'Operations Round', 'Final Round']);
+});
+
+test('the create interview page saves the selected round number and round name', function (): void {
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Screened]);
+
+    Livewire::test(CreateInterview::class)
+        ->fillForm([
+            'candidate_application_id' => $application->id,
+            'round_number' => InterviewRoundNumber::Final->value,
+            'round_name' => InterviewRoundName::HrRound->value,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
+            'scheduled_at' => now()->addDay(),
+            'mode' => 'in_person',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect($application->interviews()->sole())
+        ->round_number->toBe(5)
+        ->round_name->toBe('HR Round');
+});
+
+test('the interviews table shows the round number label', function (): void {
+    $interview = Interview::factory()->create(['round_number' => 2]);
+
+    Livewire::test(ListInterviews::class)
+        ->assertTableColumnFormattedStateSet('round_number', 'Second', $interview);
+});
+
 test('the create interview page shows a notification for an inactive application', function (): void {
     $application = CandidateApplication::factory()->create(['status' => ApplicationStatus::Dropout]);
 
     Livewire::test(CreateInterview::class)
         ->fillForm([
             'candidate_application_id' => $application->id,
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'scheduled_at' => now()->addDay(),
             'mode' => 'phone',
         ])
@@ -115,7 +151,7 @@ test('feedback criteria ratings are captured from the table and default the over
 
     Livewire::test(ListInterviews::class)
         ->callAction(TestAction::make('addFeedback')->table($interview), data: [
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'ratings' => ['technical' => '4', 'communication' => '4', 'problem_solving' => '2', 'culture_fit' => '2'],
             'recommendation' => 'neutral',
             'feedback' => 'Mixed.',
@@ -161,7 +197,7 @@ test('the candidate 360 schedule action captures round, location and meeting lin
     Livewire::test(ViewCandidateApplication::class, ['record' => $application->getRouteKey()])
         ->callAction(TestAction::make('scheduleInterview'), data: [
             'round_number' => 2,
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'scheduled_at' => now()->addDay(),
             'mode' => 'video_call',
             'location' => 'Remote',
@@ -207,7 +243,7 @@ test('an interview can be scheduled from the application interviews tab', functi
         'pageClass' => ViewCandidateApplication::class,
     ])
         ->callAction(TestAction::make('scheduleInterview')->table(), data: [
-            'interviewer_id' => Employee::factory()->create()->id,
+            'interviewer_id' => Interviewer::factory()->create()->employee_id,
             'scheduled_at' => now()->addDay(),
             'mode' => 'phone',
         ])

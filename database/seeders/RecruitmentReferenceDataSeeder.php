@@ -2,10 +2,13 @@
 
 namespace Database\Seeders;
 
+use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\RejectionCategory;
 use App\Models\CandidateSource;
+use App\Models\OfferLetterTemplate;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentSetting;
+use App\Services\StandardOfferLetterDocument;
 use Illuminate\Database\Seeder;
 
 /**
@@ -65,6 +68,20 @@ class RecruitmentReferenceDataSeeder extends Seeder
                     'description' => $definition['description'],
                 ],
             );
+        }
+
+        // The protected standard offer letter: a Word file admins can download, edit and upload again
+        // from Administration > Offer Letter Templates, but never delete. It only becomes the default
+        // while no other default exists, so an admin's own default template is never replaced.
+        if (OfferLetterTemplate::systemTemplate() === null) {
+            OfferLetterTemplate::query()->create([
+                'name' => 'Standard Offer Letter',
+                'format' => OfferLetterTemplateFormat::Word,
+                'file_path' => app(StandardOfferLetterDocument::class)->store(),
+                'is_system' => true,
+                'is_active' => true,
+                'is_default' => ! OfferLetterTemplate::query()->where('is_default', true)->exists(),
+            ]);
         }
     }
 }

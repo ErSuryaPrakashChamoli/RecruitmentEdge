@@ -51,11 +51,10 @@ class RecruiterIncentiveCalculationResource extends Resource
     }
 
     /**
-     * A transparent statement: who/what this is for, which slab of the rule matched their
-     * achievement %, and the resulting amount before/after adjustments. There is no "base x
-     * multiplier" in this domain — a rule's slabs are flat amounts per achievement-% band (see
-     * RecruitmentIncentiveSlab::matches()) — so the statement shows that real shape, not an
-     * invented one. Adjustment-by-adjustment detail stays in the Adjustments relation manager tab.
+     * A transparent statement: who/what this is for, how the rule priced the occurrence (fixed rate,
+     * or the slab matched on the recruiter's count / achievement % for the month), and the resulting
+     * amount before/after adjustments. Adjustment-by-adjustment detail (including retroactive slab
+     * top-ups) stays in the Adjustments relation manager tab.
      */
     public static function infolist(Schema $schema): Schema
     {
@@ -69,7 +68,7 @@ class RecruiterIncentiveCalculationResource extends Resource
                     TextEntry::make('period_start')->label('Period')->formatStateUsing(fn ($record) => $record->period_start->format('M Y')),
                 ]),
             Section::make('Calculation')
-                ->description('Which slab of the rule matched this recruiter\'s achievement %, and the resulting amount.')
+                ->description('How the rule priced this occurrence, and the resulting amount.')
                 ->columns(3)
                 ->schema([
                     TextEntry::make('incentiveRule.name')
@@ -77,11 +76,17 @@ class RecruiterIncentiveCalculationResource extends Resource
                         ->url(fn ($record): ?string => $record->incentiveRule !== null && auth()->user()?->can('update', $record->incentiveRule)
                             ? RecruitmentIncentiveRuleResource::getUrl('edit', ['record' => $record->incentiveRule])
                             : null),
-                    TextEntry::make('achievement')->label('Achievement')->formatStateUsing(fn (?string $state) => $state !== null ? number_format((float) $state, 1).'%' : '—'),
+                    TextEntry::make('payout_type')
+                        ->label('Payout Type')
+                        ->state(fn ($record): string => $record->incentiveRule?->payout_type?->label() ?? '—'),
+                    TextEntry::make('slab_basis')
+                        ->label('Slab Matched On')
+                        ->state(fn ($record): ?string => $record->slabBasis() !== null ? $record->incentiveRule->formatSlabBasis($record->slabBasis()) : null)
+                        ->placeholder('—'),
                     TextEntry::make('incentiveSlab.achievement_min')
                         ->label('Slab Band')
-                        ->formatStateUsing(fn ($record) => $record->incentiveSlab === null ? '—' : number_format((float) $record->incentiveSlab->achievement_min, 1).'% – '
-                            .($record->incentiveSlab->achievement_max !== null ? number_format((float) $record->incentiveSlab->achievement_max, 1).'%' : 'uncapped')),
+                        ->formatStateUsing(fn ($record): string => $record->incentiveSlab?->bandLabel($record->incentiveRule) ?? '—')
+                        ->placeholder('—'),
                     TextEntry::make('incentiveSlab.amount')->label('Slab Amount')->money('INR')->placeholder('—'),
                     TextEntry::make('amount')->label('Calculated Amount')->money('INR'),
                     TextEntry::make('effective_amount')->label('Effective Amount (after adjustments)')->state(fn ($record) => $record->effectiveAmount())->money('INR'),

@@ -50,12 +50,12 @@
                         {{ $calculation->candidateApplication?->application_code ?? '—' }}<br>
                         <span class="muted">{{ $calculation->candidate?->full_name }}</span>
                     </td>
-                    <td class="num">{{ $calculation->achievement !== null ? number_format((float) $calculation->achievement, 1).'%' : '—' }}</td>
+                    <td class="num">{{ $calculation->slabBasis() !== null ? $calculation->incentiveRule->formatSlabBasis($calculation->slabBasis()) : '—' }}</td>
                     <td>
                         @if ($calculation->incentiveSlab)
-                            {{ number_format((float) $calculation->incentiveSlab->achievement_min, 1) }}% &ndash; {{ $calculation->incentiveSlab->achievement_max !== null ? number_format((float) $calculation->incentiveSlab->achievement_max, 1).'%' : 'uncapped' }}
+                            {{ $calculation->incentiveSlab->bandLabel($calculation->incentiveRule) }}
                         @else
-                            &mdash;
+                            {{ $calculation->incentiveRule?->payout_type?->label() ?? '—' }}
                         @endif
                     </td>
                     <td class="num">&#8377;{{ number_format((float) $calculation->amount, 2) }}</td>

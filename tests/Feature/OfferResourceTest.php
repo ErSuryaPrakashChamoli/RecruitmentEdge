@@ -106,6 +106,46 @@ test('creating an offer from the panel writes its initial status history row', f
         ->and($history->changed_by)->toBe($this->recruiter->id);
 });
 
+test('raising an offer from an application pre-selects it and its requisition defaults', function (): void {
+    actingAsOfferUser($this->recruiter, 'recruiter');
+    $requisition = $this->application->requisition;
+
+    Livewire::withQueryParams(['application' => $this->application->id])
+        ->test(CreateOffer::class)
+        ->assertSet('data.candidate_application_id', $this->application->id)
+        ->assertSet('data.designation_id', $requisition->designation_id)
+        ->assertSet('data.location_id', $requisition->location_id);
+});
+
+test('an out-of-scope application is neither pre-selected nor accepted on the offer form', function (): void {
+    $outsiderApplication = CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id]);
+    actingAsOfferUser($this->recruiter, 'recruiter');
+
+    Livewire::withQueryParams(['application' => $outsiderApplication->id])
+        ->test(CreateOffer::class)
+        ->assertSet('data.candidate_application_id', null)
+        ->fillForm([
+            'candidate_application_id' => $outsiderApplication->id,
+            'offer_date' => now()->toDateString(),
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['candidate_application_id']);
+
+    expect($outsiderApplication->offers()->exists())->toBeFalse();
+});
+
+test('the offer form application picker searches by candidate name within the hierarchy', function (): void {
+    $this->application->candidate->update(['full_name' => 'Pickable Offer Candidate']);
+    CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id])
+        ->candidate->update(['full_name' => 'Pickable Outsider Candidate']);
+    actingAsOfferUser($this->recruiter, 'recruiter');
+
+    $picker = Livewire::test(CreateOffer::class)->instance()->form->getFlatFields()['candidate_application_id'];
+
+    expect($picker->getSearchResults('Pickable'))->toHaveCount(1)
+        ->toHaveKey($this->application->id);
+});
+
 test('the offer status history relation manager lists the trail read-only', function (): void {
     actingAsOfferUser($this->recruiter, 'recruiter');
     $history = $this->offer->statusHistory()->create(['from_status' => OfferStatus::Draft, 'to_status' => OfferStatus::Initiated]);

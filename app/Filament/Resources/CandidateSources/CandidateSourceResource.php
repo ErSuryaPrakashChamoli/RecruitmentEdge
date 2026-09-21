@@ -5,6 +5,7 @@ namespace App\Filament\Resources\CandidateSources;
 use App\Filament\Resources\CandidateSources\Pages\CreateCandidateSource;
 use App\Filament\Resources\CandidateSources\Pages\EditCandidateSource;
 use App\Filament\Resources\CandidateSources\Pages\ListCandidateSources;
+use App\Filament\Resources\CandidateSources\Pages\ViewCandidateSource;
 use App\Filament\Resources\CandidateSources\Schemas\CandidateSourceForm;
 use App\Filament\Resources\CandidateSources\Tables\CandidateSourcesTable;
 use App\Models\CandidateSource;
@@ -49,6 +50,7 @@ class CandidateSourceResource extends Resource
         return [
             'index' => ListCandidateSources::route('/'),
             'create' => CreateCandidateSource::route('/create'),
+            'view' => ViewCandidateSource::route('/{record}'),
             'edit' => EditCandidateSource::route('/{record}/edit'),
         ];
     }
