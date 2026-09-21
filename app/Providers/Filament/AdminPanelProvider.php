@@ -50,6 +50,16 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::HEAD_START,
                 fn (): string => view('filament.components.theme-anti-fouc')->render(),
             )
+            // Demo installations only (config/demo.php): the demo accounts on the login page and a
+            // "Demo" badge next to the logo, so a presentation copy is never mistaken for the real one.
+            ->renderHook(
+                PanelsRenderHook::AUTH_LOGIN_FORM_AFTER,
+                fn (): string => config('demo.enabled') ? view('filament.components.demo-login-accounts')->render() : '',
+            )
+            ->renderHook(
+                PanelsRenderHook::TOPBAR_LOGO_AFTER,
+                fn (): string => config('demo.enabled') ? Blade::render('<x-filament::badge color="warning" size="sm" class="ms-2">Demo</x-filament::badge>') : '',
+            )
             ->colors([
                 'primary' => Color::hex('#1B3B6F'),
                 'gray' => Color::Slate,

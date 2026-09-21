@@ -7,6 +7,7 @@ use App\Enums\RequisitionStatus;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\CostPerHireService;
 use App\Services\RecruitmentAnalyticsService;
+use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\Widget;
@@ -44,7 +45,9 @@ class RecruitmentOverviewStats extends Widget
         $analytics = app(RecruitmentAnalyticsService::class);
 
         [$start, $end] = $this->resolvePeriod();
-        $days = $start->diffInDays($end) + 1;
+        // Like-for-like trends: a period still in progress (This Month, This Week) is compared over
+        // the days elapsed so far, not a partial current period against a full previous one.
+        $days = $start->diffInDays($end->min(CarbonImmutable::now()->endOfDay())) + 1;
         $previousEnd = $start->copy()->subDay()->endOfDay();
         $previousStart = $previousEnd->copy()->subDays($days - 1)->startOfDay();
 

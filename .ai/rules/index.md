@@ -9,6 +9,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/** | .ai/rules/app-filament.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php | .ai/rules/app-services-models.md |
 | app/Services/RecruitmentAnalyticsService.php | .ai/rules/app-services.md |
+| database/seeders/Demo/**,app/Console/Commands/SetupDemo.php,config/demo.php | .ai/rules/commands.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
 | app/Models/Concerns/Auditable.php,app/Models/*.php | .ai/rules/concerns-models.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |

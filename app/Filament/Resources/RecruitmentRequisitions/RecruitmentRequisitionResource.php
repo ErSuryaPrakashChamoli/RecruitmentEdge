@@ -89,6 +89,31 @@ class RecruitmentRequisitionResource extends Resource
             ->whereIn('recruitment_requisitions.id', static::getEloquentQuery()->select('recruitment_requisitions.id'));
     }
 
+    /**
+     * Helper text for the requisition select on new applications. When nothing is Open it explains
+     * why the list is empty instead of leaving the user facing a blank dropdown.
+     */
+    public static function applicationTargetHelperText(): string
+    {
+        if (static::applicationTargetQuery()->exists()) {
+            return 'Only Open requisitions accept new applications.';
+        }
+
+        $awaitingOpenCount = static::getEloquentQuery()
+            ->whereIn('recruitment_requisitions.status', [
+                RequisitionStatus::Draft->value,
+                RequisitionStatus::PendingApproval->value,
+                RequisitionStatus::Approved->value,
+            ])
+            ->count();
+
+        if ($awaitingOpenCount > 0) {
+            return "No Open requisitions yet. {$awaitingOpenCount} requisition(s) are still Draft or awaiting approval — submit and approve them to start accepting applications.";
+        }
+
+        return 'No Open requisitions available. Create and approve a requisition to start accepting applications.';
+    }
+
     public static function getRelations(): array
     {
         return [

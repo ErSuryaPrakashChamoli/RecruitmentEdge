@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TargetMetric;
 use Database\Factories\RecruitmentManualActivityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,6 +26,7 @@ class RecruitmentManualActivity extends Model
     {
         return [
             'activity_date' => 'date',
+            'metric' => TargetMetric::class,
         ];
     }
 

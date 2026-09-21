@@ -7,6 +7,16 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Demo environment (client presentations)
+
+A separate, disposable copy of Recruitment Edge with six months of realistic sample data — same code, its own database. Never run it against a real database: `demo:setup` deletes all data.
+
+1. `cp .env.demo.example .env.demo`, then `APP_ENV=demo php artisan key:generate` and fill in the database (e.g. `hrms_demo`) and, for a live AI Copilot, the AI key. `.env.demo` is git-ignored.
+2. Create the empty demo database, then build (or reset) the demo: `APP_ENV=demo php artisan demo:setup --force` (about 2 minutes).
+3. Run it: `APP_ENV=demo php artisan serve --port=8003` and open `http://127.0.0.1:8003/admin`. Run `APP_ENV=demo php artisan queue:work` alongside for AI indexing and queued jobs.
+
+The login page lists the demo accounts (CHRO, VP HR, Recruitment Manager, Assistant Manager, Recruiter — all with the password `Demo@123`). All dates are relative to the day `demo:setup` runs, so reset the demo shortly before a presentation to keep "today" current.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

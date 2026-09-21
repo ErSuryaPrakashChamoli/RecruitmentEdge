@@ -2,6 +2,9 @@
 
 use App\Filament\Widgets\SourcePerformanceWidget;
 use App\Filament\Widgets\TurnUpTrendChart;
+use App\Models\Candidate;
+use App\Models\CandidateApplication;
+use App\Models\CandidateSource;
 use App\Models\Employee;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -63,4 +66,22 @@ test('source performance\'s doughnut palette is a monochromatic ramp of the acti
     expect($tealPalette[0])->toBe('#0D9488')
         ->and($purplePalette[0])->toBe('#A21CAF')
         ->and($tealPalette)->not->toBe($purplePalette);
+});
+
+test('source performance labels stay a plain list when sorting reorders the sources', function (): void {
+    $naukri = CandidateSource::factory()->create(['name' => 'Naukri']);
+    $linkedIn = CandidateSource::factory()->create(['name' => 'LinkedIn']);
+
+    CandidateApplication::factory()->create(['candidate_id' => Candidate::factory()->create(['source_id' => $naukri->id])->id]);
+    CandidateApplication::factory()->count(3)->sequence(fn () => ['candidate_id' => Candidate::factory()->create(['source_id' => $linkedIn->id])->id])->create();
+
+    $user = User::factory()->create(['employee_id' => Employee::factory()->create()->id]);
+    $user->assignRole('chro');
+    actingAs($user);
+
+    $data = callChartWidgetData(Livewire::test(SourcePerformanceWidget::class)->instance());
+
+    expect(array_is_list($data['labels']))->toBeTrue()
+        ->and($data['labels'])->toBe(['LinkedIn', 'Naukri'])
+        ->and($data['datasets'][0]['data'])->toBe([3, 1]);
 });
