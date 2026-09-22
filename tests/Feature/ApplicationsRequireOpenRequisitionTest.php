@@ -115,7 +115,12 @@ test('the candidate applications relation manager rejects a non-open requisition
 test('helper text explains an empty requisition list when requisitions await opening', function (): void {
     RecruitmentRequisition::factory()->count(2)->create(['status' => RequisitionStatus::Draft]);
 
-    expect(RecruitmentRequisitionResource::applicationTargetHelperText())->toContain('2 requisition(s) are still Draft or awaiting approval');
+    RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Approved]);
+
+    expect(RecruitmentRequisitionResource::applicationTargetHelperText())
+        ->toContain('1 Approved — click Open on the requisition')
+        ->toContain('2 Draft — submit for approval, approve, then Open')
+        ->not->toContain('Pending Approval');
 
     RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
 

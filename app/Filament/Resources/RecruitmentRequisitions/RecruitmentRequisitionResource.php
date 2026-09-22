@@ -99,19 +99,32 @@ class RecruitmentRequisitionResource extends Resource
             return 'Only Open requisitions accept new applications.';
         }
 
-        $awaitingOpenCount = static::getEloquentQuery()
+        $countsByStatus = static::getEloquentQuery()
+            ->reorder()
             ->whereIn('recruitment_requisitions.status', [
                 RequisitionStatus::Draft->value,
                 RequisitionStatus::PendingApproval->value,
                 RequisitionStatus::Approved->value,
             ])
-            ->count();
+            ->toBase()
+            ->selectRaw('recruitment_requisitions.status, count(*) as aggregate')
+            ->groupBy('recruitment_requisitions.status')
+            ->pluck('aggregate', 'status');
 
-        if ($awaitingOpenCount > 0) {
-            return "No Open requisitions yet. {$awaitingOpenCount} requisition(s) are still Draft or awaiting approval — submit and approve them to start accepting applications.";
+        $nextSteps = collect([
+            RequisitionStatus::Approved->value => 'Approved — click Open on the requisition',
+            RequisitionStatus::PendingApproval->value => 'Pending Approval — approve, then Open',
+            RequisitionStatus::Draft->value => 'Draft — submit for approval, approve, then Open',
+        ])
+            ->filter(fn (string $step, string $status): bool => (int) ($countsByStatus[$status] ?? 0) > 0)
+            ->map(fn (string $step, string $status): string => ((int) $countsByStatus[$status]).' '.$step)
+            ->implode('; ');
+
+        if ($nextSteps !== '') {
+            return "No Open requisitions yet — only Open requisitions accept applications. {$nextSteps}.";
         }
 
-        return 'No Open requisitions available. Create and approve a requisition to start accepting applications.';
+        return 'No Open requisitions available. Create a requisition, get it approved, then Open it to start accepting applications.';
     }
 
     public static function getRelations(): array
