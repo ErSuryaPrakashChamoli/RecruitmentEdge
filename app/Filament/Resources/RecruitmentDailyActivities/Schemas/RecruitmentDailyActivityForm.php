@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentDailyActivities\Schemas;
 use App\Enums\ActivityOutcome;
 use App\Enums\ActivityType;
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
+use App\Filament\Resources\Candidates\Schemas\CandidatePicker;
 use App\Models\Employee;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
@@ -26,10 +27,7 @@ class RecruitmentDailyActivityForm
                     ->required()
                     ->searchable()
                     ->preload(),
-                Select::make('candidate_id')
-                    ->relationship('candidate', 'full_name')
-                    ->searchable()
-                    ->preload(),
+                CandidatePicker::make(),
                 ApplicationPicker::make(),
                 Select::make('activity_type')
                     ->options(collect(ActivityType::cases())->mapWithKeys(fn (ActivityType $t) => [$t->value => $t->label()]))

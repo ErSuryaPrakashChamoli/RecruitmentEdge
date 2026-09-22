@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CandidateApplications\Schemas;
 
 use App\Enums\Priority;
+use App\Filament\Resources\Candidates\Schemas\CandidatePicker;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
 use Filament\Forms\Components\DatePicker;
@@ -29,11 +30,8 @@ class CandidateApplicationForm
                         DatePicker::make('application_date')
                             ->default(now())
                             ->required(),
-                        Select::make('candidate_id')
-                            ->relationship('candidate', 'full_name')
-                            ->required()
-                            ->searchable()
-                            ->preload(),
+                        CandidatePicker::make()
+                            ->required(),
                         Select::make('requisition_id')
                             ->relationship(
                                 'requisition',
