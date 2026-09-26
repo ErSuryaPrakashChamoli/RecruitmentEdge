@@ -19,6 +19,7 @@ use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
+use App\Models\HiringOutcome;
 use App\Models\HiringRisk;
 use App\Models\Interview;
 use App\Models\Interviewer;
@@ -100,6 +101,7 @@ beforeEach(function (): void {
         'status' => OfferStatus::Released, 'offer_date' => now()->subDay(), 'offer_expiry' => now()->addDays(2),
     ]);
     CandidateJoining::factory()->create(['candidate_application_id' => $aliceApp->id, 'expected_doj' => now()->subDays(2)]);
+    HiringOutcome::factory()->create(['requisition_id' => $requisition->id, 'candidate_application_id' => $zedApp->id]);
     RecruitmentFollowup::factory()->create(['candidate_application_id' => $aliceApp->id, 'recruiter_id' => $bob->id, 'followup_date' => now()->subDays(3), 'remarks' => 'PRIVATE-FOLLOWUP-REMARK']);
     app(CandidateTimelineService::class)->record($alice->id, TimelineEventType::Note, 'PRIVATE-NOTE-TEXT', related: ['application' => $aliceApp]);
     $pool = TalentPool::factory()->create(['visibility' => TalentPoolVisibility::Organization]);
@@ -176,13 +178,14 @@ function toolContractCases(): array
         'list_hiring_risks' => [fn () => [], 'aliceApp'],
         'rediscover_talent' => [fn () => ['requisition_id' => test()->world['requisition']], 'requisition'],
         'get_hiring_memory' => [fn () => ['requisition_id' => test()->world['requisition']], 'requisition'],
+        'summarize_hiring_outcomes' => [fn () => ['requisition_id' => test()->world['requisition']], 'requisition'],
     ];
 }
 
 test('every registered AI tool has a privacy contract case', function (): void {
     $registered = collect(app(ToolRegistry::class)->all())->map(fn ($tool) => $tool->name())->values()->all();
 
-    expect($registered)->toHaveCount(48)
+    expect($registered)->toHaveCount(49)
         ->and(array_keys(toolContractCases()))->toEqualCanonicalizing($registered);
 });
 

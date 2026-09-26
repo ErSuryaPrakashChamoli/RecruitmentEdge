@@ -7,8 +7,10 @@ use App\Enums\RequirementLevel;
 use App\Enums\RoleDnaCategory;
 use App\Jobs\GenerateRoleDnaSuggestionsJob;
 use App\Jobs\SummarizeHiringMemoryJob;
+use App\Jobs\SummarizeOutcomeInsightJob;
 use App\Models\AuditLog;
 use App\Models\HiringMemoryRecord;
+use App\Models\OutcomeInsight;
 use App\Models\RoleDnaProfile;
 use App\Models\User;
 use App\Services\AI\DTO\LlmMessage;
@@ -25,7 +27,9 @@ use Throwable;
  *
  * - Role DNA suggestions: schema-constrained output (AiGateway::structured), validated and
  *   fairness-filtered before anything is stored, and stored only as unconfirmed suggestions;
- * - Hiring Memory summaries: a narrative of recorded facts only, labelled AI-generated.
+ * - Hiring Memory summaries: a narrative of recorded facts only, labelled AI-generated;
+ * - Outcome insight narratives (Phase 8.2): aggregate numbers and role-level labels only,
+ *   rejected if they use causal wording or touch a protected characteristic.
  *
  * Prompts carry role-level data only (designation, department, skills, experience, qualification,
  * public job-posting text) — never candidate names, contact details or compensation. Status is
@@ -56,7 +60,13 @@ class IntelligenceAiService
      * Terms that must never appear in an AI suggestion about a role: protected characteristics and
      * common proxies for them.
      */
-    public const string FAIRNESS_PATTERN = '/\b(age|aged|young|youthful|old|older|gender|male|female|man|woman|men|women|married|marital|single|religio\w*|caste|nationality|national origin|native|pregnan\w*|disab\w*|health|ethnic\w*|race|racial|culture fit|cultural fit|appearance|photo)\b/i';
+    public const string FAIRNESS_PATTERN = '/\b(age|aged|young\w*|youth\w*|old|older|gender|male|female|man|woman|men|women|married|marital|single|religio\w*|caste|nationality|national origin|native|pregnan\w*|disab\w*|health|ethnic\w*|race|racial|culture fit|cultural fit|appearance|photo)\b/i';
+
+    /**
+     * Phase 8.2: causal or predictive wording an Outcome Loop narrative must never use — outcome
+     * insights are observational associations.
+     */
+    public const string CAUSAL_PATTERN = '/\b(because|caus\w*|leads? to|led to|results? in|drives?|driven by|due to|guarantee\w*|predict\w*|ensures?|proves?)\b/i';
 
     public function __construct(
         private readonly AiGateway $gateway,
@@ -225,6 +235,98 @@ class IntelligenceAiService
     }
 
     /**
+     * Phase 8.2: an AI narrative of an Outcome Loop insight, queued. Never changes the insight's
+     * status or evidence — a failure leaves the deterministic insight exactly as it was.
+     */
+    public function requestInsightSummary(OutcomeInsight $insight, User $actor): IntelligenceAiStatus
+    {
+        if (! $this->gateway->isConfigured()) {
+            $insight->forceFill(['ai_status' => IntelligenceAiStatus::Unavailable])->save();
+
+            return IntelligenceAiStatus::Unavailable;
+        }
+
+        $insight->forceFill(['ai_status' => IntelligenceAiStatus::Processing])->save();
+        AuditLog::record($insight, 'outcome_insight_ai_requested', null, ['by_user_id' => $actor->id]);
+        SummarizeOutcomeInsightJob::dispatch($insight->id, $actor->id);
+
+        return IntelligenceAiStatus::Processing;
+    }
+
+    public function summarizeInsight(OutcomeInsight $insight, ?User $actor = null): void
+    {
+        try {
+            $response = $this->gateway->generate([
+                LlmMessage::system('You explain an aggregate hiring-outcome observation to an HR team. Use only the figures given. State the sample size and the main limitation. '
+                    .'Describe an association, never a cause or a prediction, and never recommend excluding anyone. Do not mention any person or protected characteristic. Two or three plain sentences.'),
+                LlmMessage::user("Outcome insight:\n".json_encode($this->insightFacts($insight), JSON_PRETTY_PRINT | JSON_PARTIAL_OUTPUT_ON_ERROR)),
+            ], [], self::SUMMARY_CATEGORY, $actor);
+        } catch (Throwable $e) {
+            report($e);
+            $insight->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
+
+            return;
+        }
+
+        $content = trim((string) $response->content);
+
+        if (! $response->configured || $content === '') {
+            $insight->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
+
+            return;
+        }
+
+        $violation = match (true) {
+            preg_match(self::FAIRNESS_PATTERN, $content) === 1 => 'fairness',
+            preg_match(self::CAUSAL_PATTERN, $content) === 1 => 'causal_language',
+            default => null,
+        };
+
+        if ($violation !== null) {
+            $insight->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
+            AuditLog::record($insight, 'outcome_insight_ai_rejected', null, ['reason' => $violation]);
+
+            return;
+        }
+
+        $insight->forceFill([
+            'ai_summary' => mb_substr($content, 0, 2000),
+            'ai_status' => IntelligenceAiStatus::Available,
+            'ai_model' => $this->router->forCategory(self::SUMMARY_CATEGORY),
+            'ai_generated_at' => now(),
+        ])->save();
+        AuditLog::record($insight, 'outcome_insight_ai_summarised', null, ['model' => $insight->ai_model]);
+    }
+
+    /**
+     * The only insight data a prompt may carry: role-level labels and aggregate numbers. Record
+     * references (outcome, snapshot, source ids) and reviewer details never leave the application.
+     *
+     * @return array<string, mixed>
+     */
+    public function insightFacts(OutcomeInsight $insight): array
+    {
+        $numbers = function (array $values) use (&$numbers): array {
+            return collect($values)
+                ->map(fn ($value) => is_array($value) ? $numbers($value) : $value)
+                ->filter(fn ($value) => is_int($value) || is_float($value) || (is_array($value) && $value !== []))
+                ->all();
+        };
+
+        return [
+            'kind' => $insight->kind->label(),
+            'designation' => $insight->designation?->name,
+            'subject' => $insight->evidence['skill_label'] ?? $insight->evidence['source'] ?? null,
+            'counts' => $numbers($insight->evidence ?? []),
+            'sample_size' => $insight->sample_size,
+            'history' => $insight->sample_band->label(),
+            'period' => [$insight->period_start?->toDateString(), $insight->period_end?->toDateString()],
+            'confidence' => $insight->confidence->label(),
+            'limitations' => $insight->limitations,
+        ];
+    }
+
+    /**
      * Marks AI requests that never completed (no worker, lost job) as failed so they can be asked
      * for again. Changes status only — never calls AI. Returns how many requests were expired.
      */
@@ -242,7 +344,12 @@ class IntelligenceAiService
             ->where('updated_at', '<', $cutoff)
             ->update(['ai_status' => IntelligenceAiStatus::Failed]);
 
-        return $profiles + $memories;
+        $insights = OutcomeInsight::query()
+            ->where('ai_status', IntelligenceAiStatus::Processing)
+            ->where('updated_at', '<', $cutoff)
+            ->update(['ai_status' => IntelligenceAiStatus::Failed]);
+
+        return $profiles + $memories + $insights;
     }
 
     /**

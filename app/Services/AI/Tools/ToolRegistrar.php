@@ -26,6 +26,7 @@ use App\Services\AI\Tools\IntelligenceTools\GetHiringMemoryTool;
 use App\Services\AI\Tools\IntelligenceTools\GetRoleDnaTool;
 use App\Services\AI\Tools\IntelligenceTools\ListHiringRisksTool;
 use App\Services\AI\Tools\IntelligenceTools\RediscoverTalentTool;
+use App\Services\AI\Tools\IntelligenceTools\SummarizeHiringOutcomesTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewPlanTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewQuestionsTool;
 use App\Services\AI\Tools\InterviewTools\SearchInterviewsTool;
@@ -119,6 +120,7 @@ class ToolRegistrar
         ListHiringRisksTool::class,
         RediscoverTalentTool::class,
         GetHiringMemoryTool::class,
+        SummarizeHiringOutcomesTool::class,
     ];
 
     public static function registerAll(ToolRegistry $registry): void

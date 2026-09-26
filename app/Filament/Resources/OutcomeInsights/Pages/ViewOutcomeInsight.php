@@ -2,12 +2,14 @@
 
 namespace App\Filament\Resources\OutcomeInsights\Pages;
 
+use App\Enums\IntelligenceAiStatus;
 use App\Enums\OutcomeInsightKind;
 use App\Enums\RequirementLevel;
 use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Resources\OutcomeInsights\OutcomeInsightResource;
 use App\Models\OutcomeInsight;
 use App\Models\RecruitmentRequisition;
+use App\Services\Intelligence\IntelligenceAiService;
 use App\Services\Outcomes\OutcomeLearningService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
@@ -29,6 +31,18 @@ class ViewOutcomeInsight extends ViewRecord
         $appliesToRoleDna = $record->kind === OutcomeInsightKind::RoleDnaLearning && (auth()->user()?->can('intelligence.role-dna.manage') ?? false);
 
         return [
+            Action::make('aiSummary')
+                ->label('Explain with AI')
+                ->icon('heroicon-o-sparkles')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalDescription('Sends the aggregate figures of this insight (counts, sample size, period, limitations — no person or record reference) to the configured AI provider. The insight itself does not change.')
+                ->visible(fn () => auth()->user()?->can('ai.query') ?? false)
+                ->disabled(fn () => $record->ai_status === IntelligenceAiStatus::Processing)
+                ->action(function () use ($record): void {
+                    $status = app(IntelligenceAiService::class)->requestInsightSummary($record, auth()->user());
+                    Notification::make()->title($status === IntelligenceAiStatus::Unavailable ? 'AI is not configured' : 'AI explanation requested')->color($status === IntelligenceAiStatus::Unavailable ? 'warning' : 'success')->send();
+                }),
             Action::make('accept')
                 ->label('Accept')
                 ->icon('heroicon-o-check')

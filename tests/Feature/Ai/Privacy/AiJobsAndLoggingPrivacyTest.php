@@ -4,6 +4,7 @@ use App\Jobs\AI\IndexAiDocumentJob;
 use App\Jobs\AI\ReindexKnowledgeArticleJob;
 use App\Jobs\GenerateRoleDnaSuggestionsJob;
 use App\Jobs\SummarizeHiringMemoryJob;
+use App\Jobs\SummarizeOutcomeInsightJob;
 use App\Models\CandidateApplication;
 use App\Models\HiringMemoryRecord;
 use App\Services\AI\Contracts\LLMProviderInterface;
@@ -27,6 +28,7 @@ test('AI jobs serialize ids only, and every unique AI job lets its lock expire',
 })->with([
     'role dna' => fn () => new GenerateRoleDnaSuggestionsJob(1, 2),
     'memory summary' => fn () => new SummarizeHiringMemoryJob(1, 2),
+    'outcome insight summary' => fn () => new SummarizeOutcomeInsightJob(1, 2),
     'document index' => fn () => new IndexAiDocumentJob(1),
     'article reindex' => fn () => new ReindexKnowledgeArticleJob(1),
 ]);

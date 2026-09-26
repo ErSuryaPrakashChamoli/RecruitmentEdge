@@ -24,7 +24,7 @@ class GetHiringMemoryTool implements AiTool
 
     public function description(): string
     {
-        return 'Get recorded Hiring Memory — what actually happened in past hiring (hires, rejections, declined offers, failed joinings, requisition outcomes) — for a requisition, or for all visible requisitions of the same designation. Facts only; post-joining outcomes are not tracked yet.';
+        return 'Get recorded Hiring Memory — what actually happened in past hiring (hires, rejections, declined offers, failed joinings, requisition outcomes) — for a requisition, or for all visible requisitions of the same designation. Facts only; for outcomes after joining use summarize_hiring_outcomes.';
     }
 
     public function inputSchema(): array

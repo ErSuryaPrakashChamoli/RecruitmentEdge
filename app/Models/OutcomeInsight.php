@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\IntelligenceAiStatus;
 use App\Enums\OutcomeConfidence;
 use App\Enums\OutcomeInsightKind;
 use App\Enums\OutcomeInsightStatus;
@@ -37,6 +38,7 @@ class OutcomeInsight extends Model
             'status' => OutcomeInsightStatus::class,
             'sample_band' => OutcomeSampleBand::class,
             'confidence' => OutcomeConfidence::class,
+            'ai_status' => IntelligenceAiStatus::class,
             'evidence' => 'array',
             'source_refs' => 'array',
             'period_start' => 'date',
