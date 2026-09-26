@@ -118,6 +118,16 @@ class Employee extends Model
     }
 
     /**
+     * Phase 8.2: the minimal separation record, if the employee has left.
+     *
+     * @return HasOne<EmployeeSeparation, $this>
+     */
+    public function separation(): HasOne
+    {
+        return $this->hasOne(EmployeeSeparation::class);
+    }
+
+    /**
      * All employees above this one in the hierarchy (manager, manager's manager, ...), via the closure table.
      *
      * @return BelongsToMany<Employee, $this>
