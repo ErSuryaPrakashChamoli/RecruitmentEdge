@@ -4,7 +4,8 @@ namespace App\Enums;
 
 /**
  * Lifecycle of an outcome record (Phase 8.2). Changes go through OutcomeService only; see
- * canTransitionTo() for the allowed moves.
+ * canTransitionTo() for the allowed moves. Unknown → Confirmed is a human correction resolving
+ * what the rules could not observe.
  */
 enum OutcomeState: string
 {
@@ -33,7 +34,7 @@ enum OutcomeState: string
             self::Pending => [self::Observing, self::Observed, self::Unknown, self::Void],
             self::Observing => [self::Observed, self::Unknown, self::Void],
             self::Observed => [self::Confirmed, self::Void],
-            self::Unknown => [self::Observed, self::Void],
+            self::Unknown => [self::Observed, self::Confirmed, self::Void],
             self::Confirmed => [self::Void],
             self::Void => [],
         }, true);

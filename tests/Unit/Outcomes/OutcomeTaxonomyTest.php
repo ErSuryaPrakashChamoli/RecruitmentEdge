@@ -47,4 +47,5 @@ test('the state machine only allows the documented moves', function (OutcomeStat
     [OutcomeState::Confirmed, OutcomeState::Observed, false],
     [OutcomeState::Void, OutcomeState::Observed, false],
     [OutcomeState::Unknown, OutcomeState::Observed, true],
+    [OutcomeState::Unknown, OutcomeState::Confirmed, true],
 ]);

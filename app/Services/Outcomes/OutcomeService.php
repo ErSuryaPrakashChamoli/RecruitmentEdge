@@ -87,6 +87,10 @@ class OutcomeService
 
     public function confirm(HiringOutcome $outcome, User $actor): HiringOutcome
     {
+        if ($outcome->state === OutcomeState::Unknown) {
+            throw new DomainException('An unknown outcome cannot be confirmed — record a correction with the observed result instead.');
+        }
+
         return $this->newVersion($outcome, $actor, ['state' => OutcomeState::Confirmed], 'outcome_confirmed');
     }
 

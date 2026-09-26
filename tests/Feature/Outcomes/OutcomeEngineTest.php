@@ -74,6 +74,14 @@ test('state changes follow the state machine', function (): void {
         ->and($this->outcomes->confirm(outcomeEngineRecord(OutcomeResult::Occurred, 'test:2'), $this->hr)->state)->toBe(OutcomeState::Confirmed);
 });
 
+test('an unknown outcome is resolved by a correction, never by a bare confirmation', function (): void {
+    $unknown = outcomeEngineRecord(OutcomeResult::NotObserved, 'test:unknown');
+
+    expect($unknown->state)->toBe(OutcomeState::Unknown)
+        ->and(fn () => $this->outcomes->confirm($unknown, $this->hr))->toThrow(DomainException::class, 'correction')
+        ->and($this->outcomes->correct($unknown, OutcomeResult::Active, null, 'Checked with the business unit', $this->hr)->state)->toBe(OutcomeState::Confirmed);
+});
+
 test('joining outcomes come from the joining record, never from the pipeline stage alone', function (): void {
     $stageOnly = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Joined]);
     $joining = CandidateJoining::factory()->create(['status' => JoiningStatus::Joined, 'actual_doj' => now()->subDay()]);
