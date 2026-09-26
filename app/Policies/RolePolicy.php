@@ -2,8 +2,8 @@
 
 namespace App\Policies;
 
+use App\Models\Role;
 use App\Models\User;
-use Spatie\Permission\Models\Role;
 
 /**
  * Roles and their permission sets are gated entirely by `roles.manage` — misconfiguring this is

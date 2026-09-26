@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\Roles\Concerns;
 
 use App\Models\AuditLog;
-use Spatie\Permission\Models\Role;
+use App\Models\Role;
 
 /**
  * Role permission changes made through the Roles resource are written to the audit trail

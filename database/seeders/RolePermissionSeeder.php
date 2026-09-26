@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
@@ -90,6 +90,9 @@ class RolePermissionSeeder extends Seeder
         'employees.separation.view',
         'employees.separation.manage',
         'employees.convert',
+        'users.access.manage',
+        'access.review',
+        'employees.separation.cancel',
     ];
 
     /**
@@ -112,6 +115,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_8_1_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_2_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_3_ROLE_PERMISSIONS['vp_hr'],
+            ...self::PHASE_8_4_ROLE_PERMISSIONS['vp_hr'],
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
@@ -282,6 +286,17 @@ class RolePermissionSeeder extends Seeder
         'vp_hr' => ['employees.convert'],
     ];
 
+    /**
+     * Phase 8.4: managing another person's access (suspend, restore, revoke, sign out, reset
+     * password or MFA), the read-only access review, and cancelling a separation. chro holds them
+     * through '*'.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const array PHASE_8_4_ROLE_PERMISSIONS = [
+        'vp_hr' => ['users.access.manage', 'access.review', 'employees.separation.cancel'],
+    ];
+
     public function run(): void
     {
         foreach (self::PERMISSIONS as $permission) {
@@ -290,6 +305,11 @@ class RolePermissionSeeder extends Seeder
 
         foreach (self::ROLE_PERMISSIONS as $roleName => $permissions) {
             $role = Role::findOrCreate($roleName);
+
+            // Phase 8.4: seeded roles are identified by an immutable key; CHRO is protected.
+            if ($role->key === null) {
+                $role->forceFill(['key' => $roleName, 'is_protected' => in_array($roleName, config('identity.protected_roles'), true)])->save();
+            }
 
             $role->syncPermissions($permissions === ['*'] ? self::PERMISSIONS : $permissions);
         }

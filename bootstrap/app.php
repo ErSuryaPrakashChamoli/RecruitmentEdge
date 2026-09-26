@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\EnforceStaffAccess;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +19,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Provider webhooks authenticate with request signatures, not the session.
         $middleware->preventRequestForgery(except: ['webhooks/*']);
         $middleware->redirectUsersTo(fn (Request $request) => $request->is('portal', 'portal/*') ? route('portal.dashboard') : '/admin');
+        // Phase 8.4: a suspended/revoked login or a stale session is signed out before the panel's
+        // Authenticate middleware runs, so it lands on the login page instead of a 403.
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, EnforceStaffAccess::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

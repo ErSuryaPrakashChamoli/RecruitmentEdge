@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\Role;
+use App\Models\User;
 use App\Policies\RolePolicy;
 use App\Services\Automation\AutomationActionRegistry;
 use App\Services\Automation\AutomationEventRegistry;
@@ -9,6 +11,7 @@ use App\Services\Automation\AutomationFieldRegistry;
 use App\Services\Automation\AutomationRuntime;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
+use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
@@ -21,7 +24,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use Spatie\Permission\Models\Role;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -55,9 +57,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Spatie's Role model lives outside App\Models, so Laravel's policy auto-discovery
-        // (which only replaces a "Models" namespace segment) can't find RolePolicy on its own.
+        // Phase 8.4: App\Models\Role (the configured Spatie role model) — registered explicitly so
+        // the policy never depends on auto-discovery for this security-critical model.
         Gate::policy(Role::class, RolePolicy::class);
+
+        // Phase 8.4: a suspended or revoked login may do nothing, whatever a policy would allow.
+        Gate::before(fn (mixed $user): ?bool => $user instanceof User && ! app(StaffAccessService::class)->permits($user) ? false : null);
 
         $this->configureTables();
         $this->configurePortalRateLimits();

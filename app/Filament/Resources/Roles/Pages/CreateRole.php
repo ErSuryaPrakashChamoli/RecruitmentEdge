@@ -4,8 +4,8 @@ namespace App\Filament\Resources\Roles\Pages;
 
 use App\Filament\Resources\Roles\Concerns\AuditsRolePermissions;
 use App\Filament\Resources\Roles\RoleResource;
+use App\Models\Role;
 use Filament\Resources\Pages\CreateRecord;
-use Spatie\Permission\Models\Role;
 
 class CreateRole extends CreateRecord
 {

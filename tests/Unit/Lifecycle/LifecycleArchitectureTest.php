@@ -40,6 +40,8 @@ test('only the authoritative lifecycle services open the lifecycle guard', funct
         'app/Services/CandidateJoiningService.php',
         'app/Services/RequisitionApprovalService.php',
         'app/Services/Lifecycle/LifecycleGuard.php',
+        // Phase 8.4: identity and employment state.
+        'app/Services/Identity/StaffAccessService.php',
     ];
 
     $files = collect(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/app')))

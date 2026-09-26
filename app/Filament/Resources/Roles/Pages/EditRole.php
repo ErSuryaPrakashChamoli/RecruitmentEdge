@@ -4,9 +4,9 @@ namespace App\Filament\Resources\Roles\Pages;
 
 use App\Filament\Resources\Roles\Concerns\AuditsRolePermissions;
 use App\Filament\Resources\Roles\RoleResource;
+use App\Models\Role;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
-use Spatie\Permission\Models\Role;
 
 class EditRole extends EditRecord
 {

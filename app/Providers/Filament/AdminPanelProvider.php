@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
+use App\Http\Middleware\EnforceStaffAccess;
 use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -92,8 +93,11 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Phase 8.4: persistent, so Livewire updates are re-checked too — a suspended or revoked
+            // login, or a session from before a revocation, is signed out on its next request.
             ->authMiddleware([
+                EnforceStaffAccess::class,
                 Authenticate::class,
-            ]);
+            ], isPersistent: true);
     }
 }

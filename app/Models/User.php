@@ -3,7 +3,10 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\AccessState;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Services\Identity\StaffAccessService;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasAvatar;
@@ -17,11 +20,30 @@ use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password', 'employee_id', 'theme'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'session_epoch'])]
 class User extends Authenticatable implements FilamentUser, HasAvatar
 {
     /** @use HasFactory<UserFactory> */
-    use Auditable, HasFactory, HasRoles, Notifiable;
+    use Auditable, GuardsLifecycleAttributes, HasFactory, Notifiable;
+
+    use HasRoles {
+        hasPermissionTo as private roleGrantsPermission;
+    }
+
+    /**
+     * Phase 8.4: the access state changes only through StaffAccessService.
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['access_status'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'StaffAccessService';
+    }
 
     /**
      * @return BelongsTo<Employee, $this>
@@ -31,9 +53,24 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         return $this->belongsTo(Employee::class);
     }
 
+    /**
+     * Phase 8.4: only a permitted (Active) login with a role may use the panel. Checked at sign-in
+     * and on every panel request, including Livewire updates.
+     */
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->roles()->exists();
+        return app(StaffAccessService::class)->permits($this) && $this->roles()->exists();
+    }
+
+    /**
+     * Phase 8.4: a suspended or revoked login holds no permission anywhere — web, Copilot,
+     * automation ownership, jobs — whatever roles it still has.
+     *
+     * @param  mixed  $permission
+     */
+    public function hasPermissionTo($permission, ?string $guardName = null): bool
+    {
+        return app(StaffAccessService::class)->permits($this) && $this->roleGrantsPermission($permission, $guardName);
     }
 
     public function getFilamentAvatarUrl(): ?string
@@ -51,6 +88,10 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'access_status' => AccessState::class,
+            'access_changed_at' => 'datetime',
+            'revoked_roles' => 'array',
+            'last_login_at' => 'datetime',
         ];
     }
 }

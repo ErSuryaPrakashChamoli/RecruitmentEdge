@@ -7,11 +7,11 @@ use App\Models\CandidateJoining;
 use App\Models\Interview;
 use App\Models\RecruitmentCost;
 use App\Models\RecruitmentSetting;
+use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 
 test('creating an audited model writes a created audit log', function (): void {
     $user = User::factory()->create();
