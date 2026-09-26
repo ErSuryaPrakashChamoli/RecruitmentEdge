@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\RequisitionStatus;
+use App\Events\RequisitionStatusChanged;
 use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
@@ -132,6 +133,8 @@ class RequisitionApprovalService
                 'changed_by' => $actor?->id,
                 'remarks' => $remarks,
             ]);
+
+            RequisitionStatusChanged::dispatch($requisition, $from, $to, $actor);
 
             return $requisition;
         });
