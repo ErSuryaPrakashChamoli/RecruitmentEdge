@@ -190,3 +190,17 @@ test('the separation view page shows the record, including its notes, read-only'
 
     get("/admin/employee-separations/{$separation->id}")->assertOk()->assertSee('Handover complete');
 });
+
+test('the daily pass re-checks only recently changed separations', function (): void {
+    $recent = statusObservationSnapshot($this->employee, 40);
+    $old = statusObservationSnapshot($otherEmployee = Employee::factory()->create(), 400);
+    EmployeeSeparation::factory()->create(['employee_id' => $this->employee->id, 'separation_date' => now()->subDays(5)->toDateString()]);
+    EmployeeSeparation::factory()->create(['employee_id' => $otherEmployee->id, 'separation_date' => now()->subDays(300)->toDateString()]);
+    EmployeeSeparation::query()->where('employee_id', $otherEmployee->id)->update(['updated_at' => now()->subDays(250)]);
+
+    $counts = app(OutcomeEvaluator::class)->evaluate();
+
+    expect($counts['separation_rechecks'])->toBe(1)
+        ->and(statusObservationOf($recent, OutcomeType::StatusObserved30d)->result)->toBe(OutcomeResult::Active)
+        ->and(statusObservationOf($old, OutcomeType::StatusObserved180d)->result)->toBe(OutcomeResult::SeparatedBeforeCheckpoint);
+});

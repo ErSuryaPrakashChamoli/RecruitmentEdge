@@ -57,8 +57,9 @@ class OutcomeEvaluator
             $counts['status_observations'] += $dryRun ? $due->count() : $this->each($due, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->statusObservation($snapshot, $type));
         }
 
-        // Separation records can arrive after a status was observed: re-check those employees.
-        $separated = HiringOutcomeSnapshot::query()->whereHas('employee.separation');
+        // Separation records can arrive after a status was observed. Saving one re-evaluates that
+        // employee at once; this re-checks recent ones in case that failed — never the whole history.
+        $separated = HiringOutcomeSnapshot::query()->whereHas('employee.separation', fn (Builder $query) => $query->where('updated_at', '>=', $since));
         $counts['separation_rechecks'] = $dryRun ? $separated->count() : $this->each($separated, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->observeAll($snapshot));
 
         return $counts;
