@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\CandidateJoiningFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -26,7 +27,23 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class CandidateJoining extends Model
 {
-    use Auditable;
+    use Auditable, GuardsLifecycleAttributes;
+
+    /**
+     * Phase 8.3: status, dates of record, offer and application change only through
+     * CandidateJoiningService (the joining record is the completed-hire anchor).
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['status', 'actual_doj', 'confirmed_at', 'offer_id', 'candidate_application_id', 'dropout_reason_id'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'CandidateJoiningService';
+    }
 
     /** @use HasFactory<CandidateJoiningFactory> */
     use HasFactory;

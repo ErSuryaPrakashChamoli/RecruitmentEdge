@@ -89,6 +89,7 @@ class RolePermissionSeeder extends Seeder
         'outcomes.review',
         'employees.separation.view',
         'employees.separation.manage',
+        'employees.convert',
     ];
 
     /**
@@ -110,6 +111,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_7_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_1_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_2_ROLE_PERMISSIONS['vp_hr'],
+            ...self::PHASE_8_3_ROLE_PERMISSIONS['vp_hr'],
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
@@ -267,6 +269,17 @@ class RolePermissionSeeder extends Seeder
         'vp_hr' => ['outcomes.view', 'outcomes.manage', 'outcomes.review', 'employees.separation.view', 'employees.separation.manage'],
         'manager' => ['outcomes.view', 'employees.separation.view'],
         'assistant_manager' => ['outcomes.view'],
+    ];
+
+    /**
+     * Phase 8.3: converting a joined candidate into an employee is its own permission
+     * (employees.convert), no longer implied by joining access or users.manage. chro holds it
+     * through '*'.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const array PHASE_8_3_ROLE_PERMISSIONS = [
+        'vp_hr' => ['employees.convert'],
     ];
 
     public function run(): void

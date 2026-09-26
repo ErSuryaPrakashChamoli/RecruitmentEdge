@@ -25,6 +25,15 @@ class CandidateJoiningPolicy
         return $user->can('joining.confirm') && $this->isInScope($user, $candidateJoining);
     }
 
+    /**
+     * Phase 8.3: converting a joined candidate into an employee needs the dedicated
+     * employees.convert permission (not users.manage) and the joining in the actor's hierarchy.
+     */
+    public function convert(User $user, CandidateJoining $candidateJoining): bool
+    {
+        return $user->can('employees.convert') && $this->isInScope($user, $candidateJoining);
+    }
+
     private function isInScope(User $user, CandidateJoining $candidateJoining): bool
     {
         return $this->hierarchy->canView($user, $candidateJoining->candidateApplication->recruiter);

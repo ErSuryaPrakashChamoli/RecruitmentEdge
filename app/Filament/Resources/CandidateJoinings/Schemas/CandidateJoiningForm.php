@@ -16,9 +16,12 @@ class CandidateJoiningForm
         return $schema
             ->components([
                 ApplicationPicker::make()
-                    ->required(),
+                    ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create'),
                 Select::make('offer_id')
                     ->relationship('offer', 'offer_code')
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
+                    ->helperText('Set by the accepted offer.')
                     ->searchable()
                     ->preload(),
                 DatePicker::make('expected_doj')

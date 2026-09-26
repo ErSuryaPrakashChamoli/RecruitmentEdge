@@ -64,7 +64,7 @@ class CandidateJoiningService
         $this->guardActive($joining);
 
         return DB::transaction(function () use ($joining, $actor): CandidateJoining {
-            $joining->forceFill(['status' => JoiningStatus::Confirmed, 'confirmed_at' => now()])->save();
+            LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Confirmed, 'confirmed_at' => now()])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::JoiningConfirmed, $actor);
 
@@ -77,7 +77,7 @@ class CandidateJoiningService
         $this->guardActive($joining);
 
         return DB::transaction(function () use ($joining, $actualDoj, $actor): CandidateJoining {
-            $joining->forceFill(['status' => JoiningStatus::Joined, 'actual_doj' => $actualDoj ?? now()])->save();
+            LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Joined, 'actual_doj' => $actualDoj ?? now()])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::Joined, $actor);
 
@@ -98,7 +98,7 @@ class CandidateJoiningService
         $this->guardActive($joining);
 
         return DB::transaction(function () use ($joining, $reason, $actor): CandidateJoining {
-            $joining->forceFill(['status' => JoiningStatus::NoShow, 'dropout_reason_id' => $reason->id])->save();
+            LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::NoShow, 'dropout_reason_id' => $reason->id])->save());
 
             $this->stageTransitions->dropout($joining->candidateApplication, $reason, $actor, 'Did not join (no-show)');
 
@@ -111,7 +111,7 @@ class CandidateJoiningService
         $this->guardActive($joining);
 
         return DB::transaction(function () use ($joining, $reason, $actor): CandidateJoining {
-            $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save();
+            LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save());
 
             $this->stageTransitions->dropout($joining->candidateApplication, $reason, $actor, 'Dropped out before joining');
 
@@ -138,7 +138,7 @@ class CandidateJoiningService
         $this->guardPostJoinMilestone($joining, CandidateStage::DocumentsCompleted);
 
         return DB::transaction(function () use ($joining, $actor): CandidateJoining {
-            $joining->forceFill(['documents_status' => DocumentStatus::Verified])->save();
+            LifecycleGuard::allow(fn () => $joining->forceFill(['documents_status' => DocumentStatus::Verified])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::DocumentsCompleted, $actor);
 
@@ -176,9 +176,30 @@ class CandidateJoiningService
         }
     }
 
+    /**
+     * Phase 8.3: the joining will not happen because the application closed (e.g. the company
+     * rejected it). Not a no-show or dropout; records no joining outcome. The reason is kept in the
+     * joining's remarks and the change is audited (the model is Auditable).
+     */
+    public function cancel(CandidateJoining $joining, string $reason, ?Employee $actor = null): CandidateJoining
+    {
+        $this->guardActive($joining);
+
+        if (blank($reason)) {
+            throw new DomainException('A reason is required to cancel a joining.');
+        }
+
+        LifecycleGuard::allow(fn () => $joining->forceFill([
+            'status' => JoiningStatus::Cancelled,
+            'remarks' => trim(($joining->remarks ? $joining->remarks."\n" : '').'Cancelled: '.$reason.($actor !== null ? " ({$actor->fullName()})" : '')),
+        ])->save());
+
+        return $joining;
+    }
+
     private function guardActive(CandidateJoining $joining): void
     {
-        if (in_array($joining->status, [JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout], true)) {
+        if (in_array($joining->status, [JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout, JoiningStatus::Cancelled], true)) {
             throw new DomainException("This joining record is already {$joining->status->label()} and cannot be changed further.");
         }
     }

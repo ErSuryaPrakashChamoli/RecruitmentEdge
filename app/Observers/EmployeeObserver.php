@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Employee;
+use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -15,6 +16,25 @@ use Illuminate\Support\Facades\DB;
  */
 class EmployeeObserver
 {
+    /**
+     * Phase 8.3: the reporting hierarchy is the access boundary, so it must stay a tree. An employee
+     * can never report to themselves or to anyone in their own subtree — enforced here for every
+     * write path (employee form, hierarchy page, imports).
+     */
+    public function updating(Employee $employee): void
+    {
+        if (! $employee->isDirty('reports_to_id') || $employee->reports_to_id === null) {
+            return;
+        }
+
+        $cycle = (int) $employee->reports_to_id === $employee->id
+            || DB::table('employee_hierarchy')->where('ancestor_id', $employee->id)->where('descendant_id', $employee->reports_to_id)->exists();
+
+        if ($cycle) {
+            throw new DomainException("{$employee->fullName()} cannot report to someone in their own reporting line.");
+        }
+    }
+
     public function created(Employee $employee): void
     {
         DB::transaction(function () use ($employee): void {

@@ -4,11 +4,13 @@ namespace App\Filament\Resources\Employees\Schemas;
 
 use App\Enums\EmployeeStatus;
 use App\Models\Employee;
+use App\Services\HierarchyService;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 
 class EmployeeForm
 {
@@ -49,7 +51,15 @@ class EmployeeForm
                     ->preload(),
                 Select::make('reports_to_id')
                     ->label('Reports To')
-                    ->relationship(name: 'reportsTo', titleAttribute: 'first_name', ignoreRecord: true)
+                    ->relationship(
+                        name: 'reportsTo',
+                        titleAttribute: 'first_name',
+                        modifyQueryUsing: fn (Builder $query, ?Employee $record): Builder => $record === null
+                            ? $query
+                            : $query->whereNotIn('employees.id', app(HierarchyService::class)->descendantIdsOf($record->id)),
+                        ignoreRecord: true,
+                    )
+                    ->helperText('Nobody in this employee\'s own reporting line can be chosen.')
                     ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName().' ('.$record->employee_code.')')
                     ->searchable()
                     ->preload(),

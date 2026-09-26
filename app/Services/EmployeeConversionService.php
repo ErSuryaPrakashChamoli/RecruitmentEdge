@@ -5,22 +5,32 @@ namespace App\Services;
 use App\Enums\EmployeeStatus;
 use App\Enums\JoiningStatus;
 use App\Events\EmployeeConvertedFromCandidate;
+use App\Models\AuditLog;
+use App\Models\Candidate;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
+use App\Models\User;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Converts a joined candidate into an Employee record, preserving recruitment history via
  * `employees.candidate_id` (Section 44). This is the recruitment module's only hand-off point
- * into what will later become the broader HRMS employee lifecycle.
+ * into what will later become the broader HRMS employee lifecycle. Phase 8.3: needs
+ * employees.convert within the actor's hierarchy, is idempotent and audited.
  */
 class EmployeeConversionService
 {
     public function __construct(private readonly SequenceCodeGenerator $codeGenerator) {}
 
-    public function convert(CandidateJoining $joining): Employee
+    public function convert(CandidateJoining $joining, ?User $actor = null): Employee
     {
+        $actor ??= auth()->user();
+
+        if (! $actor instanceof User || ! $actor->can('convert', $joining)) {
+            throw new DomainException('Converting a candidate into an employee needs the employees.convert permission for this joining.');
+        }
+
         if ($joining->status !== JoiningStatus::Joined) {
             throw new DomainException('Only a candidate marked as Joined can be converted to an employee.');
         }
@@ -34,7 +44,15 @@ class EmployeeConversionService
         $requisition = $joining->candidateApplication->requisition;
         $offer = $joining->offer;
 
-        return DB::transaction(function () use ($joining, $candidate, $requisition, $offer): Employee {
+        return DB::transaction(function () use ($joining, $candidate, $requisition, $offer, $actor): Employee {
+            // Idempotency: a concurrent second conversion waits here and then finds the employee
+            // (employees.candidate_id is also unique).
+            Candidate::query()->whereKey($candidate->id)->lockForUpdate()->first();
+
+            if (Employee::query()->where('candidate_id', $candidate->id)->exists()) {
+                throw new DomainException('This candidate has already been converted to an employee.');
+            }
+
             [$firstName, $lastName] = $this->splitName($candidate->full_name);
 
             $employee = Employee::query()->create([
@@ -50,6 +68,8 @@ class EmployeeConversionService
                 'date_of_joining' => $joining->actual_doj ?? $joining->expected_doj,
                 'status' => EmployeeStatus::Active,
             ]);
+
+            AuditLog::record($joining, 'employee_converted', null, ['employee_id' => $employee->id, 'candidate_id' => $candidate->id, 'by_user_id' => $actor->id]);
 
             // Phase 8.2: links the employee to the Outcome Loop hiring snapshot (ids only, after commit).
             EmployeeConvertedFromCandidate::dispatch($candidate->id, $joining->candidate_application_id, $requisition?->id, $employee->id, now()->toIso8601String());

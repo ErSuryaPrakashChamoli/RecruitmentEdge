@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
 use BackedEnum;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
@@ -101,7 +102,7 @@ class OrganizationHierarchy extends Page
                     Select::make('reports_to_id')
                         ->label('New Manager')
                         ->options(Employee::query()
-                            ->where('id', '!=', $employee->id)
+                            ->whereNotIn('id', app(HierarchyService::class)->descendantIdsOf($employee->id))
                             ->get()
                             ->mapWithKeys(fn (Employee $e) => [$e->id => $e->fullName()]))
                         ->searchable()
@@ -113,7 +114,14 @@ class OrganizationHierarchy extends Page
                 abort_unless($this->canReassign(), 403);
 
                 $employee = Employee::query()->findOrFail($arguments['employeeId']);
-                $employee->update(['reports_to_id' => $data['reports_to_id']]);
+
+                try {
+                    $employee->update(['reports_to_id' => $data['reports_to_id']]);
+                } catch (DomainException $e) {
+                    Notification::make()->title('Manager could not be reassigned')->body($e->getMessage())->danger()->send();
+
+                    return;
+                }
 
                 Notification::make()->title('Manager reassigned')->success()->send();
             });

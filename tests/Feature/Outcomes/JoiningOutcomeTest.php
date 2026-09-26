@@ -8,15 +8,18 @@ use App\Events\CandidateJoined;
 use App\Events\EmployeeConvertedFromCandidate;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\Employee;
 use App\Models\HiringMemoryRecord;
 use App\Models\HiringOutcome;
 use App\Models\HiringOutcomeSnapshot;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentRequisition;
+use App\Models\User;
 use App\Services\CandidateJoiningService;
 use App\Services\EmployeeConversionService;
 use App\Services\Intelligence\RoleDnaService;
 use App\Services\StageTransitionService;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -28,6 +31,13 @@ beforeEach(function (): void {
     ]);
     $this->joining = CandidateJoining::factory()->create(['candidate_application_id' => $this->application->id, 'status' => JoiningStatus::Confirmed]);
 });
+
+function joiningOutcomeConverter(): User
+{
+    test()->seed(RolePermissionSeeder::class);
+
+    return User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
+}
 
 /**
  * @return array<string, mixed>
@@ -101,7 +111,7 @@ test('converting to an employee raises an ids-only event', function (): void {
     app(CandidateJoiningService::class)->markJoined($this->joining, now()->subDay());
     Event::fake([EmployeeConvertedFromCandidate::class]);
 
-    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh());
+    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), joiningOutcomeConverter());
 
     Event::assertDispatched(EmployeeConvertedFromCandidate::class, fn (EmployeeConvertedFromCandidate $event) => $event->employeeId === $employee->id
         && $event->applicationId === $this->application->id
@@ -111,7 +121,7 @@ test('converting to an employee raises an ids-only event', function (): void {
 test('conversion links the employee to the hiring snapshot', function (): void {
     app(CandidateJoiningService::class)->markJoined($this->joining, now()->subDay());
 
-    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh());
+    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), joiningOutcomeConverter());
 
     expect(HiringOutcomeSnapshot::query()->sole()->employee_id)->toBe($employee->id);
 });

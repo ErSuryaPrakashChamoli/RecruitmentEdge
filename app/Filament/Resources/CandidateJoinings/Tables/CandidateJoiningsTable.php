@@ -241,10 +241,18 @@ class CandidateJoiningsTable
             ->color('success')
             ->icon('heroicon-o-user-plus')
             ->visible(fn (CandidateJoining $record) => $record->status === JoiningStatus::Joined
-                && $record->candidateApplication->candidate->employee === null)
+                && $record->candidateApplication->candidate->employee === null
+                && (bool) auth()->user()?->can('convert', $record))
             ->requiresConfirmation()
             ->action(function (CandidateJoining $record): void {
-                $employee = app(EmployeeConversionService::class)->convert($record);
+                try {
+                    $employee = app(EmployeeConversionService::class)->convert($record, auth()->user());
+                } catch (DomainException $e) {
+                    Notification::make()->title('Candidate could not be converted')->body($e->getMessage())->danger()->persistent()->send();
+
+                    throw new Halt;
+                }
+
                 Notification::make()->title("Converted to employee {$employee->employee_code}")->success()->send();
             });
     }
