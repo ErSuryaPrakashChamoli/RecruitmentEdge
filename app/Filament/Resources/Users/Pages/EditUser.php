@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Users\Pages;
 
 use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
+use App\Services\Identity\CredentialService;
 use App\Services\Identity\IdentityProvisioningService;
 use App\Services\Identity\RoleAssignmentService;
 use DomainException;
@@ -51,12 +52,22 @@ class EditUser extends EditRecord
 
         $roles = Arr::pull($data, 'roles', []);
         $employeeId = Arr::pull($data, 'employee_id');
+        $password = Arr::pull($data, 'password');
+        $email = Arr::pull($data, 'email');
 
         try {
-            DB::transaction(function () use ($record, $data, $roles, $employeeId, $actor): void {
+            DB::transaction(function () use ($record, $data, $roles, $employeeId, $password, $email, $actor): void {
                 app(IdentityProvisioningService::class)->linkEmployee($record, filled($employeeId) ? (int) $employeeId : null, $actor);
                 app(RoleAssignmentService::class)->syncUserRoles($record, $roles, $actor);
-                $record->update($data);
+                $record->update(Arr::only($data, ['name']));
+
+                if (filled($password)) {
+                    app(CredentialService::class)->setPasswordByAdministrator($record, $password, $actor);
+                }
+
+                if (filled($email)) {
+                    app(CredentialService::class)->requestEmailChange($record, $email, $actor);
+                }
             });
         } catch (DomainException $e) {
             Notification::make()->title('Login could not be updated')->body($e->getMessage())->danger()->persistent()->send();

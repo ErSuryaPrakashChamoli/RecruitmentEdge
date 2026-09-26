@@ -13,7 +13,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
 
 /**
  * Phase 8.4: roles and the employee link are plain option lists — the Create/Edit pages hand them to
@@ -33,14 +33,25 @@ class UserForm
                     ->email()
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true)
+                    ->helperText(fn (string $operation): ?string => $operation === 'edit' ? 'A new address is sent a verification link; it applies once the person confirms it.' : null),
+                // Phase 8.4: the staff password policy; the value is hashed by the model and an
+                // administrator's change signs the person out everywhere (CredentialService).
                 TextInput::make('password')
                     ->password()
                     ->revealable()
+                    ->rule(Password::defaults())
+                    ->confirmed()
                     ->required(fn (string $operation): bool => $operation === 'create')
-                    ->dehydrateStateUsing(fn (string $state): string => Hash::make($state))
                     ->dehydrated(fn (?string $state): bool => filled($state))
-                    ->helperText('Leave blank to keep the current password.'),
+                    ->helperText(fn (string $operation): string => $operation === 'edit'
+                        ? 'Leave blank to keep the current password. Setting one signs the person out everywhere.'
+                        : 'At least 12 characters with upper and lower case letters, a number and a symbol.'),
+                TextInput::make('password_confirmation')
+                    ->password()
+                    ->revealable()
+                    ->requiredWith('password')
+                    ->dehydrated(false),
                 Select::make('employee_id')
                     ->label('Linked Employee')
                     ->options(fn (?User $record): array => self::employeeOptions($record))

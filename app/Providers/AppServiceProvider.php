@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\RolePolicy;
+use App\Rules\NotCommonPassword;
 use App\Services\Automation\AutomationActionRegistry;
 use App\Services\Automation\AutomationEventRegistry;
 use App\Services\Automation\AutomationFieldRegistry;
@@ -24,6 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -66,6 +68,25 @@ class AppServiceProvider extends ServiceProvider
 
         $this->configureTables();
         $this->configurePortalRateLimits();
+        $this->configurePasswordPolicy();
+    }
+
+    /**
+     * Phase 8.4: the staff password policy — Filament's profile and reset pages and the Users form
+     * all use Password::defaults().
+     */
+    private function configurePasswordPolicy(): void
+    {
+        Password::defaults(function (): Password {
+            $rule = Password::min((int) config('identity.password.min_length', 12))
+                ->letters()
+                ->mixedCase()
+                ->numbers()
+                ->symbols()
+                ->rules([new NotCommonPassword]);
+
+            return config('identity.password.check_breached') ? $rule->uncompromised() : $rule;
+        });
     }
 
     /**

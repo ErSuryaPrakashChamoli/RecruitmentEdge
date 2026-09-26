@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceStaffAccess;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
@@ -22,6 +23,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // Phase 8.4: a suspended/revoked login or a stale session is signed out before the panel's
         // Authenticate middleware runs, so it lands on the login page instead of a 403.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, EnforceStaffAccess::class);
+        // Phase 8.4: a correlation id for logs and the audit trail.
+        $middleware->prepend(AssignRequestId::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

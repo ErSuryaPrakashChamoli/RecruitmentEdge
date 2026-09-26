@@ -58,7 +58,12 @@ return [
         ],
     ],
 
+    // Every staff password (admin-set, self-service, reset): at least min_length characters with
+    // upper and lower case letters, a number and a symbol, and not built on a common word
+    // (App\Rules\NotCommonPassword). check_breached also asks the Have I Been Pwned range API —
+    // off by default because it needs outbound network access.
     'password' => [
         'min_length' => 12,
+        'check_breached' => (bool) env('IDENTITY_PASSWORD_CHECK_BREACHED', false),
     ],
 ];

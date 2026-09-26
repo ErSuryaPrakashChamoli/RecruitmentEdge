@@ -3,13 +3,18 @@
 namespace App\Filament\Pages;
 
 use App\Enums\AppTheme;
+use App\Models\User;
+use App\Services\Identity\CredentialService;
+use Filament\Actions\Action;
 use Filament\Auth\Pages\EditProfile;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 
 /**
@@ -28,6 +33,43 @@ use Illuminate\Support\Arr;
  */
 class Profile extends EditProfile
 {
+    /**
+     * Phase 8.4: sign out of every other browser and device (this session stays signed in).
+     *
+     * @return array<int, Action>
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('signOutOtherSessions')
+                ->label('Sign out other sessions')
+                ->icon('heroicon-o-arrow-right-start-on-rectangle')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalDescription('Every other browser or device signed in as you is signed out. This one stays signed in.')
+                ->action(function (): void {
+                    /** @var User $user */
+                    $user = $this->getUser();
+                    app(CredentialService::class)->signOutEverywhere($user, $user, session()->driver());
+
+                    Notification::make()->title('Other sessions signed out')->success()->send();
+                }),
+        ];
+    }
+
+    /**
+     * Phase 8.4: the change is audited when requested; it applies only once the new address is
+     * verified (the panel's email change verification).
+     */
+    protected function sendEmailChangeVerification(Model $record, string $newEmail): void
+    {
+        if ($record instanceof User && $record->email !== $newEmail) {
+            CredentialService::recordEmailChangeRequest($record, $newEmail, $record);
+        }
+
+        parent::sendEmailChangeVerification($record, $newEmail);
+    }
+
     public function setThemePreference(string $theme): void
     {
         $this->getUser()->update(['theme' => AppTheme::fromValueOrDefault($theme)->value]);

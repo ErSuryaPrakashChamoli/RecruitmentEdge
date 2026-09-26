@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Enums\AccessState;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Services\Identity\CredentialService;
 use App\Services\Identity\StaffAccessService;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Log;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password', 'employee_id', 'theme'])]
@@ -44,6 +46,18 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     public function lifecycleOwner(): string
     {
         return 'StaffAccessService / IdentityProvisioningService';
+    }
+
+    protected static function booted(): void
+    {
+        // Phase 8.4: a password change is audited (never the value). Administrator resets are
+        // recorded by CredentialService instead.
+        static::updated(function (self $user): void {
+            if ($user->wasChanged('password') && ! CredentialService::$writingPassword) {
+                AuditLog::record($user, 'password_changed', null, ['by_user_id' => auth()->id()]);
+                Log::info('identity.password_changed', ['user_id' => $user->getKey()]);
+            }
+        });
     }
 
     /**

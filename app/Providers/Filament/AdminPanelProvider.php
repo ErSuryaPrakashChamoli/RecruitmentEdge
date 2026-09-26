@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Pages\Auth\StaffLogin;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
 use App\Http\Middleware\EnforceStaffAccess;
@@ -39,7 +40,11 @@ class AdminPanelProvider extends PanelProvider
             ->font('Instrument Sans')
             ->defaultThemeMode(ThemeMode::Light)
             ->sidebarCollapsibleOnDesktop()
-            ->login()
+            // Phase 8.4: per-account lockout on top of Filament's per-IP throttle; staff password
+            // reset (single-use, expiring broker tokens); email changes apply only once verified.
+            ->login(StaffLogin::class)
+            ->passwordReset()
+            ->emailChangeVerification()
             ->profile(Profile::class, isSimple: false)
             ->databaseNotifications()
             ->databaseNotificationsPolling('30s')

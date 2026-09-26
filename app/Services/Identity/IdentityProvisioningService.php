@@ -38,6 +38,7 @@ class IdentityProvisioningService
             throw new DomainException('Creating logins needs the users.manage permission.');
         }
 
+        CredentialService::assertAcceptablePassword((string) $data['password']);
         $employee = filled($data['employee_id'] ?? null) ? $this->linkableEmployee((int) $data['employee_id'], $actor, null) : null;
 
         if ($employee === null && $this->hierarchy->visibleEmployeeIdsFor($actor) !== null) {

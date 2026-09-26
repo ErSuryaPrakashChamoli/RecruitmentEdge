@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Facades\Context;
 
 /**
  * Section 41's cross-cutting audit trail. Written via record() — by the Auditable trait for
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  *
  * `old_values` holds the previous values and `changes` the new values of the same keys.
  */
-#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'changes', 'old_values', 'ip_address'])]
+#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'changes', 'old_values', 'ip_address', 'request_id'])]
 class AuditLog extends Model
 {
     public const ?string UPDATED_AT = null;
@@ -54,6 +55,8 @@ class AuditLog extends Model
             'changes' => $newValues,
             'old_values' => $oldValues,
             'ip_address' => request()?->ip(),
+            // Phase 8.4: the request / job correlation id (AssignRequestId).
+            'request_id' => Context::get('request_id'),
         ]);
     }
 
