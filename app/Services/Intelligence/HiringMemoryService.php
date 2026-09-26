@@ -14,6 +14,7 @@ use App\Models\CandidateJoining;
 use App\Models\CandidateStageHistory;
 use App\Models\HiringMemoryRecord;
 use App\Models\Offer;
+use App\Models\OutcomeInsight;
 use App\Models\RecruiterAction;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
@@ -30,7 +31,8 @@ use Illuminate\Support\Facades\DB;
  * attributable record of deterministic facts, at the moment it happened — a hire, a rejection, an
  * offer not converted, a failed joining, a requisition closing. Capture is idempotent (capture
  * key); a correction creates a new version that supersedes the old one, which is kept. Memory feeds
- * Role DNA historical patterns. Post-joining outcomes (30/60/90/180 days) are Phase 8.
+ * Role DNA historical patterns. Post-joining outcomes enter only as an aggregate outcome pattern a
+ * person accepted (Phase 8.2, captureOutcomePattern).
  *
  * Facts deliberately exclude contact details and compensation figures.
  */
@@ -204,6 +206,52 @@ class HiringMemoryService
 
             return $corrected;
         });
+    }
+
+    /**
+     * An Outcome Loop pattern a person accepted (Phase 8.2): aggregate counts only — no candidate,
+     * employee or application — recorded once per insight.
+     */
+    public function captureOutcomePattern(OutcomeInsight $insight, User $actor): ?HiringMemoryRecord
+    {
+        $key = "outcome_insight:{$insight->id}";
+
+        if (HiringMemoryRecord::query()->where('capture_key', $key)->exists()) {
+            return null;
+        }
+
+        $record = HiringMemoryRecord::query()->create([
+            'memory_type' => MemoryType::OutcomePattern,
+            'subject_type' => $insight->getMorphClass(),
+            'subject_id' => $insight->id,
+            'requisition_id' => null,
+            'designation_id' => $insight->designation_id,
+            'department_id' => null,
+            'candidate_application_id' => null,
+            'facts' => [
+                'kind' => $insight->kind->value,
+                'subject' => $insight->subject_key,
+                'counts' => $insight->evidence,
+                'sample_size' => $insight->sample_size,
+                'sample_band' => $insight->sample_band->value,
+                'period' => [$insight->period_start?->toDateString(), $insight->period_end?->toDateString()],
+                'confidence' => $insight->confidence->value,
+                'rule_version' => $insight->rule_version,
+            ],
+            'summary' => $insight->insight,
+            'captured_at' => now(),
+            'source_event' => 'outcome_insight.accepted',
+            'capture_key' => $key,
+        ]);
+
+        $this->evidence->record($record, [
+            EvidenceItem::metric('source', 'Outcome Loop aggregate', "{$insight->sample_size} outcomes", (float) $insight->sample_size, $insight->limitations, $insight),
+            EvidenceItem::confirmation('source', 'Accepted by a reviewer', $insight->kind->label(), $actor),
+        ], self::GENERATOR, self::VERSION);
+
+        AuditLog::record($record, 'hiring_memory_captured', null, ['type' => MemoryType::OutcomePattern->value, 'source_event' => 'outcome_insight.accepted']);
+
+        return $record;
     }
 
     /**

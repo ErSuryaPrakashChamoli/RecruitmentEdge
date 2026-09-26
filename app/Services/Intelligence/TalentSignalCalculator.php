@@ -8,10 +8,12 @@ use App\Enums\SignalBand;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\InterviewFeedback;
+use App\Models\OutcomeInsight;
 use App\Models\RecruitmentRequisition;
 use App\Models\RoleDnaVersion;
 use App\Services\Intelligence\Data\EvidenceItem;
 use App\Services\Intelligence\Data\TalentSignalResult;
+use Illuminate\Support\Collection;
 
 /**
  * Talent Signal™ rules `talent-signal/1` (Phase 7): a deterministic, decomposed comparison of one
@@ -26,14 +28,21 @@ use App\Services\Intelligence\Data\TalentSignalResult;
  * Fairness: only job-relevant, candidate-stated or recorded facts are used. No name, photo, age,
  * gender or other protected attribute (none are stored, none may be inferred); the interview
  * "culture fit" rating is excluded; location, compensation, notice, history and interviews are
- * shown as context and never change the band. Free-text comparisons that do not match exactly
- * are "unknown", not a mismatch.
+ * shown as context and never change the band, as are accepted Outcome Loop patterns (Phase 8.2).
+ * Free-text comparisons that do not match exactly are "unknown", not a mismatch.
  */
 class TalentSignalCalculator
 {
     public const string RULES_VERSION = 'talent-signal/1';
 
     public const float MIN_COMPLETENESS = 40.0;
+
+    /**
+     * Accepted Outcome Loop learning per designation, loaded once per calculator instance.
+     *
+     * @var array<int, Collection<int, OutcomeInsight>>
+     */
+    private array $outcomeLearning = [];
 
     /**
      * Relations the calculator reads — eager-load them when scoring many candidates.
@@ -238,6 +247,19 @@ class TalentSignalCalculator
             $evidence[] = EvidenceItem::fact('source', 'Source context', $context->implode(' · '), $candidate);
         }
 
+        $learning = $this->acceptedOutcomeLearning($requisition->designation_id);
+
+        if ($learning->isNotEmpty()) {
+            $candidateKeys = collect($candidate->skills ?? [])->map(fn ($skill) => IntelligenceText::skillKey((string) $skill));
+            $components['outcome_patterns'] = [
+                'label' => 'Outcome patterns for this role',
+                'status' => 'context',
+                'summary' => $learning->map(fn (OutcomeInsight $insight) => $insight->evidence['skill_label'].' ('.($candidateKeys->contains($insight->subject_key) ? 'listed' : 'not listed').')')->implode(', ')
+                    .' — accepted from observed past hires; context only, never part of the band.',
+            ];
+            $evidence[] = EvidenceItem::metric('outcome_patterns', 'Accepted Outcome Loop insights for this designation', (string) $learning->count(), (float) $learning->count(), 'Observational association from past hires; never changes the band.');
+        }
+
         $lastActivity = $candidate->applications->max('last_activity_at');
 
         if ($lastActivity !== null) {
@@ -275,6 +297,14 @@ class TalentSignalCalculator
      * @param  array<string, array<string, mixed>>  $components
      * @return array<int, string>
      */
+    /**
+     * @return Collection<int, OutcomeInsight>
+     */
+    private function acceptedOutcomeLearning(?int $designationId): Collection
+    {
+        return $this->outcomeLearning[$designationId ?? 0] ??= OutcomeInsight::query()->acceptedLearningFor($designationId)->get();
+    }
+
     private function reasons(SignalBand $band, array $components, float $completeness): array
     {
         if ($band === SignalBand::InsufficientEvidence) {

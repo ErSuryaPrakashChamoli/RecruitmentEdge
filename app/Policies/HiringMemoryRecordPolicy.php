@@ -2,12 +2,14 @@
 
 namespace App\Policies;
 
+use App\Enums\MemoryType;
 use App\Models\HiringMemoryRecord;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 
 /**
- * Hiring Memory follows requisition visibility. Corrections (a new version) need
+ * Hiring Memory follows requisition visibility; organisation-wide outcome patterns (no requisition,
+ * aggregate only) are also visible to outcome-insight reviewers. Corrections (a new version) need
  * intelligence.memory.manage; records are never edited or deleted.
  */
 class HiringMemoryRecordPolicy
@@ -21,7 +23,7 @@ class HiringMemoryRecordPolicy
     {
         return $user->can('intelligence.memory.view')
             && ($record->requisition_id === null
-                ? $user->can('hierarchy.view-all')
+                ? $user->can('hierarchy.view-all') || ($record->memory_type === MemoryType::OutcomePattern && $user->can('outcomes.review'))
                 : RecruitmentRequisition::query()->visibleTo($user)->whereKey($record->requisition_id)->exists());
     }
 

@@ -48,7 +48,9 @@ class HiringMemoryRecordResource extends Resource
         /** @var User $user */
         $user = auth()->user();
 
-        return parent::getEloquentQuery()->when(! $user->can('hierarchy.view-all'), fn (Builder $query) => $query->whereIn('requisition_id', RecruitmentRequisition::query()->visibleTo($user)->select('id')));
+        return parent::getEloquentQuery()->when(! $user->can('hierarchy.view-all'), fn (Builder $query) => $query->where(fn (Builder $query) => $query
+            ->whereIn('requisition_id', RecruitmentRequisition::query()->visibleTo($user)->select('id'))
+            ->when($user->can('outcomes.review'), fn (Builder $query) => $query->orWhere('memory_type', MemoryType::OutcomePattern->value))));
     }
 
     public static function table(Table $table): Table

@@ -9,6 +9,7 @@ use App\Enums\RoleDnaOrigin;
 use App\Enums\StageType;
 use App\Models\HiringMemoryRecord;
 use App\Models\InterviewFeedback;
+use App\Models\OutcomeInsight;
 use App\Models\RecruitmentRequisition;
 use App\Services\Intelligence\Data\EvidenceItem;
 use Illuminate\Support\Collection;
@@ -171,8 +172,10 @@ class RoleDnaBuilder
         $count = $hires->count();
         $cite = fn (string $key, Collection $records, string $label) => $records->take(10)->map(fn (HiringMemoryRecord $record) => EvidenceItem::fact($key, $label, $record->summary, $record, $record->captured_at))->all();
 
+        $learning = $this->acceptedOutcomeLearning($requisition->designation_id);
+
         if ($count < self::MIN_HISTORY) {
-            return [[
+            return [...$learning, [
                 'history:hires', RoleDnaCategory::HistoricalPattern, 'Past hires for this designation', "{$count} recorded",
                 $count > 0 ? $cite('history:hires', $hires, 'Hire recorded in Hiring Memory') : [EvidenceItem::metric('history:hires', 'Hires recorded in Hiring Memory for this designation', '0', 0)],
                 'Insufficient history: at least '.self::MIN_HISTORY.' past hires are needed before patterns are shown.',
@@ -221,6 +224,26 @@ class RoleDnaBuilder
                 [...$cite('history:unsuccessful', $declines, 'Offer not converted'), ...$cite('history:unsuccessful', $noShows, 'Joining failed')], null];
         }
 
-        return $attributes;
+        return [...$attributes, ...$learning];
+    }
+
+    /**
+     * Outcome Loop learning a person accepted for this designation (Phase 8.2) — informational
+     * historical patterns only; each insight already rests on at least MIN_HISTORY observed hires.
+     *
+     * @return array<int, array{0: string, 1: RoleDnaCategory, 2: string, 3: string, 4: array<int, EvidenceItem>, 5: string|null}>
+     */
+    private function acceptedOutcomeLearning(int $designationId): array
+    {
+        return OutcomeInsight::query()->acceptedLearningFor($designationId)->get()
+            ->map(fn (OutcomeInsight $insight) => [
+                'outcome:'.$insight->subject_key,
+                RoleDnaCategory::HistoricalPattern,
+                "Outcome pattern (accepted): {$insight->evidence['skill_label']}",
+                "{$insight->evidence['active_with_skill']} of {$insight->evidence['observed_active']} hires observed active at {$insight->evidence['checkpoint_days']} days",
+                [EvidenceItem::metric('outcome:'.$insight->subject_key, 'Outcome Loop insight accepted by a reviewer', $insight->insight, (float) $insight->sample_size, $insight->limitations, $insight)],
+                $insight->limitations,
+            ])
+            ->all();
     }
 }

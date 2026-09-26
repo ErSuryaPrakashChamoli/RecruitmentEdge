@@ -27,7 +27,7 @@ class OutcomeInsightFactory extends Factory
             'sample_band' => 'limited',
             'period_start' => now()->subYear()->toDateString(),
             'period_end' => now()->toDateString(),
-            'confidence' => 'limited',
+            'confidence' => 'low',
             'limitations' => 'Small, observational sample.',
             'source_refs' => [],
             'rule_version' => 'outcome-learning/1',

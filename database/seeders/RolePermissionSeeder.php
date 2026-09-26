@@ -86,6 +86,7 @@ class RolePermissionSeeder extends Seeder
         'ai.conversations.view',
         'outcomes.view',
         'outcomes.manage',
+        'outcomes.review',
         'employees.separation.view',
         'employees.separation.manage',
     ];
@@ -256,14 +257,14 @@ class RolePermissionSeeder extends Seeder
     ];
 
     /**
-     * Phase 8.2 Outcome Loop: viewing outcome analytics (hierarchy-scoped), correcting outcomes and
-     * reviewing learning, and the minimal separation record. Separation data is not given to
+     * Phase 8.2 Outcome Loop: viewing outcome analytics (hierarchy-scoped), correcting outcomes,
+     * reviewing organisation-wide learning insights (outcomes.review), and the minimal separation record. Separation data is not given to
      * recruiters. chro holds everything through '*'.
      *
      * @var array<string, array<int, string>>
      */
     public const array PHASE_8_2_ROLE_PERMISSIONS = [
-        'vp_hr' => ['outcomes.view', 'outcomes.manage', 'employees.separation.view', 'employees.separation.manage'],
+        'vp_hr' => ['outcomes.view', 'outcomes.manage', 'outcomes.review', 'employees.separation.view', 'employees.separation.manage'],
         'manager' => ['outcomes.view', 'employees.separation.view'],
         'assistant_manager' => ['outcomes.view'],
     ];

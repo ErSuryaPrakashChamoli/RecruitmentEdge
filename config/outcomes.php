@@ -26,6 +26,10 @@ return [
         'stronger_from' => 10,
     ],
 
+    // The status checkpoint Role DNA learning compares skills at (must be one of
+    // status_observation_days). Learning needs at least insufficient_below hires observed there.
+    'learning_checkpoint_days' => 90,
+
     // Rows processed per chunk by outcomes:evaluate and outcomes:backfill.
     'batch_size' => 200,
 

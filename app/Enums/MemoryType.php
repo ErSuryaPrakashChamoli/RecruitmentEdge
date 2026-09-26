@@ -3,7 +3,8 @@
 namespace App\Enums;
 
 /**
- * Kinds of Hiring Memory record. Outcomes after joining (30/60/90/180 days) are Phase 8 and deliberately absent.
+ * Kinds of Hiring Memory record. Post-joining outcomes enter only as an accepted, aggregate
+ * OutcomePattern (Phase 8.2) — never per person.
  */
 enum MemoryType: string
 {
@@ -12,6 +13,7 @@ enum MemoryType: string
     case OfferOutcome = 'offer_outcome';
     case JoiningOutcome = 'joining_outcome';
     case RequisitionOutcome = 'requisition_outcome';
+    case OutcomePattern = 'outcome_pattern';
 
     public function label(): string
     {
@@ -21,6 +23,7 @@ enum MemoryType: string
             self::OfferOutcome => 'Offer outcome',
             self::JoiningOutcome => 'Joining outcome',
             self::RequisitionOutcome => 'Requisition outcome',
+            self::OutcomePattern => 'Outcome pattern (aggregate)',
         };
     }
 
@@ -32,6 +35,7 @@ enum MemoryType: string
             self::OfferOutcome => 'warning',
             self::JoiningOutcome => 'danger',
             self::RequisitionOutcome => 'info',
+            self::OutcomePattern => 'primary',
         };
     }
 
