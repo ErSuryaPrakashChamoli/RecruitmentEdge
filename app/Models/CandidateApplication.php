@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
+use App\Services\PipelineTemplateService;
 use Database\Factories\CandidateApplicationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -22,6 +23,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'current_stage',
     'application_date',
     'priority',
+    'origin_channel',
+    'job_posting_id',
     'last_activity_at',
     'next_followup_at',
     'status',
@@ -33,6 +36,23 @@ class CandidateApplication extends Model
 {
     /** @use HasFactory<CandidateApplicationFactory> */
     use HasFactory, SoftDeletes;
+
+    /**
+     * A new application on a requisition with a configured pipeline starts on the configured
+     * stage matching its initial canonical stage — initial placement, not a transition, so no
+     * history row (moves after creation go through StageTransitionService only).
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (CandidateApplication $application): void {
+            if ($application->pipeline_stage_id !== null || $application->requisition_id === null) {
+                return;
+            }
+
+            $application->pipeline_stage_id = app(PipelineTemplateService::class)
+                ->initialStageFor((int) $application->requisition_id, $application->current_stage ?? CandidateStage::Sourced)?->id;
+        });
+    }
 
     protected function casts(): array
     {
@@ -60,6 +80,37 @@ class CandidateApplication extends Model
     public function requisition(): BelongsTo
     {
         return $this->belongsTo(RecruitmentRequisition::class, 'requisition_id');
+    }
+
+    /**
+     * The configured pipeline stage (from the requisition's snapshot) the application is at.
+     * Null for legacy applications on requisitions without a pipeline; `current_stage` (the
+     * canonical milestone) is always set and is what analytics read. Only StageTransitionService
+     * writes it.
+     *
+     * @return BelongsTo<RequisitionPipelineStage, $this>
+     */
+    public function pipelineStage(): BelongsTo
+    {
+        return $this->belongsTo(RequisitionPipelineStage::class, 'pipeline_stage_id');
+    }
+
+    /**
+     * The job posting an online application came through (Phase 5 distribution attribution).
+     *
+     * @return BelongsTo<JobPosting, $this>
+     */
+    public function jobPosting(): BelongsTo
+    {
+        return $this->belongsTo(JobPosting::class);
+    }
+
+    /**
+     * @return BelongsTo<RecruitmentCampaign, $this>
+     */
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(RecruitmentCampaign::class, 'campaign_id');
     }
 
     /**
@@ -124,6 +175,14 @@ class CandidateApplication extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(RecruitmentDailyActivity::class)->latest('activity_datetime');
+    }
+
+    /**
+     * @return HasMany<CandidateTimelineEvent, $this>
+     */
+    public function timelineEvents(): HasMany
+    {
+        return $this->hasMany(CandidateTimelineEvent::class)->latest('occurred_at');
     }
 
     /**

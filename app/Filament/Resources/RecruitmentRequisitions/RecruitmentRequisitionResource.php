@@ -6,14 +6,15 @@ use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\CreateRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\EditRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\ListRecruitmentRequisitions;
+use App\Filament\Resources\RecruitmentRequisitions\Pages\RequisitionIntelligence;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\ViewRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\ApplicationsRelationManager;
+use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\PipelineStagesRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\StatusHistoryRelationManager;
 use App\Filament\Resources\RecruitmentRequisitions\Schemas\RecruitmentRequisitionForm;
 use App\Filament\Resources\RecruitmentRequisitions\Tables\RecruitmentRequisitionsTable;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
-use App\Services\HierarchyService;
 use BackedEnum;
 use Filament\Facades\Filament;
 use Filament\Resources\Resource;
@@ -52,26 +53,10 @@ class RecruitmentRequisitionResource extends Resource
      */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-
         /** @var User $user */
         $user = Filament::auth()->user();
 
-        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
-
-        if ($visibleIds === null) {
-            return $query;
-        }
-
-        return $query->where(function (Builder $q) use ($visibleIds): void {
-            $q->whereIn('reporting_manager_id', $visibleIds)
-                ->orWhereIn('hiring_manager_id', $visibleIds)
-                ->orWhereIn('assistant_manager_id', $visibleIds)
-                ->orWhereIn('manager_id', $visibleIds)
-                ->orWhereIn('vp_hr_id', $visibleIds)
-                ->orWhereIn('created_by', $visibleIds)
-                ->orWhereHas('recruiters', fn (Builder $r) => $r->whereIn('employees.id', $visibleIds));
-        });
+        return parent::getEloquentQuery()->visibleTo($user);
     }
 
     /**
@@ -118,6 +103,7 @@ class RecruitmentRequisitionResource extends Resource
     {
         return [
             ApplicationsRelationManager::class,
+            PipelineStagesRelationManager::class,
             StatusHistoryRelationManager::class,
         ];
     }
@@ -128,6 +114,7 @@ class RecruitmentRequisitionResource extends Resource
             'index' => ListRecruitmentRequisitions::route('/'),
             'create' => CreateRecruitmentRequisition::route('/create'),
             'view' => ViewRecruitmentRequisition::route('/{record}'),
+            'intelligence' => RequisitionIntelligence::route('/{record}/intelligence'),
             'edit' => EditRecruitmentRequisition::route('/{record}/edit'),
         ];
     }

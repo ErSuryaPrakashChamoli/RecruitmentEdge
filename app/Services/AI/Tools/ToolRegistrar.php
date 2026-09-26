@@ -15,10 +15,17 @@ use App\Services\AI\Tools\CandidateTools\FindStuckCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\GetCandidateTimelineTool;
 use App\Services\AI\Tools\CandidateTools\GetCandidateTool;
 use App\Services\AI\Tools\CandidateTools\ListOverdueFollowupsTool;
+use App\Services\AI\Tools\CandidateTools\ListTalentPoolsTool;
 use App\Services\AI\Tools\CandidateTools\RecommendNextStepTool;
 use App\Services\AI\Tools\CandidateTools\SearchCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\SummarizeCandidateTool;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\AI\Tools\IntelligenceTools\ExplainTalentSignalTool;
+use App\Services\AI\Tools\IntelligenceTools\GetHiringHealthTool;
+use App\Services\AI\Tools\IntelligenceTools\GetHiringMemoryTool;
+use App\Services\AI\Tools\IntelligenceTools\GetRoleDnaTool;
+use App\Services\AI\Tools\IntelligenceTools\ListHiringRisksTool;
+use App\Services\AI\Tools\IntelligenceTools\RediscoverTalentTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewPlanTool;
 use App\Services\AI\Tools\InterviewTools\GenerateInterviewQuestionsTool;
 use App\Services\AI\Tools\InterviewTools\SearchInterviewsTool;
@@ -59,6 +66,7 @@ class ToolRegistrar
         // Candidate
         SearchCandidatesTool::class,
         GetCandidateTool::class,
+        ListTalentPoolsTool::class,
         CompareCandidatesTool::class,
         SummarizeCandidateTool::class,
         FindStuckCandidatesTool::class,
@@ -105,6 +113,12 @@ class ToolRegistrar
         ScheduleInterviewTool::class,
         DraftCandidateEmailTool::class,
         SendCandidateEmailTool::class,
+        GetRoleDnaTool::class,
+        ExplainTalentSignalTool::class,
+        GetHiringHealthTool::class,
+        ListHiringRisksTool::class,
+        RediscoverTalentTool::class,
+        GetHiringMemoryTool::class,
     ];
 
     public static function registerAll(ToolRegistry $registry): void

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Models\CandidateApplication;
 use App\Models\CandidateStageHistory;
@@ -9,6 +10,7 @@ use App\Models\RecruitmentSetting;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -128,21 +130,119 @@ class RecruitmentSlaService
                 ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
                 ->with('candidate', 'recruiter')
                 ->get()
-                ->map(function (CandidateApplication $application) use ($leg, $targetDays) {
-                    $reachedAt = $application->stageHistory()->where('new_stage', $leg['from'])->value('created_at')
-                        ?? $application->last_activity_at
-                        ?? $application->application_date;
-
-                    $daysOpen = $reachedAt !== null ? (int) now()->diffInDays($reachedAt) : 0;
-
-                    return $daysOpen > $targetDays ? [
-                        'application' => $application,
-                        'leg_label' => $leg['label'],
-                        'days_open' => $daysOpen,
-                        'target_days' => $targetDays,
-                    ] : null;
-                })
+                ->map(fn (CandidateApplication $application) => $this->legBreach($application, $leg, $targetDays))
                 ->filter();
         })->values();
+    }
+
+    /**
+     * Phase 4 integration point: open breaches of a configured pipeline stage's own `sla_hours`
+     * (set in the Stage Builder / template, snapshotted per requisition). Complements the
+     * setting-driven legs above rather than replacing them — both feed the same hourly alert sweep
+     * (notifications:dispatch-alerts), so this remains the single SLA engine. Entry time is the
+     * latest history row that moved the application into its current configured stage, falling
+     * back to last_activity_at for applications backfilled onto a pipeline.
+     *
+     * @return Collection<int, array{application: CandidateApplication, stage_name: string, hours_open: int, target_hours: int}>
+     */
+    public function openPipelineStageBreaches(?User $user = null): Collection
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+
+        return CandidateApplication::query()
+            ->where('status', ApplicationStatus::Active)
+            ->whereHas('pipelineStage', fn (Builder $q) => $q->whereNotNull('sla_hours'))
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
+            ->addSelect(['stage_entered_at' => CandidateStageHistory::query()
+                ->select('created_at')
+                ->whereColumn('candidate_application_id', 'candidate_applications.id')
+                ->whereColumn('new_pipeline_stage_id', 'candidate_applications.pipeline_stage_id')
+                ->latest('created_at')
+                ->limit(1),
+            ])
+            ->with('candidate', 'recruiter', 'pipelineStage')
+            ->get()
+            ->map(fn (CandidateApplication $application): ?array => $this->pipelineStageBreach($application))
+            ->filter()
+            ->values();
+    }
+
+    /**
+     * Phase 6 automation condition: the SLA this one application is currently breaching (its
+     * configured pipeline stage's sla_hours first, then the setting-driven legs), or null. Same
+     * rules as the sweeps above, evaluated for a single record.
+     */
+    public function breachFor(CandidateApplication $application): ?string
+    {
+        if ($application->status !== ApplicationStatus::Active) {
+            return null;
+        }
+
+        if ($application->pipelineStage?->sla_hours !== null) {
+            $application->stage_entered_at ??= CandidateStageHistory::query()
+                ->where('candidate_application_id', $application->id)
+                ->where('new_pipeline_stage_id', $application->pipeline_stage_id)
+                ->latest('created_at')
+                ->value('created_at');
+
+            $breach = $this->pipelineStageBreach($application);
+
+            if ($breach !== null) {
+                return "{$breach['stage_name']} for {$breach['hours_open']} hours (SLA {$breach['target_hours']} hours)";
+            }
+        }
+
+        foreach (self::LEGS as $leg) {
+            if ($application->current_stage !== $leg['from']) {
+                continue;
+            }
+
+            $breach = $this->legBreach($application, $leg, (int) RecruitmentSetting::get($leg['setting_key'], $leg['default_days']));
+
+            if ($breach !== null) {
+                return "{$breach['leg_label']} for {$breach['days_open']} days (target {$breach['target_days']})";
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array{label: string, from: CandidateStage, to: CandidateStage, setting_key: string, default_days: int}  $leg
+     * @return array{application: CandidateApplication, leg_label: string, days_open: int, target_days: int}|null
+     */
+    private function legBreach(CandidateApplication $application, array $leg, int $targetDays): ?array
+    {
+        $reachedAt = $application->stageHistory()->where('new_stage', $leg['from'])->value('created_at')
+            ?? $application->last_activity_at
+            ?? $application->application_date;
+
+        $daysOpen = $reachedAt !== null ? (int) $reachedAt->diffInDays(now()) : 0;
+
+        return $daysOpen > $targetDays ? [
+            'application' => $application,
+            'leg_label' => $leg['label'],
+            'days_open' => $daysOpen,
+            'target_days' => $targetDays,
+        ] : null;
+    }
+
+    /**
+     * @return array{application: CandidateApplication, stage_name: string, hours_open: int, target_hours: int}|null
+     */
+    private function pipelineStageBreach(CandidateApplication $application): ?array
+    {
+        $enteredAt = $application->stage_entered_at !== null
+            ? Carbon::parse($application->stage_entered_at)
+            : ($application->last_activity_at ?? $application->created_at);
+        $hoursOpen = (int) $enteredAt->diffInHours(now());
+        $target = (int) $application->pipelineStage->sla_hours;
+
+        return $hoursOpen > $target ? [
+            'application' => $application,
+            'stage_name' => $application->pipelineStage->name,
+            'hours_open' => $hoursOpen,
+            'target_hours' => $target,
+        ] : null;
     }
 }

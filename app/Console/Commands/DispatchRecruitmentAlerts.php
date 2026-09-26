@@ -20,6 +20,7 @@ use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
 use App\Models\RecruitmentSetting;
+use App\Services\Automation\AutomationRuleService;
 use App\Services\NotificationDispatchService;
 use App\Services\PerformanceEngine;
 use App\Services\RecruitmentAnalyticsService;
@@ -47,22 +48,39 @@ class DispatchRecruitmentAlerts extends Command
         RecruitmentAnalyticsService $analytics,
         RecruitmentSlaService $sla,
         PerformanceEngine $performance,
+        AutomationRuleService $automationRules,
     ): int {
+        $checks = [
+            'vacancy_ageing' => fn () => $this->checkVacancyAgeing($notifications, $analytics),
+            'open_sla_breaches' => fn () => $this->checkOpenSlaBreaches($notifications, $sla),
+            'pipeline_stage_sla' => fn () => $this->checkPipelineStageSlaBreaches($notifications, $sla),
+            'selected_without_offer' => fn () => $this->checkSelectedWithoutOffer($notifications),
+            'followups_due' => fn () => $this->checkFollowupsDue($notifications),
+            'interviews_tomorrow' => fn () => $this->checkInterviewsTomorrow($notifications),
+            'unconfirmed_interviews' => fn () => $this->checkUnconfirmedInterviews($notifications),
+            'interview_feedback_pending' => fn () => $this->checkInterviewFeedbackPending($notifications),
+            'offers_nearing_expiry' => fn () => $this->checkOffersNearingExpiry($notifications),
+            'joining_tomorrow' => fn () => $this->checkJoiningTomorrow($notifications),
+            'joining_reminder' => fn () => $this->checkJoiningReminder($notifications),
+            'joining_risk' => fn () => $this->checkJoiningRisk($notifications),
+            'joiner_did_not_join' => fn () => $this->checkJoinerDidNotJoin($notifications),
+            'performance' => fn () => $this->checkRecruiterAndTeamPerformance($notifications, $performance),
+        ];
+
+        // Phase 6: a check whose job an Active template-based automation rule now does is skipped,
+        // so the same situation never raises both the built-in alert and the rule's notification.
+        $superseded = $automationRules->supersededAlertChecks();
         $sent = 0;
 
-        $sent += $this->checkVacancyAgeing($notifications, $analytics);
-        $sent += $this->checkOpenSlaBreaches($notifications, $sla);
-        $sent += $this->checkSelectedWithoutOffer($notifications);
-        $sent += $this->checkFollowupsDue($notifications);
-        $sent += $this->checkInterviewsTomorrow($notifications);
-        $sent += $this->checkUnconfirmedInterviews($notifications);
-        $sent += $this->checkInterviewFeedbackPending($notifications);
-        $sent += $this->checkOffersNearingExpiry($notifications);
-        $sent += $this->checkJoiningTomorrow($notifications);
-        $sent += $this->checkJoiningReminder($notifications);
-        $sent += $this->checkJoiningRisk($notifications);
-        $sent += $this->checkJoinerDidNotJoin($notifications);
-        $sent += $this->checkRecruiterAndTeamPerformance($notifications, $performance);
+        foreach ($checks as $key => $check) {
+            if (in_array($key, $superseded, true)) {
+                $this->line("Skipped {$key}: handled by an active automation rule.");
+
+                continue;
+            }
+
+            $sent += $check();
+        }
 
         $this->info("Dispatched {$sent} recruitment alert(s).");
 
@@ -112,6 +130,33 @@ class DispatchRecruitmentAlerts extends Command
                 'warning',
                 CandidateApplicationResource::getUrl('view', ['record' => $application]),
                 "sla-breach-{$application->id}-{$breach['leg_label']}-".now()->toDateString(),
+            );
+            $count++;
+        }
+
+        return $count;
+    }
+
+    /**
+     * Configured pipeline stages carry their own SLA (Phase 4 Stage Builder) — one alert per
+     * application per stage per day.
+     */
+    private function checkPipelineStageSlaBreaches(NotificationDispatchService $notifications, RecruitmentSlaService $sla): int
+    {
+        $count = 0;
+
+        foreach ($sla->openPipelineStageBreaches() as $breach) {
+            /** @var CandidateApplication $application */
+            $application = $breach['application'];
+
+            $notifications->alert(
+                $application->recruiter?->user,
+                'Recruitment',
+                'Stage SLA breached',
+                "{$application->candidate->full_name} has been at \"{$breach['stage_name']}\" for {$breach['hours_open']} hours (SLA {$breach['target_hours']} hours).",
+                'warning',
+                CandidateApplicationResource::getUrl('view', ['record' => $application]),
+                "pipeline-sla-{$application->id}-{$application->pipeline_stage_id}-".now()->toDateString(),
             );
             $count++;
         }

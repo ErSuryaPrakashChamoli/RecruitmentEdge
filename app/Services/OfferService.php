@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Enums\CandidateStage;
 use App\Enums\OfferStatus;
 use App\Events\OfferAccepted;
+use App\Events\OfferReleased;
+use App\Events\OfferStatusChanged;
 use App\Filament\Resources\Offers\OfferResource;
 use App\Models\Employee;
 use App\Models\Offer;
@@ -102,6 +104,12 @@ class OfferService
             if ($to === OfferStatus::Accepted) {
                 OfferAccepted::dispatch($offer);
             }
+
+            if ($to === OfferStatus::Released) {
+                OfferReleased::dispatch($offer);
+            }
+
+            OfferStatusChanged::dispatch($offer, $from, $to, $actor, $remarks);
 
             $this->notifyStatusChange($offer, $to);
 

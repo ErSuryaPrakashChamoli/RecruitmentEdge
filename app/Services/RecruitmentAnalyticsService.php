@@ -3,20 +3,35 @@
 namespace App\Services;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\AutomationActionStatus;
+use App\Enums\AutomationExecutionStatus;
 use App\Enums\CandidateStage;
+use App\Enums\CommunicationStatus;
+use App\Enums\EscalationStatus;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
+use App\Enums\PreferenceStatus;
+use App\Enums\RecruiterActionStatus;
 use App\Enums\RequisitionStatus;
+use App\Models\AutomationActionExecution;
+use App\Models\AutomationEscalation;
+use App\Models\AutomationExecution;
+use App\Models\AutomationRule;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
+use App\Models\CandidateCommunication;
+use App\Models\CandidateCommunicationPreference;
 use App\Models\CandidateJoining;
 use App\Models\CandidateSource;
 use App\Models\CandidateStageHistory;
 use App\Models\Interview;
+use App\Models\JobPosting;
 use App\Models\Offer;
 use App\Models\OfferStatusHistory;
+use App\Models\RecruiterAction;
+use App\Models\RecruitmentCampaign;
 use App\Models\RecruitmentCost;
 use App\Models\RecruitmentRequisition;
 use App\Models\RecruitmentSetting;
@@ -709,5 +724,279 @@ class RecruitmentAnalyticsService
         return Interview::query()
             ->whereBetween('scheduled_at', [$start, $end])
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)));
+    }
+
+    /**
+     * Phase 5 communication metrics for messages to candidates the user can see. Only
+     * provider-reported facts are counted: delivered/read/opened come solely from provider
+     * webhooks, so a metric no provider reported is returned as null ("not reported") rather than
+     * 0 — e.g. the `log` mailer never reports delivery.
+     *
+     * @return array{total: int, by_status: array<string, int>, by_channel: array<string, int>, sent: int, delivered: int|null, read: int|null, opened: int|null, failed: int, blocked: int, delivery_rate: float|null, opted_out: int, interview_confirmations: int}
+     */
+    public function communicationAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+
+        $scope = fn (Builder $q) => $q->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidate', fn (Builder $c) => $c->where(function (Builder $c2) use ($visibleIds, $user): void {
+            $c2->whereHas('applications', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds));
+
+            if ($user?->employee_id !== null) {
+                $c2->orWhere('created_by', $user->employee_id);
+            }
+        })));
+
+        $messages = CandidateCommunication::query()->whereBetween('created_at', [$start, $end])->tap($scope);
+
+        $byStatus = (clone $messages)->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')->map(fn ($n) => (int) $n);
+        $byChannel = (clone $messages)->selectRaw('channel, count(*) as total')->groupBy('channel')->pluck('total', 'channel')->map(fn ($n) => (int) $n);
+        $count = fn (CommunicationStatus ...$statuses): int => (int) collect($statuses)->sum(fn (CommunicationStatus $s) => $byStatus->get($s->value, 0));
+
+        $handedOver = $count(CommunicationStatus::Sent, CommunicationStatus::Delivered, CommunicationStatus::Read, CommunicationStatus::Bounced);
+        $delivered = $count(CommunicationStatus::Delivered, CommunicationStatus::Read);
+        $anyDeliveryReports = (clone $messages)->whereNotNull('delivered_at')->exists();
+        $opened = (clone $messages)->whereNotNull('opened_at')->count();
+
+        return [
+            'total' => (int) $byStatus->sum(),
+            'by_status' => $byStatus->all(),
+            'by_channel' => $byChannel->all(),
+            'sent' => $handedOver,
+            'delivered' => $anyDeliveryReports ? $delivered : null,
+            'read' => $anyDeliveryReports ? $count(CommunicationStatus::Read) : null,
+            'opened' => $opened > 0 ? $opened : null,
+            'failed' => $count(CommunicationStatus::Failed, CommunicationStatus::Bounced),
+            'blocked' => $count(CommunicationStatus::Blocked),
+            'delivery_rate' => $anyDeliveryReports && $handedOver > 0 ? round($delivered / $handedOver * 100, 1) : null,
+            'opted_out' => CandidateCommunicationPreference::query()
+                ->where('status', PreferenceStatus::OptedOut)
+                ->whereBetween('opted_out_at', [$start, $end])
+                ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidate.applications', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
+                ->count(),
+            'interview_confirmations' => Interview::query()
+                ->where('status', InterviewStatus::Confirmed)
+                ->whereBetween('updated_at', [$start, $end])
+                ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
+                ->count(),
+        ];
+    }
+
+    /**
+     * Phase 5 campaign metrics, computed from the existing records attributed to the campaign
+     * (candidate_applications.campaign_id, recruitment_costs.campaign_id) with the same stage/
+     * interview/offer/joining facts every other funnel here uses. Spend sums all of the campaign's
+     * recruitment costs, matching sourceAnalytics()'s convention.
+     *
+     * @return array{applications: int, screened: int, interviewed: int, offers: int, joined: int, spend: float, budget: float|null, budget_used_percent: float|null, target_hires: int|null, target_progress_percent: float|null, cost_per_hire: float|null, conversion_percent: float|null, by_origin: array<string, int>}
+     */
+    public function campaignAnalytics(RecruitmentCampaign $campaign, ?User $user = null): array
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+
+        $applications = CandidateApplication::query()
+            ->where('campaign_id', $campaign->id)
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds));
+
+        $applicationIds = (clone $applications)->pluck('id');
+        $reached = fn (CandidateStage $stage): int => CandidateStageHistory::query()
+            ->whereIn('candidate_application_id', $applicationIds)
+            ->whereIn('new_stage', collect(CandidateStage::cases())->filter(fn (CandidateStage $s) => $s->order() >= $stage->order())->map->value->all())
+            ->distinct('candidate_application_id')
+            ->count('candidate_application_id');
+
+        $joined = CandidateJoining::query()->whereIn('candidate_application_id', $applicationIds)->where('status', JoiningStatus::Joined)->count();
+        $spend = (float) RecruitmentCost::query()->where('campaign_id', $campaign->id)->sum('amount');
+        $budget = $campaign->budget !== null ? (float) $campaign->budget : null;
+
+        return [
+            'applications' => $applicationIds->count(),
+            'screened' => $reached(CandidateStage::Screened),
+            'interviewed' => Interview::query()->whereIn('candidate_application_id', $applicationIds)->where('status', InterviewStatus::Completed)->distinct('candidate_application_id')->count('candidate_application_id'),
+            'offers' => Offer::query()->whereIn('candidate_application_id', $applicationIds)->distinct('candidate_application_id')->count('candidate_application_id'),
+            'joined' => $joined,
+            'spend' => $spend,
+            'budget' => $budget,
+            'budget_used_percent' => $budget !== null && $budget > 0 ? round($spend / $budget * 100, 1) : null,
+            'target_hires' => $campaign->target_hires,
+            'target_progress_percent' => $campaign->target_hires ? round($joined / $campaign->target_hires * 100, 1) : null,
+            'cost_per_hire' => $joined > 0 ? round($spend / $joined, 2) : null,
+            'conversion_percent' => $applicationIds->count() > 0 ? round($joined / $applicationIds->count() * 100, 1) : null,
+            'by_origin' => (clone $applications)->selectRaw("coalesce(origin_channel, 'recruiter') as origin, count(*) as total")->groupBy('origin')->pluck('total', 'origin')->map(fn ($n) => (int) $n)->all(),
+        ];
+    }
+
+    /**
+     * Phase 5 distribution metrics: postings published/live, and online applications per channel
+     * with how far they progressed (interviews, offers, joins) — the same outcome facts as the
+     * funnel, grouped by origin_channel.
+     *
+     * @return array{published_postings: int, live_postings: int, channels: Collection<int, array{channel: string, applications: int, interviewed: int, offers: int, joined: int}>}
+     */
+    public function distributionAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+
+        $applications = CandidateApplication::query()
+            ->whereNotNull('origin_channel')
+            ->whereBetween('created_at', [$start, $end])
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
+            ->get(['id', 'origin_channel']);
+
+        $ids = $applications->pluck('id');
+        $interviewed = Interview::query()->whereIn('candidate_application_id', $ids)->where('status', InterviewStatus::Completed)->distinct()->pluck('candidate_application_id')->flip();
+        $offered = Offer::query()->whereIn('candidate_application_id', $ids)->distinct()->pluck('candidate_application_id')->flip();
+        $joined = CandidateJoining::query()->whereIn('candidate_application_id', $ids)->where('status', JoiningStatus::Joined)->pluck('candidate_application_id')->flip();
+
+        return [
+            'published_postings' => JobPosting::query()->whereBetween('published_at', [$start, $end])->count(),
+            'live_postings' => JobPosting::query()->live()->count(),
+            'channels' => $applications->groupBy('origin_channel')->map(fn (Collection $group, string $channel) => [
+                'channel' => $channel,
+                'applications' => $group->count(),
+                'interviewed' => $group->filter(fn ($a) => $interviewed->has($a->id))->count(),
+                'offers' => $group->filter(fn ($a) => $offered->has($a->id))->count(),
+                'joined' => $group->filter(fn ($a) => $joined->has($a->id))->count(),
+            ])->sortByDesc('applications')->values(),
+        ];
+    }
+
+    /**
+     * Automation activity for a period (Phase 6), hierarchy-scoped by the executions' recruiter
+     * (requisition-level runs with no recruiter are only counted for users who see everything).
+     * Reports what happened — runs, actions, escalations, how long automation-created actions took
+     * to resolve — and deliberately makes no claim that automation *caused* an outcome.
+     * Averages are null when there is nothing to average.
+     *
+     * @return array{active_rules: int, executions: int, completed: int, partially_completed: int, failed: int, skipped: int, cancelled: int, retried: int, actions_created: int, actions_completed: int, avg_resolution_hours: float|null, escalations_sent: int, escalations_resolved_first: int, communication_actions: int, by_rule: Collection<int, array{rule_id: int, name: string, executions: int, failed: int, failure_rate: float|null}>}
+     */
+    public function automationAnalytics(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+
+        $executions = AutomationExecution::query()
+            ->whereBetween('created_at', [$start, $end])
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds));
+
+        $byStatus = (clone $executions)->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')->map(fn ($n) => (int) $n);
+        $count = fn (AutomationExecutionStatus $status): int => $byStatus->get($status->value, 0);
+
+        $actions = RecruiterAction::query()
+            ->whereNotNull('automation_rule_id')
+            ->whereBetween('created_at', [$start, $end])
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('owner_id', $visibleIds));
+
+        $resolutionHours = (clone $actions)
+            ->where('status', RecruiterActionStatus::Completed)
+            ->get(['created_at', 'completed_at'])
+            ->map(fn (RecruiterAction $action) => $action->created_at->diffInMinutes($action->completed_at) / 60);
+
+        $escalations = AutomationEscalation::query()
+            ->whereBetween('created_at', [$start, $end])
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('execution', fn (Builder $e) => $e->whereIn('recruiter_id', $visibleIds)));
+
+        $byRule = (clone $executions)
+            ->whereIn('status', [AutomationExecutionStatus::Completed, AutomationExecutionStatus::PartiallyCompleted, AutomationExecutionStatus::Failed])
+            ->selectRaw('automation_rule_id, count(*) as total, sum(case when status = ? then 1 else 0 end) as failed', [AutomationExecutionStatus::Failed->value])
+            ->groupBy('automation_rule_id')
+            ->get();
+
+        $ruleNames = AutomationRule::query()->whereIn('id', $byRule->pluck('automation_rule_id'))->pluck('name', 'id');
+
+        return [
+            'active_rules' => AutomationRule::query()->active()->count(),
+            'executions' => (int) $byStatus->sum(),
+            'completed' => $count(AutomationExecutionStatus::Completed),
+            'partially_completed' => $count(AutomationExecutionStatus::PartiallyCompleted),
+            'failed' => $count(AutomationExecutionStatus::Failed),
+            'skipped' => $count(AutomationExecutionStatus::Skipped),
+            'cancelled' => $count(AutomationExecutionStatus::Cancelled),
+            'retried' => (clone $executions)->where('retry_count', '>', 0)->count(),
+            'actions_created' => (clone $actions)->count(),
+            'actions_completed' => (clone $actions)->where('status', RecruiterActionStatus::Completed)->count(),
+            'avg_resolution_hours' => $resolutionHours->isNotEmpty() ? round($resolutionHours->avg(), 1) : null,
+            'escalations_sent' => (clone $escalations)->where('status', EscalationStatus::Sent)->count(),
+            'escalations_resolved_first' => (clone $escalations)->where('status', EscalationStatus::Stopped)->count(),
+            'communication_actions' => AutomationActionExecution::query()
+                ->where('action_type', 'send_communication')
+                ->where('status', AutomationActionStatus::Completed)
+                ->whereHas('execution', fn (Builder $e) => $e->whereBetween('created_at', [$start, $end])->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds)))
+                ->count(),
+            'by_rule' => $byRule->map(fn ($row) => [
+                'rule_id' => (int) $row->automation_rule_id,
+                'name' => (string) ($ruleNames[$row->automation_rule_id] ?? 'Deleted rule'),
+                'executions' => (int) $row->total,
+                'failed' => (int) $row->failed,
+                'failure_rate' => (int) $row->total > 0 ? round((int) $row->failed / (int) $row->total * 100, 1) : null,
+            ])->sortByDesc('executions')->values(),
+        ];
+    }
+
+    /**
+     * Raw per-requisition facts for Hiring Health™ (Phase 7) — counts and dates only, no thresholds
+     * or judgements (HiringHealthService applies those). Bounded: SLA checks cover at most 200
+     * active applications.
+     *
+     * @return array<string, mixed>
+     */
+    public function requisitionMetrics(RecruitmentRequisition $requisition): array
+    {
+        $applicationIds = $requisition->applications()->pluck('id');
+        $active = $requisition->applications()->where('status', ApplicationStatus::Active)->with(['candidate.source', 'pipelineStage'])->limit(500)->get();
+        $stallDays = (int) RecruitmentSetting::get('candidate_stall_days', 7);
+
+        $stageReached = fn (CandidateStage $stage) => CandidateStageHistory::query()
+            ->whereIn('candidate_application_id', $applicationIds)
+            ->where('new_stage', $stage);
+
+        $shortlisted = (clone $stageReached(CandidateStage::Shortlisted))->pluck('created_at', 'candidate_application_id');
+        $lined = (clone $stageReached(CandidateStage::InterviewScheduled))->pluck('created_at', 'candidate_application_id');
+        $lineupDays = $lined->map(fn ($at, $id) => isset($shortlisted[$id]) ? Carbon::parse($shortlisted[$id])->diffInHours(Carbon::parse($at)) / 24 : null)->filter(fn ($d) => $d !== null && $d >= 0);
+
+        $offers = Offer::query()->whereIn('candidate_application_id', $applicationIds)->get(['id', 'status', 'candidate_application_id']);
+        $joinings = CandidateJoining::query()->whereIn('candidate_application_id', $applicationIds)->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])->get();
+        $sla = app(RecruitmentSlaService::class);
+        $breaches = $active->take(200)->map(fn (CandidateApplication $a) => [$a, $sla->breachFor($a)])->filter(fn ($row) => $row[1] !== null)->values();
+
+        $statusCounts = $requisition->applications()->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')->map(fn ($n) => (int) $n);
+
+        return [
+            'days_open' => $requisition->ageingInDays(),
+            'openings' => (int) $requisition->openings,
+            'filled' => $requisition->filledOpeningsCount(),
+            'remaining' => $requisition->remainingOpenings(),
+            'total_applications' => $applicationIds->count(),
+            'active_applications' => $active->count(),
+            'status_counts' => $statusCounts->all(),
+            'new_applications_14d' => $requisition->applications()->where('created_at', '>=', now()->subDays(14))->count(),
+            'last_shortlisted_at' => $shortlisted->max(),
+            'shortlist_to_lineup_days' => $lineupDays->isNotEmpty() ? round($lineupDays->avg(), 1) : null,
+            'feedback_pending' => Interview::query()
+                ->whereIn('candidate_application_id', $applicationIds)
+                ->where('scheduled_at', '<', now())
+                ->whereNotIn('status', [InterviewStatus::Completed, InterviewStatus::Cancelled, InterviewStatus::NoShow, InterviewStatus::Hold])
+                ->count(),
+            'offers_released' => $offers->whereIn('status', [OfferStatus::Released, OfferStatus::Accepted, OfferStatus::Rejected, OfferStatus::Expired])->count(),
+            'offers_accepted' => $offers->where('status', OfferStatus::Accepted)->count(),
+            'offers_declined' => $offers->whereIn('status', [OfferStatus::Rejected, OfferStatus::Expired])->count(),
+            'joining_red' => $joinings->filter(fn (CandidateJoining $j) => $j->riskLevel() === 'red')->values(),
+            'stalled' => $active->filter(fn (CandidateApplication $a) => ($a->last_activity_at ?? $a->created_at)->lt(now()->subDays($stallDays)))->values(),
+            'stall_days' => $stallDays,
+            'sla_breaches' => $breaches,
+            'source_counts' => $active->groupBy(fn (CandidateApplication $a) => $a->candidate?->source?->name ?? 'Unknown source')->map->count()->sortDesc()->all(),
+            'automation_failures_7d' => AutomationExecution::query()
+                ->whereIn('candidate_application_id', $applicationIds)
+                ->where('status', AutomationExecutionStatus::Failed)
+                ->where('created_at', '>=', now()->subDays(7))
+                ->count(),
+            'completeness' => [
+                'Skills' => ! empty($requisition->skills),
+                'Experience range' => $requisition->experience_min !== null || $requisition->experience_max !== null,
+                'Qualification' => filled($requisition->qualification),
+                'Location' => $requisition->location_id !== null,
+                'Salary range' => $requisition->salary_min !== null || $requisition->salary_max !== null,
+                'Target joining date' => $requisition->target_joining_date !== null,
+                'Designation' => $requisition->designation_id !== null,
+            ],
+        ];
     }
 }

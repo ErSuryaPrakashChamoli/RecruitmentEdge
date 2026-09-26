@@ -15,6 +15,7 @@ use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\RequisitionPipelineStage;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\RecruitmentActionCenterService;
@@ -46,6 +47,14 @@ use UnitEnum;
  * can't be inferred from a drop into a group of 3-6 granular stages. handleSort() calls the exact
  * same authorization check and StageTransitionService::transitionTo() the modal action already
  * uses — one write path, two ways to reach it.
+ *
+ * Configurable pipelines (Phase 4.1): when the board is scoped to one requisition that has a
+ * configured pipeline snapshot, the columns ARE that requisition's own stages (one column per
+ * RequisitionPipelineStage, every column droppable) and drops go through
+ * StageTransitionService::moveToStage(), which enforces the pipeline's transition rules. Across
+ * several requisitions — whose pipelines may differ — the board deliberately keeps the canonical
+ * milestone columns every configured stage maps onto, rather than merging incompatible stage
+ * lists; the view explains this and invites choosing a requisition.
  *
  * The board shows Active applications by default; the status filter lets On Hold / Rejected /
  * Dropout applications be viewed too, but those boards are read-only (no drag-and-drop or card
@@ -81,10 +90,22 @@ class Pipeline extends Page
     }
 
     /**
-     * @return array<int, array{key: string, label: string, stages: array<int, CandidateStage>, dragStage: CandidateStage|null}>
+     * @return array<int, array{key: string, label: string, stages: array<int, CandidateStage>, dragStage: CandidateStage|null, pipelineStageId?: int|null}>
      */
     public function getColumns(): array
     {
+        $pipeline = $this->configuredPipeline();
+
+        if ($pipeline !== null) {
+            return $pipeline->map(fn (RequisitionPipelineStage $stage) => [
+                'key' => 'stage-'.$stage->id,
+                'label' => $stage->name,
+                'stages' => [$stage->milestone],
+                'dragStage' => null,
+                'pipelineStageId' => $stage->id,
+            ])->values()->all();
+        }
+
         return [
             ['key' => 'sourced', 'label' => 'Sourced', 'stages' => [CandidateStage::Sourced], 'dragStage' => CandidateStage::Sourced],
             ['key' => 'contacted', 'label' => 'Contacted', 'stages' => [CandidateStage::ContactAttempted], 'dragStage' => CandidateStage::ContactAttempted],
@@ -104,6 +125,45 @@ class Pipeline extends Page
                 CandidateStage::Joined, CandidateStage::DocumentsCompleted, CandidateStage::OnboardingCompleted,
             ], 'dragStage' => null],
         ];
+    }
+
+    /**
+     * The selected requisition's current pipeline snapshot, when the board is scoped to exactly
+     * one requisition the viewer can see and it has one; otherwise null (canonical columns).
+     *
+     * @return Collection<int, RequisitionPipelineStage>|null
+     */
+    public function configuredPipeline(): ?Collection
+    {
+        if ($this->requisitionId === null) {
+            return null;
+        }
+
+        $requisition = RecruitmentRequisitionResource::getEloquentQuery()->find($this->requisitionId);
+
+        if ($requisition === null || ! $requisition->hasConfiguredPipeline()) {
+            return null;
+        }
+
+        $stages = $requisition->pipelineStages()->get();
+
+        return $stages->isEmpty() ? null : $stages;
+    }
+
+    /**
+     * One line describing which stage set the board is showing (see class docblock).
+     */
+    public function boardDescription(): string
+    {
+        if ($this->configuredPipeline() !== null) {
+            $requisition = RecruitmentRequisitionResource::getEloquentQuery()->with('pipelineTemplate')->find($this->requisitionId);
+
+            return "Showing {$requisition->code}'s own pipeline".($requisition->pipelineTemplate ? " ({$requisition->pipelineTemplate->name} v{$requisition->pipeline_template_version})" : '').'. Dragging a card applies this pipeline\'s transition rules.';
+        }
+
+        return $this->requisitionId === null
+            ? 'Showing the standard stages across all requisitions, since each requisition can have its own pipeline. Choose a requisition to see its configured stages.'
+            : 'This requisition has no configured pipeline, so the standard stages are shown.';
     }
 
     /**
@@ -228,18 +288,25 @@ class Pipeline extends Page
     }
 
     /**
-     * @param  array<int, CandidateStage>  $stages
+     * Cards for one column: a configured-pipeline column matches its RequisitionPipelineStage,
+     * a canonical column matches its CandidateStage values.
+     *
+     * @param  array{key: string, stages: array<int, CandidateStage>, pipelineStageId?: int|null}  $column
      * @return array{applications: Collection<int, CandidateApplication>, total: int, conversion: float|null}
      */
-    public function getCardsFor(array $stages): array
+    public function getCardsFor(array $column): array
     {
         /** @var User $user */
         $user = Filament::auth()->user();
         $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
-        $stageValues = array_map(fn (CandidateStage $s) => $s->value, $stages);
+        $pipelineStageId = $column['pipelineStageId'] ?? null;
 
         $query = CandidateApplication::query()
-            ->whereIn('current_stage', $stageValues)
+            ->when(
+                $pipelineStageId !== null,
+                fn (Builder $q) => $q->where('pipeline_stage_id', $pipelineStageId),
+                fn (Builder $q) => $q->whereIn('current_stage', array_map(fn (CandidateStage $s) => $s->value, $column['stages'])),
+            )
             ->where('status', $this->selectedStatus())
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
             ->when($this->departmentId, fn (Builder $q) => $q->whereHas('requisition', fn (Builder $r) => $r->where('department_id', $this->departmentId)))
@@ -323,14 +390,17 @@ class Pipeline extends Page
     }
 
     /**
-     * Drag-and-drop handler for the 8 unambiguous columns (see class docblock) — same
-     * authorization + StageTransitionService call as moveApplicationAction()'s modal.
+     * Drag-and-drop handler — same authorization as moveApplicationAction()'s modal. On a
+     * configured pipeline every column is a drop target and the move goes through
+     * StageTransitionService::moveToStage() (the pipeline's transition rules apply); on the
+     * canonical board only the 8 single-stage columns accept drops (see class docblock).
      */
     public function handleSort(int $id, int $position, string $columnKey): void
     {
         $column = collect($this->getColumns())->firstWhere('key', $columnKey);
+        $pipelineStageId = $column['pipelineStageId'] ?? null;
 
-        if (($column['dragStage'] ?? null) === null) {
+        if ($column === null || ($pipelineStageId === null && ($column['dragStage'] ?? null) === null)) {
             return;
         }
 
@@ -339,11 +409,13 @@ class Pipeline extends Page
         abort_unless((bool) auth()->user()?->can('transitionStage', $application), 403);
 
         try {
-            app(StageTransitionService::class)->transitionTo(
-                $application,
-                $column['dragStage'],
-                auth()->user()?->employee,
-            );
+            $service = app(StageTransitionService::class);
+
+            if ($pipelineStageId !== null) {
+                $service->moveToStage($application, RequisitionPipelineStage::query()->findOrFail($pipelineStageId), auth()->user()?->employee);
+            } else {
+                $service->transitionTo($application, $column['dragStage'], auth()->user()?->employee);
+            }
         } catch (DomainException $e) {
             Notification::make()->title('Stage could not be updated')->body($e->getMessage())->danger()->send();
 
@@ -360,6 +432,10 @@ class Pipeline extends Page
             ->icon('heroicon-o-arrow-right-circle')
             ->schema(function (array $arguments) {
                 $application = CandidateApplication::query()->findOrFail($arguments['applicationId']);
+
+                if ($application->pipeline_stage_id !== null) {
+                    return CandidateApplicationsTable::pipelineStageFields($application);
+                }
 
                 return [
                     Select::make('stage')
@@ -378,15 +454,7 @@ class Pipeline extends Page
 
                 abort_unless((bool) auth()->user()?->can('transitionStage', $application), 403);
 
-                CandidateApplicationsTable::performTransition(
-                    fn (StageTransitionService $service) => $service->transitionTo(
-                        $application,
-                        CandidateStage::from($data['stage']),
-                        auth()->user()?->employee,
-                        $data['remarks'] ?? null,
-                    ),
-                    'Stage updated',
-                );
+                CandidateApplicationsTable::performStageMove($application, $data);
             });
     }
 

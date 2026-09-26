@@ -59,6 +59,41 @@ class HierarchyService
     }
 
     /**
+     * Employee IDs at or above the given employee (inclusive) — their management chain — via the
+     * closure table.
+     *
+     * @return Collection<int, int>
+     */
+    public function ancestorIdsOf(int $employeeId): Collection
+    {
+        return DB::table('employee_hierarchy')
+            ->where('descendant_id', $employeeId)
+            ->pluck('ancestor_id');
+    }
+
+    /**
+     * The given employee's managers, nearest first (depth 1 = direct manager), each with its user
+     * and roles loaded — the escalation path used by automation (Phase 6). Built from the closure
+     * table's `depth`, never by walking `reports_to_id`.
+     *
+     * @return Collection<int, Employee>
+     */
+    public function managementChainOf(int $employeeId): Collection
+    {
+        $depths = DB::table('employee_hierarchy')
+            ->where('descendant_id', $employeeId)
+            ->where('depth', '>', 0)
+            ->pluck('depth', 'ancestor_id');
+
+        return Employee::query()
+            ->whereIn('id', $depths->keys())
+            ->with('user.roles')
+            ->get()
+            ->sortBy(fn (Employee $manager) => $depths[$manager->id])
+            ->values();
+    }
+
+    /**
      * Team size below (not including) the given employee.
      */
     public function teamSizeOf(int $employeeId): int

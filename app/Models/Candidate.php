@@ -4,12 +4,17 @@ namespace App\Models;
 
 use App\Models\Concerns\Auditable;
 use App\Observers\CandidateObserver;
+use App\Services\CandidateIdentityNormalizer;
+use App\Services\HierarchyService;
 use Database\Factories\CandidateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -44,6 +49,26 @@ class Candidate extends Model
     /** @use HasFactory<CandidateFactory> */
     use Auditable, HasFactory, SoftDeletes;
 
+    /**
+     * Derived duplicate-detection keys: kept out of serialisation and (via getHidden()) out of
+     * audit diffs, since they only ever change alongside the real identifier.
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = ['mobile_normalized', 'alternate_mobile_normalized', 'email_normalized', 'name_normalized'];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Candidate $candidate): void {
+            $candidate->forceFill([
+                'mobile_normalized' => CandidateIdentityNormalizer::mobile($candidate->mobile),
+                'alternate_mobile_normalized' => CandidateIdentityNormalizer::mobile($candidate->alternate_mobile),
+                'email_normalized' => CandidateIdentityNormalizer::email($candidate->email),
+                'name_normalized' => CandidateIdentityNormalizer::name($candidate->full_name),
+            ]);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -53,6 +78,31 @@ class Candidate extends Model
             'current_salary' => 'decimal:2',
             'expected_salary' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Candidates a user may see: all with hierarchy.view-all; otherwise those with an application
+     * owned by someone in the user's hierarchy, or created by the user. The one definition of
+     * candidate visibility — the Filament resource and EDGE Intelligence both use it.
+     *
+     * @param  Builder<Candidate>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        if ($visibleIds === null) {
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($visibleIds, $user): void {
+            $q->whereHas('applications', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds));
+
+            if ($user->employee_id !== null) {
+                $q->orWhere('created_by', $user->employee_id);
+            }
+        });
     }
 
     /**
@@ -96,6 +146,58 @@ class Candidate extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(CandidateDocument::class);
+    }
+
+    /**
+     * @return HasMany<CandidateCommunication, $this>
+     */
+    public function communications(): HasMany
+    {
+        return $this->hasMany(CandidateCommunication::class)->latest();
+    }
+
+    /**
+     * @return HasMany<CandidateCommunicationPreference, $this>
+     */
+    public function communicationPreferences(): HasMany
+    {
+        return $this->hasMany(CandidateCommunicationPreference::class);
+    }
+
+    /**
+     * The candidate's portal login, when invited (Phase 4).
+     *
+     * @return HasOne<CandidatePortalAccount, $this>
+     */
+    public function portalAccount(): HasOne
+    {
+        return $this->hasOne(CandidatePortalAccount::class);
+    }
+
+    /**
+     * @return HasMany<TalentPoolMembership, $this>
+     */
+    public function talentPoolMemberships(): HasMany
+    {
+        return $this->hasMany(TalentPoolMembership::class);
+    }
+
+    /**
+     * Talent pools the candidate currently belongs to.
+     *
+     * @return BelongsToMany<TalentPool, $this>
+     */
+    public function talentPools(): BelongsToMany
+    {
+        return $this->belongsToMany(TalentPool::class, 'talent_pool_memberships')->wherePivotNull('removed_at');
+    }
+
+    /**
+     * @return HasMany<CandidateTimelineEvent, $this>
+     */
+    public function timelineEvents(): HasMany
+    {
+        return $this->hasMany(CandidateTimelineEvent::class)->latest('occurred_at');
     }
 
     /**

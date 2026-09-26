@@ -6,6 +6,7 @@ use App\Enums\CandidateStage;
 use App\Enums\EmploymentType;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
+use App\Services\HierarchyService;
 use Database\Factories\RecruitmentRequisitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
@@ -63,6 +65,8 @@ class RecruitmentRequisition extends Model
             'target_joining_date' => 'date',
             'opening_date' => 'date',
             'closing_date' => 'date',
+            'pipeline_template_version' => 'integer',
+            'pipeline_applied_at' => 'datetime',
         ];
     }
 
@@ -156,6 +160,40 @@ class RecruitmentRequisition extends Model
     }
 
     /**
+     * The template this requisition's pipeline was snapshotted from (informational — the snapshot
+     * in pipelineStages() is what governs the requisition).
+     *
+     * @return BelongsTo<RecruitmentPipelineTemplate, $this>
+     */
+    public function pipelineTemplate(): BelongsTo
+    {
+        return $this->belongsTo(RecruitmentPipelineTemplate::class, 'pipeline_template_id');
+    }
+
+    /**
+     * The requisition's current (non-superseded) pipeline snapshot, in order.
+     *
+     * @return HasMany<RequisitionPipelineStage, $this>
+     */
+    public function pipelineStages(): HasMany
+    {
+        return $this->hasMany(RequisitionPipelineStage::class, 'requisition_id')->current();
+    }
+
+    public function hasConfiguredPipeline(): bool
+    {
+        return $this->pipeline_applied_at !== null;
+    }
+
+    /**
+     * @return HasOne<JobPosting, $this>
+     */
+    public function jobPosting(): HasOne
+    {
+        return $this->hasOne(JobPosting::class, 'requisition_id');
+    }
+
+    /**
      * @return HasMany<CandidateApplication, $this>
      */
     public function applications(): HasMany
@@ -182,6 +220,33 @@ class RecruitmentRequisition extends Model
      * Uses a preloaded `filled_openings_count` (see scopeWithFilledOpeningsCount) when present so
      * list tables don't run one count query per row.
      */
+    /**
+     * Requisitions a user may see: those where someone in their hierarchy is a reporting, hiring,
+     * assistant or line manager, VP HR, creator or assigned recruiter (all, with
+     * hierarchy.view-all). The one definition of requisition visibility — the Filament resource and
+     * EDGE Intelligence both use it.
+     *
+     * @param  Builder<RecruitmentRequisition>  $query
+     */
+    public function scopeVisibleTo(Builder $query, User $user): void
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        if ($visibleIds === null) {
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($visibleIds): void {
+            $q->whereIn('reporting_manager_id', $visibleIds)
+                ->orWhereIn('hiring_manager_id', $visibleIds)
+                ->orWhereIn('assistant_manager_id', $visibleIds)
+                ->orWhereIn('manager_id', $visibleIds)
+                ->orWhereIn('vp_hr_id', $visibleIds)
+                ->orWhereIn('created_by', $visibleIds)
+                ->orWhereHas('recruiters', fn (Builder $r) => $r->whereIn('employees.id', $visibleIds));
+        });
+    }
+
     public function filledOpeningsCount(): int
     {
         if (array_key_exists('filled_openings_count', $this->attributes)) {

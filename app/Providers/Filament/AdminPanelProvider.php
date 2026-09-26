@@ -61,6 +61,11 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Overview',
                 'Recruitment',
+                'Candidate Experience',
+                'Communication',
+                'Distribution',
+                'Automation',
+                'EDGE Intelligence',
                 'Performance',
                 'Incentives',
                 'Reports',

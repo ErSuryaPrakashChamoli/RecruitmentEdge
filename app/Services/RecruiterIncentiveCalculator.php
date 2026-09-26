@@ -2,12 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Enums\IncentivePayoutType;
 use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\Employee;
+use App\Models\EmployeeReferral;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
@@ -98,11 +101,35 @@ class RecruiterIncentiveCalculator
     }
 
     /**
+     * Referral bonus (Phase 4): prices ReferralJoining rules for the referring employee when a
+     * referred candidate joins — the same rules, slabs, retention and approval trail as recruiter
+     * incentives, only the beneficiary differs. Wired automatically by
+     * ReferralService::syncFromApplication(); safe to re-run (same duplicate guard).
+     *
      * @return Collection<int, RecruiterIncentiveCalculation>
      */
-    private function calculate(CandidateApplication $application, IncentiveTriggerEvent $event, CarbonInterface $eventDate): Collection
+    public function calculateForReferralJoining(EmployeeReferral $referral): Collection
     {
-        $recruiter = $application->recruiter;
+        $application = $referral->candidateApplication;
+
+        // Business eligibility (joined, not the application's own recruiter, …) is decided and
+        // audited by ReferralService::referralIncentiveIneligibility(); this is the last guard.
+        if ($application === null || ! $referral->incentive_eligible) {
+            return collect();
+        }
+
+        $eventDate = $referral->joining_date ?? $application->joining?->actual_doj ?? now();
+
+        return $this->calculate($application, IncentiveTriggerEvent::ReferralJoining, $eventDate, $referral->referrer, $referral);
+    }
+
+    /**
+     * @param  Employee|null  $beneficiary  who earns the incentive; the application's recruiter unless given
+     * @return Collection<int, RecruiterIncentiveCalculation>
+     */
+    private function calculate(CandidateApplication $application, IncentiveTriggerEvent $event, CarbonInterface $eventDate, ?Employee $beneficiary = null, ?EmployeeReferral $referral = null): Collection
+    {
+        $recruiter = $beneficiary ?? $application->recruiter;
 
         $rules = RecruitmentIncentiveRule::query()
             ->with('slabs')
@@ -117,14 +144,13 @@ class RecruiterIncentiveCalculator
                 || $rule->employment_type === $application->requisition->employment_type);
 
         return $rules
-            ->map(fn (RecruitmentIncentiveRule $rule) => $this->calculateForRule($rule, $application, $eventDate))
+            ->map(fn (RecruitmentIncentiveRule $rule) => $this->calculateForRule($rule, $application, $eventDate, $recruiter, $referral))
             ->filter()
             ->values();
     }
 
-    private function calculateForRule(RecruitmentIncentiveRule $rule, CandidateApplication $application, CarbonInterface $eventDate): ?RecruiterIncentiveCalculation
+    private function calculateForRule(RecruitmentIncentiveRule $rule, CandidateApplication $application, CarbonInterface $eventDate, Employee $recruiter, ?EmployeeReferral $referral = null): ?RecruiterIncentiveCalculation
     {
-        $recruiter = $application->recruiter;
         $periodStart = $eventDate->copy()->startOfMonth();
         $periodEnd = $eventDate->copy()->endOfMonth();
 
@@ -165,6 +191,8 @@ class RecruiterIncentiveCalculator
         $attributes = [
             'incentive_slab_id' => $slab?->id,
             'employee_id' => $recruiter->id,
+            'beneficiary_type' => IncentiveBeneficiary::forTrigger($rule->trigger_event),
+            'employee_referral_id' => $referral?->id,
             'candidate_id' => $application->candidate_id,
             'achievement' => $achievement,
             'occurrence_count' => $occurrenceCount,

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CandidateApplications\Pages;
 
+use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\FollowupType;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
@@ -9,8 +10,15 @@ use App\Filament\Resources\CandidateApplications\Tables\CandidateApplicationsTab
 use App\Filament\Resources\Interviews\Schemas\InterviewForm;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
 use App\Models\CandidateApplication;
+use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruitmentFollowup;
+use App\Models\RequisitionPipelineStage;
+use App\Services\CandidateTimelineService;
+use App\Services\Intelligence\EvidenceLookup;
+use App\Services\Intelligence\TalentSignalService;
+use App\Services\InterviewSchedulingService;
 use App\Services\InterviewService;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
@@ -18,8 +26,10 @@ use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Support\Enums\Width;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -41,43 +51,87 @@ class ViewCandidateApplication extends ViewRecord
     {
         return [
             CandidateApplicationsTable::advanceStageAction(),
+            $this->inviteToSelfScheduleAction(),
             $this->selectCandidateAction(),
             CandidateApplicationsTable::raiseOfferAction(),
             CandidateApplicationsTable::rejectAction(),
             CandidateApplicationsTable::dropoutAction(),
             CandidateApplicationsTable::holdAction(),
             CandidateApplicationsTable::reactivateAction(),
+            $this->talentSignalAction(),
             EditAction::make(),
         ];
     }
 
     /**
+     * EDGE Intelligence (Phase 7): this candidate's Talent Signal against the requisition's current
+     * Role DNA — components and evidence. Recomputed on open only if stale (deterministic, no AI).
+     */
+    protected function talentSignalAction(): Action
+    {
+        return Action::make('talentSignal')
+            ->label('Talent Signal')
+            ->icon('heroicon-o-sparkles')
+            ->color('gray')
+            ->visible(fn () => auth()->user()?->can('intelligence.view') ?? false)
+            ->slideOver()
+            ->modalWidth(Width::ThreeExtraLarge)
+            ->modalHeading('Talent Signal')
+            ->modalDescription('How this candidate aligns with the role as defined in its Role DNA — components and the facts behind them, not a single score. Advisory only.')
+            ->modalContent(function () {
+                /** @var CandidateApplication $record */
+                $record = $this->getRecord();
+                $snapshot = app(TalentSignalService::class)->refresh($record);
+
+                return view('filament.intelligence.talent-signal', [
+                    'snapshot' => $snapshot,
+                    'evidence' => app(EvidenceLookup::class)->for(auth()->user(), 'talent_signal', $snapshot->id)?->groupBy('subject_key') ?? collect(),
+                ]);
+            })
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+    }
+
+    /**
+     * The requisition's configured pipeline when it has one (so custom stages appear in the
+     * journey), else the canonical stage list.
+     *
      * @return array<int, array{key: string, label: string, state: string}>
      */
     public function getJourneySteps(): array
     {
         /** @var CandidateApplication $record */
         $record = $this->getRecord();
-        $currentOrder = $record->current_stage->order();
         $isTerminal = in_array($record->status->value, ['rejected', 'dropout'], true);
 
-        return collect(CandidateStage::cases())
-            ->map(function (CandidateStage $stage) use ($currentOrder, $isTerminal) {
-                $state = match (true) {
-                    $stage->order() < $currentOrder => 'completed',
-                    $stage->order() === $currentOrder => $isTerminal ? 'terminal' : 'current',
-                    default => 'upcoming',
-                };
+        $state = fn (int $position, int $current): string => match (true) {
+            $position < $current => 'completed',
+            $position === $current => $isTerminal ? 'terminal' : 'current',
+            default => 'upcoming',
+        };
 
-                return ['key' => $stage->value, 'label' => $stage->label(), 'state' => $state];
-            })
+        $pipeline = $record->pipeline_stage_id !== null ? $record->requisition?->pipelineStages()->get() : null;
+
+        if ($pipeline !== null && $pipeline->isNotEmpty()) {
+            $currentPosition = (int) $pipeline->search(fn (RequisitionPipelineStage $stage) => $stage->id === $record->pipeline_stage_id);
+
+            return $pipeline->values()
+                ->map(fn (RequisitionPipelineStage $stage, int $position) => ['key' => $stage->code, 'label' => $stage->name, 'state' => $state($position, $currentPosition)])
+                ->all();
+        }
+
+        $currentOrder = $record->current_stage->order();
+
+        return collect(CandidateStage::cases())
+            ->map(fn (CandidateStage $stage) => ['key' => $stage->value, 'label' => $stage->label(), 'state' => $state($stage->order(), $currentOrder)])
             ->all();
     }
 
     /**
      * A single reverse-chronological feed merging every event type touching this application —
-     * every source is an existing, already-real table; this method only merges and sorts, it
-     * never computes a new fact.
+     * built by CandidateTimelineService, which reads each existing source table plus the unified
+     * timeline's own events (notes, portal, referrals, self-scheduling) and never computes a new
+     * fact.
      *
      * @return Collection<int, array{icon: string, color: string, title: string, subtitle: ?string, meta: ?string, at: Carbon}>
      */
@@ -85,84 +139,46 @@ class ViewCandidateApplication extends ViewRecord
     {
         /** @var CandidateApplication $record */
         $record = $this->getRecord();
-        $record->loadMissing(['stageHistory.changedBy', 'interviews.feedback.interviewer', 'offers.statusHistory', 'activities.createdBy', 'followups.recruiter']);
 
-        $events = collect();
+        return app(CandidateTimelineService::class)->forApplication($record);
+    }
 
-        foreach ($record->stageHistory as $history) {
-            $events->push([
-                'icon' => 'heroicon-o-arrow-right-circle',
-                'color' => $history->new_stage->color(),
-                'title' => 'Stage: '.$history->new_stage->label(),
-                'subtitle' => 'by '.($history->changedBy?->fullName() ?? 'System'),
-                'meta' => $history->remarks,
-                'at' => $history->created_at,
-            ]);
-        }
+    /**
+     * Invites the candidate to pick their own interview slot (Phase 4 self-scheduling) and shows
+     * the temporary signed link to share. The candidate also sees the invitation in the portal.
+     */
+    public function inviteToSelfScheduleAction(): Action
+    {
+        return Action::make('inviteToSelfSchedule')
+            ->label('Invite to self-schedule')
+            ->icon('heroicon-o-calendar')
+            ->color('gray')
+            ->visible(fn (): bool => $this->getRecord()->status === ApplicationStatus::Active
+                && (bool) auth()->user()?->can('interview-slots.manage')
+                && (bool) auth()->user()?->can('update', $this->getRecord()))
+            ->schema([
+                Select::make('interviewer_id')
+                    ->label('Only this interviewer\'s slots')
+                    ->options(fn (): array => Interviewer::selectOptions())
+                    ->placeholder('Any interviewer')
+                    ->searchable(),
+                TextInput::make('round_name')->maxLength(255),
+            ])
+            ->action(function (array $data): void {
+                /** @var CandidateApplication $record */
+                $record = $this->getRecord();
+                $scheduling = app(InterviewSchedulingService::class);
+                $interviewer = filled($data['interviewer_id'] ?? null) ? Employee::query()->whereKey(array_keys(Interviewer::selectOptions()))->find($data['interviewer_id']) : null;
 
-        foreach ($record->interviews as $interview) {
-            $events->push([
-                'icon' => 'heroicon-o-video-camera',
-                'color' => $interview->status->color(),
-                'title' => "Interview Round {$interview->round_number}: {$interview->status->label()}",
-                'subtitle' => 'Interviewer: '.($interview->interviewer?->fullName() ?? '—'),
-                'meta' => $interview->result?->label(),
-                'at' => $interview->status->isTerminal() ? $interview->updated_at : $interview->created_at,
-            ]);
+                $invitation = InterviewsTable::guarded('Invitation could not be created', fn () => $scheduling->invite($record, auth()->user()?->employee, $interviewer, $data['round_name'] ?? null));
 
-            foreach ($interview->feedback as $feedback) {
-                $events->push([
-                    'icon' => 'heroicon-o-chat-bubble-left-right',
-                    'color' => 'info',
-                    'title' => 'Feedback submitted',
-                    'subtitle' => 'by '.($feedback->interviewer?->fullName() ?? '—'),
-                    'meta' => collect([
-                        $feedback->recommendation->label(),
-                        $feedback->score !== null ? "Score {$feedback->score}" : null,
-                        $feedback->ratingsSummary(),
-                        $feedback->feedback,
-                    ])->filter()->implode(' — '),
-                    'at' => $feedback->created_at,
-                ]);
-            }
-        }
-
-        foreach ($record->offers as $offer) {
-            foreach ($offer->statusHistory as $history) {
-                $events->push([
-                    'icon' => 'heroicon-o-document-text',
-                    'color' => $history->to_status->color(),
-                    'title' => 'Offer: '.$history->to_status->label(),
-                    'subtitle' => $history->changedBy ? 'by '.$history->changedBy->fullName() : null,
-                    'meta' => $history->remarks,
-                    'at' => $history->created_at,
-                ]);
-            }
-        }
-
-        foreach ($record->activities as $activity) {
-            $events->push([
-                'icon' => 'heroicon-o-phone',
-                'color' => $activity->outcome?->color() ?? 'gray',
-                'title' => $activity->activity_type->label().($activity->outcome ? ' — '.$activity->outcome->label() : ''),
-                'subtitle' => 'by '.($activity->createdBy?->fullName() ?? '—'),
-                'meta' => $activity->remarks,
-                'at' => $activity->activity_datetime,
-            ]);
-        }
-
-        foreach ($record->followups as $followup) {
-            $events->push([
-                'icon' => 'heroicon-o-bell-alert',
-                'color' => 'warning',
-                'title' => 'Follow-up: '.$followup->followup_type->label().' ('.$followup->status->label().')',
-                'subtitle' => 'by '.($followup->recruiter?->fullName() ?? '—'),
-                'meta' => $followup->outcome ?? $followup->remarks,
-                'at' => $followup->followup_date,
-            ]);
-        }
-
-        return $events->sortByDesc('at')->values();
+                Notification::make()
+                    ->title('Self-scheduling invitation created')
+                    ->body("Share this link with the candidate (valid until {$invitation->expires_at->format('d M Y')}). It also appears in their candidate portal:\n".$scheduling->signedLinkFor($invitation))
+                    ->success()
+                    ->persistent()
+                    ->send();
+            });
     }
 
     public function scheduleInterviewAction(): Action

@@ -3,11 +3,23 @@
 namespace App\Providers;
 
 use App\Policies\RolePolicy;
+use App\Services\Automation\AutomationActionRegistry;
+use App\Services\Automation\AutomationEventRegistry;
+use App\Services\Automation\AutomationFieldRegistry;
+use App\Services\Automation\AutomationRuntime;
+use App\Services\Communication\CommunicationProviderManager;
+use App\Services\Distribution\JobBoardRegistry;
+use App\Services\Integrations\Calendar\CalendarManager;
+use App\Services\Integrations\IntegrationRegistry;
+use App\Services\Integrations\Video\ZoomMeetingProvider;
 use Filament\Facades\Filament;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Spatie\Permission\Models\Role;
 
@@ -18,7 +30,24 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Phase 5: every external integration, for honest implemented/configured/operational
+        // reporting (Administration → Integrations). Adapters themselves are resolved lazily.
+        // Phase 6 automation: the runtime must be one instance per process (loop prevention); the
+        // registries are stateless catalogues built once.
+        $this->app->singleton(AutomationRuntime::class);
+        $this->app->singleton(AutomationEventRegistry::class);
+        $this->app->singleton(AutomationFieldRegistry::class);
+        $this->app->singleton(AutomationActionRegistry::class);
+
+        $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
+            $registry = new IntegrationRegistry;
+
+            foreach ([...CommunicationProviderManager::PROVIDERS, ...CalendarManager::PROVIDERS, 'zoom' => ZoomMeetingProvider::class, ...JobBoardRegistry::CONNECTORS] as $key => $class) {
+                $registry->register($key, $class);
+            }
+
+            return $registry;
+        });
     }
 
     /**
@@ -31,6 +60,21 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Role::class, RolePolicy::class);
 
         $this->configureTables();
+        $this->configurePortalRateLimits();
+    }
+
+    /**
+     * Candidate portal throttles (Phase 4): sign-in/password endpoints per IP, emailed links per
+     * IP + email, and everyday portal/self-scheduling actions per candidate (or IP when signed-link
+     * only). The login controller additionally locks out an email + IP after repeated failures.
+     */
+    private function configurePortalRateLimits(): void
+    {
+        RateLimiter::for('portal-auth', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
+        RateLimiter::for('portal-links', fn (Request $request) => Limit::perMinute(3)->by($request->ip().'|'.strtolower((string) $request->input('email'))));
+        RateLimiter::for('career-apply', fn (Request $request) => Limit::perMinute(5)->by($request->ip()));
+        RateLimiter::for('webhooks', fn (Request $request) => Limit::perMinute(600)->by($request->ip()));
+        RateLimiter::for('portal-actions', fn (Request $request) => Limit::perMinute(60)->by($request->user('candidate')?->getAuthIdentifier() ?? $request->ip()));
     }
 
     /**

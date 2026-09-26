@@ -7,6 +7,11 @@ use App\Enums\CandidateStage;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
+use App\Events\InterviewCancelled;
+use App\Events\InterviewCompleted;
+use App\Events\InterviewConfirmed;
+use App\Events\InterviewRescheduled;
+use App\Events\InterviewScheduled;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
@@ -36,7 +41,7 @@ class InterviewService
      * e.g. scheduling round 2 after Interview 1 — keeps its stage), then notifies the interviewer
      * and the application's recruiter.
      *
-     * @param  array{interviewer_id: int|string, scheduled_at: CarbonInterface|string, mode: InterviewMode|string, round_number?: int|string|null, round_name?: string|null, location?: string|null, meeting_link?: string|null, remarks?: string|null}  $data
+     * @param  array{interviewer_id: int|string, scheduled_at: CarbonInterface|string, mode: InterviewMode|string, round_number?: int|string|null, round_name?: string|null, location?: string|null, meeting_link?: string|null, meeting_provider?: string|null, remarks?: string|null}  $data
      */
     public function schedule(CandidateApplication $application, array $data, ?Employee $actor = null): Interview
     {
@@ -67,6 +72,7 @@ class InterviewService
                 'mode' => $mode,
                 'location' => $data['location'] ?? null,
                 'meeting_link' => $data['meeting_link'] ?? null,
+                'meeting_provider' => filled($data['meeting_provider'] ?? null) ? $data['meeting_provider'] : null,
                 'remarks' => $data['remarks'] ?? null,
                 'status' => InterviewStatus::Scheduled,
                 'created_by' => $actor?->id,
@@ -79,6 +85,8 @@ class InterviewService
             return $interview;
         });
 
+        InterviewScheduled::dispatch($interview, $actor);
+
         $this->notifyParticipants(
             $interview,
             'Interview scheduled',
@@ -89,21 +97,56 @@ class InterviewService
         return $interview;
     }
 
-    public function reschedule(Interview $interview, CarbonInterface $scheduledAt, ?string $remarks = null, ?Employee $actor = null): Interview
+    /**
+     * @param  array{interviewer_id?: int|null, mode?: InterviewMode|null, location?: string|null, meeting_link?: string|null}  $changes  optional slot details that move with the new time (e.g. a self-scheduled slot with another interviewer)
+     */
+    public function reschedule(Interview $interview, CarbonInterface $scheduledAt, ?string $remarks = null, ?Employee $actor = null, array $changes = []): Interview
     {
         $this->ensureNotTerminal($interview, 'reschedule');
 
         $interview->forceFill([
+            ...array_filter(array_intersect_key($changes, array_flip(['interviewer_id', 'mode', 'location', 'meeting_link'])), fn ($value) => $value !== null),
             'scheduled_at' => $scheduledAt,
             'status' => InterviewStatus::Rescheduled,
             'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
         ])->save();
+
+        InterviewRescheduled::dispatch($interview, $actor);
 
         $this->notifyParticipants(
             $interview,
             'Interview rescheduled',
             "The interview for {$interview->candidateApplication->candidate->full_name} has been rescheduled to {$interview->scheduled_at->format('d M Y, h:i A')}.",
             'warning',
+        );
+
+        return $interview;
+    }
+
+    /**
+     * Cancels a not-yet-finished interview (e.g. the candidate cancelled a self-scheduled slot).
+     * The application's stage is left as-is — cancelling a meeting is not a pipeline decision.
+     */
+    public function cancel(Interview $interview, string $remarks, ?Employee $actor = null): Interview
+    {
+        $this->ensureNotTerminal($interview, 'cancel');
+
+        if (blank($remarks)) {
+            throw new DomainException('Remarks are required to cancel an interview.');
+        }
+
+        $interview->forceFill([
+            'status' => InterviewStatus::Cancelled,
+            'remarks' => $this->appendRemarks($interview, 'Cancelled', $remarks, $actor),
+        ])->save();
+
+        InterviewCancelled::dispatch($interview, $actor);
+
+        $this->notifyParticipants(
+            $interview,
+            'Interview cancelled',
+            "The interview for {$interview->candidateApplication->candidate->full_name} on {$interview->scheduled_at->format('d M Y, h:i A')} was cancelled.",
+            'danger',
         );
 
         return $interview;
@@ -132,6 +175,8 @@ class InterviewService
         }
 
         $interview->forceFill(['status' => InterviewStatus::Confirmed])->save();
+
+        InterviewConfirmed::dispatch($interview);
 
         return $interview;
     }
@@ -168,6 +213,8 @@ class InterviewService
             } else {
                 $this->stageTransitions->transitionTo($application, $this->stageForRound($interview->round_number), $actor);
             }
+
+            InterviewCompleted::dispatch($interview, $actor);
 
             return $interview;
         });
