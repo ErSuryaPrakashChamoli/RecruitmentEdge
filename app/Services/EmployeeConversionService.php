@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\EmployeeStatus;
 use App\Enums\JoiningStatus;
+use App\Events\EmployeeConvertedFromCandidate;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
 use DomainException;
@@ -36,7 +37,7 @@ class EmployeeConversionService
         return DB::transaction(function () use ($joining, $candidate, $requisition, $offer): Employee {
             [$firstName, $lastName] = $this->splitName($candidate->full_name);
 
-            return Employee::query()->create([
+            $employee = Employee::query()->create([
                 'candidate_id' => $candidate->id,
                 'employee_code' => $this->codeGenerator->next('EMP'),
                 'first_name' => $firstName,
@@ -49,6 +50,11 @@ class EmployeeConversionService
                 'date_of_joining' => $joining->actual_doj ?? $joining->expected_doj,
                 'status' => EmployeeStatus::Active,
             ]);
+
+            // Phase 8.2: links the employee to the Outcome Loop hiring snapshot (ids only, after commit).
+            EmployeeConvertedFromCandidate::dispatch($candidate->id, $joining->candidate_application_id, $requisition?->id, $employee->id, now()->toIso8601String());
+
+            return $employee;
         });
     }
 

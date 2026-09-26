@@ -208,7 +208,7 @@ class RecruitmentAnalyticsService
      * The start of the time-to-hire measurement for one application, per the configured
      * `time_to_hire_start_point` — the single definition shared by analytics and the Outcome Loop.
      */
-    public static function timeToHireStart(CandidateApplication $application, string $startPoint): CarbonInterface
+    public static function timeToHireStart(CandidateApplication $application, string $startPoint): ?CarbonInterface
     {
         return match ($startPoint) {
             'requisition_opened' => $application->requisition->opening_date ?? $application->requisition->created_at,
@@ -236,7 +236,11 @@ class RecruitmentAnalyticsService
             return null;
         }
 
-        $days = $joinings->map(fn (CandidateJoining $joining) => self::timeToHireStart($joining->candidateApplication, $startPoint)->diffInDays($joining->actual_doj));
+        $days = $joinings->map(fn (CandidateJoining $joining) => self::timeToHireStart($joining->candidateApplication, $startPoint)?->diffInDays($joining->actual_doj))->filter(fn ($days) => $days !== null);
+
+        if ($days->isEmpty()) {
+            return null;
+        }
 
         return round($days->avg(), 1);
     }

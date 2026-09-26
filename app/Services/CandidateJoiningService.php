@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\CandidateStage;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
+use App\Events\CandidateJoined;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
@@ -50,6 +51,10 @@ class CandidateJoiningService
             // Section 25: joining incentives are calculated the moment a join is confirmed as a
             // fact, never merely on selection or offer acceptance.
             $this->incentiveCalculator->calculateForJoining($joining);
+
+            // Phase 8.2: the completed-hire anchor for the Outcome Loop (ids only, after commit).
+            $application = $joining->candidateApplication;
+            CandidateJoined::dispatch($application->candidate_id, $application->id, $application->requisition_id, $joining->id, $joining->actual_doj->toDateString());
 
             return $joining;
         });

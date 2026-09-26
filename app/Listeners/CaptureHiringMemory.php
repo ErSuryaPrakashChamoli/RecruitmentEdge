@@ -3,20 +3,22 @@
 namespace App\Listeners;
 
 use App\Enums\ApplicationStatus;
-use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\RequisitionStatus;
+use App\Events\CandidateJoined;
 use App\Events\CandidateStageChanged;
 use App\Events\OfferStatusChanged;
 use App\Events\RequisitionStatusChanged;
+use App\Models\CandidateJoining;
 use App\Services\Intelligence\HiringMemoryService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
  * Captures Hiring Memory™ (Phase 7) from the real domain events, after they commit, on the
  * intelligence queue: hires, rejections/dropouts, failed joinings, offers not converted, and
- * requisitions closing. Capture is idempotent, so a replayed event records nothing twice.
+ * requisitions closing. Since Phase 8.2 a hire is captured from the joining record (CandidateJoined),
+ * never from the Joined pipeline stage — stage moves have known bypass paths. Capture is idempotent, so a replayed event records nothing twice.
  * Auto-discovered — do not also register it.
  */
 class CaptureHiringMemory implements ShouldQueue
@@ -33,10 +35,6 @@ class CaptureHiringMemory implements ShouldQueue
             return;
         }
 
-        if ($event->newStage === CandidateStage::Joined && $event->previousStage !== CandidateStage::Joined) {
-            $this->memory->captureHire($application);
-        }
-
         if (! $event->statusChanged()) {
             return;
         }
@@ -48,6 +46,15 @@ class CaptureHiringMemory implements ShouldQueue
         if ($event->newStatus === ApplicationStatus::Dropout) {
             $joiningFailed = in_array($application->joining?->status, [JoiningStatus::NoShow, JoiningStatus::Dropout], true);
             $joiningFailed ? $this->memory->captureJoiningOutcome($application) : $this->memory->captureRejection($application, $event->remarks);
+        }
+    }
+
+    public function handleCandidateJoined(CandidateJoined $event): void
+    {
+        $joining = CandidateJoining::query()->with('candidateApplication')->find($event->joiningId);
+
+        if ($joining?->candidateApplication !== null) {
+            $this->memory->captureHire($joining->candidateApplication, $joining);
         }
     }
 

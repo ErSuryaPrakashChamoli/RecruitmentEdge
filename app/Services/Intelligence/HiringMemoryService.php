@@ -10,6 +10,7 @@ use App\Enums\OfferStatus;
 use App\Models\AuditLog;
 use App\Models\AutomationExecution;
 use App\Models\CandidateApplication;
+use App\Models\CandidateJoining;
 use App\Models\CandidateStageHistory;
 use App\Models\HiringMemoryRecord;
 use App\Models\Offer;
@@ -41,11 +42,14 @@ class HiringMemoryService
 
     public function __construct(private readonly EvidenceRecorder $evidence) {}
 
-    public function captureHire(CandidateApplication $application): ?HiringMemoryRecord
+    public function captureHire(CandidateApplication $application, ?CandidateJoining $joining = null): ?HiringMemoryRecord
     {
         $application->loadMissing(['candidate.source', 'requisition.designation', 'requisition.department', 'requisition.location', 'recruiter', 'interviews']);
         $candidate = $application->candidate;
-        $joinedAt = $application->stageHistory()->where('new_stage', CandidateStage::Joined)->latest('created_at')->value('created_at') ?? now();
+        // Phase 8.2: the joining record is the source of truth for when a hire happened.
+        $joinedAt = $joining?->actual_doj
+            ?? $application->stageHistory()->where('new_stage', CandidateStage::Joined)->latest('created_at')->value('created_at')
+            ?? now();
         $days = $application->application_date !== null ? (int) $application->application_date->diffInDays($joinedAt) : null;
 
         $facts = [
