@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Offers\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Filament\Resources\Offers\OfferResource;
 use App\Filament\Resources\Offers\Schemas\OfferForm;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class CreateOffer extends CreateRecord
 {
+    use GuardsDomainExceptions;
+
     protected static string $resource = OfferResource::class;
 
     /**
@@ -57,6 +60,6 @@ class CreateOffer extends CreateRecord
      */
     protected function handleRecordCreation(array $data): Model
     {
-        return app(OfferService::class)->create($data, Filament::auth()->user()?->employee);
+        return self::guarded('Offer could not be created', fn () => app(OfferService::class)->create($data, Filament::auth()->user()?->employee));
     }
 }

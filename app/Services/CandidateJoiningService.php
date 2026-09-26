@@ -9,7 +9,9 @@ use App\Events\CandidateJoined;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
+use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +27,37 @@ class CandidateJoiningService
         private readonly RecruiterIncentiveCalculator $incentiveCalculator,
         private readonly NotificationDispatchService $notifications,
     ) {}
+
+    /**
+     * Phase 8.3: creates the joining record for an accepted offer, inside the offer's own
+     * transaction (OfferService::moveTo), so an accepted offer and its joining record are one fact.
+     * One joining per application: a still-pending record is re-linked to the newly accepted offer;
+     * a closed one is never silently reopened.
+     */
+    public function createForAcceptedOffer(Offer $offer): CandidateJoining
+    {
+        $existing = CandidateJoining::query()->where('candidate_application_id', $offer->candidate_application_id)->first();
+        $expectedDoj = $offer->expected_joining_date ?? $offer->offer_date->copy()->addWeeks(2);
+
+        if ($existing === null) {
+            return CandidateJoining::query()->create([
+                'candidate_application_id' => $offer->candidate_application_id,
+                'offer_id' => $offer->id,
+                'expected_doj' => $expectedDoj,
+                'created_by' => $offer->created_by,
+            ]);
+        }
+
+        if (! in_array($existing->status, [JoiningStatus::Expected, JoiningStatus::Confirmed], true)) {
+            throw new DomainException("This application's joining record is already {$existing->status->label()}; it cannot take a newly accepted offer.");
+        }
+
+        if ((int) $existing->offer_id !== $offer->id) {
+            LifecycleGuard::allow(fn () => $existing->forceFill(['offer_id' => $offer->id, 'expected_doj' => $expectedDoj])->save());
+        }
+
+        return $existing;
+    }
 
     public function confirm(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
     {

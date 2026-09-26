@@ -20,7 +20,7 @@ beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
 
     $recruiter = Employee::factory()->create();
-    $this->application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
+    $this->application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id, 'current_stage' => CandidateStage::Selected]);
 
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');

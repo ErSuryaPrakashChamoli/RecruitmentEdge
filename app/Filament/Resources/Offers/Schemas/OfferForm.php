@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Offers\Schemas;
 
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Models\CandidateApplication;
+use App\Models\Offer;
+use App\Services\OfferService;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -11,6 +13,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 
 class OfferForm
 {
@@ -22,8 +25,12 @@ class OfferForm
                     ->disabled()
                     ->dehydrated(false)
                     ->hidden(fn (string $operation): bool => $operation === 'create'),
-                ApplicationPicker::make()
+                ApplicationPicker::make(modifyOptionsQueryUsing: fn (Builder $query): Builder => OfferService::eligibleApplications($query))
                     ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
+                    ->helperText(fn (string $operation): string => $operation === 'create'
+                        ? 'Only Selected applications without another open offer are listed.'
+                        : 'An offer stays with its application.')
                     ->live()
                     ->afterStateUpdated(function (mixed $state, Set $set): void {
                         $application = filled($state) ? ApplicationPicker::selectableApplications()->with('requisition')->find($state) : null;
@@ -34,6 +41,8 @@ class OfferForm
                     }),
                 Section::make('Compensation')
                     ->columns(2)
+                    ->disabled(fn (?Offer $record): bool => $record !== null && ! $record->termsAreEditable())
+                    ->description(fn (?Offer $record): ?string => $record !== null && ! $record->termsAreEditable() ? 'Released terms are locked. Use "Request revision" to change them.' : null)
                     ->schema([
                         Select::make('designation_id')
                             ->relationship('designation', 'name')
@@ -54,6 +63,7 @@ class OfferForm
                     ]),
                 Section::make('Timeline')
                     ->columns(3)
+                    ->disabled(fn (?Offer $record): bool => $record !== null && ! $record->termsAreEditable())
                     ->schema([
                         DatePicker::make('offer_date')
                             ->default(now())

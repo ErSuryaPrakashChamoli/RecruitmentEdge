@@ -117,7 +117,7 @@ test('releasing an offer requires an actor with offers.release', function (): vo
 
 test('creating an offer through the service writes its initial status history row', function (): void {
     $actor = employeeWithRole('recruiter');
-    $application = CandidateApplication::factory()->create();
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Selected]);
 
     $offer = $this->service->create([
         'offer_code' => 'OFR-TEST-1',

@@ -9,7 +9,8 @@ use Illuminate\Support\Arr;
  * Writes an AuditLog row on create/update/delete (Section 41), with both sides of every change:
  * `old_values` holds the previous raw values and `changes` the new ones (created: new values only;
  * deleted: old values only). Only attach this to models that don't already have a dedicated
- * immutable history table of their own — see AuditLog's docblock.
+ * immutable history table of their own — see AuditLog's docblock. A model may declare
+ * auditRedactedAttributes(): those keys are logged as "[redacted]" when they change.
  */
 trait Auditable
 {
@@ -38,6 +39,12 @@ trait Auditable
         if ($action === 'updated' && $newValues === []) {
             return;
         }
+
+        // Phase 8.3: sensitive values (e.g. offer compensation) are recorded as changed, never
+        // copied into the audit log — the model's own history holds them for authorised users.
+        $redacted = method_exists($this, 'auditRedactedAttributes') ? $this->auditRedactedAttributes() : [];
+        $redact = fn (?array $values): ?array => $values === null ? null : collect($values)->map(fn (mixed $value, string $key) => in_array($key, $redacted, true) && $value !== null ? '[redacted]' : $value)->all();
+        [$oldValues, $newValues] = [$redact($oldValues), $redact($newValues)];
 
         AuditLog::record($this, $action, $oldValues, $newValues);
     }

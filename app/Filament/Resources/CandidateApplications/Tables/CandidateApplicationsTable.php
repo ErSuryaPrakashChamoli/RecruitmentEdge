@@ -16,6 +16,7 @@ use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentRequisition;
 use App\Models\RequisitionPipelineStage;
 use App\Services\ApplicationAssignmentService;
+use App\Services\OfferService;
 use App\Services\StageTransitionService;
 use DomainException;
 use Filament\Actions\Action;
@@ -127,8 +128,8 @@ class CandidateApplicationsTable
 
     /**
      * Opens the offer form with this application already selected, so an offer is raised from the
-     * candidate being looked at rather than by picking an application code from memory. Offered on
-     * any active application until an offer has been accepted.
+     * candidate being looked at rather than by picking an application code from memory. Offered only
+     * where OfferService allows an offer (Selected, active, no other open offer — Phase 8.3).
      */
     public static function raiseOfferAction(): Action
     {
@@ -137,8 +138,7 @@ class CandidateApplicationsTable
             ->color('success')
             ->icon('heroicon-o-document-plus')
             ->url(fn (CandidateApplication $record): string => OfferResource::getUrl('create', ['application' => $record->getKey()]))
-            ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
-                && $record->current_stage->order() < CandidateStage::OfferAccepted->order()
+            ->visible(fn (CandidateApplication $record): bool => app(OfferService::class)->canRaiseOffer($record)
                 && (bool) auth()->user()?->can('create', Offer::class));
     }
 

@@ -4,9 +4,13 @@ namespace App\Filament\Resources\Offers\Tables;
 
 use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
+use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Exports\OfferExporter;
+use App\Models\Designation;
+use App\Models\Location;
 use App\Models\Offer;
 use App\Models\OfferLetterTemplate;
+use App\Models\OfferRevision;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\OfferLetterRenderer;
 use App\Services\OfferService;
@@ -16,9 +20,11 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -30,13 +36,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OffersTable
 {
+    use GuardsDomainExceptions;
+
     /**
-     * The letter can be tailored until the candidate has decided on the offer.
+     * The letter can be tailored until the offer is released; after that it changes only through a
+     * revision (Phase 8.3).
      */
     private const LETTER_EDITABLE_STATUSES = [
         OfferStatus::Draft,
         OfferStatus::Initiated,
-        OfferStatus::Released,
     ];
 
     public static function configure(Table $table): Table
@@ -86,6 +94,7 @@ class OffersTable
                 self::releaseAction(),
                 self::changeStatusAction(),
                 self::customizeOfferLetterAction(),
+                self::requestRevisionAction(),
                 self::downloadOfferLetterAction(),
                 EditAction::make(),
             ])
@@ -210,6 +219,36 @@ class OffersTable
                 $record->update(['offer_letter_body' => null]);
 
                 Notification::make()->title('Offer letter reset to template')->success()->send();
+            });
+    }
+
+    /**
+     * Phase 8.3: released terms are locked; a change is requested as a revision (with a reason) and
+     * takes effect only when someone with offers.release releases it.
+     */
+    public static function requestRevisionAction(): Action
+    {
+        return Action::make('requestRevision')
+            ->label('Request revision')
+            ->icon('heroicon-o-document-duplicate')
+            ->color('warning')
+            ->visible(fn (Offer $record): bool => $record->status === OfferStatus::Released && (bool) auth()->user()?->can('update', $record))
+            ->fillForm(fn (Offer $record): array => collect(OfferRevision::TERMS)->mapWithKeys(fn (string $term) => [$term => $record->getRawOriginal($term)])->all())
+            ->schema([
+                Select::make('designation_id')->label('Designation')->options(fn () => Designation::query()->orderBy('name')->pluck('name', 'id'))->searchable(),
+                Select::make('location_id')->label('Location')->options(fn () => Location::query()->orderBy('name')->pluck('name', 'id'))->searchable(),
+                TextInput::make('offered_ctc')->numeric(),
+                TextInput::make('fixed_salary')->numeric(),
+                TextInput::make('variable_salary')->numeric(),
+                TextInput::make('joining_bonus')->numeric(),
+                DatePicker::make('offer_expiry'),
+                DatePicker::make('expected_joining_date'),
+                Textarea::make('reason')->label('Reason for the revision')->required()->rows(2)->maxLength(255),
+            ])
+            ->modalDescription('The released terms stay in force and on record until this revision is released by someone with release permission.')
+            ->action(function (Offer $record, array $data): void {
+                self::guarded('Revision could not be requested', fn () => app(OfferService::class)->requestRevision($record, collect($data)->only(OfferRevision::TERMS)->all(), $data['reason'], auth()->user()));
+                Notification::make()->title('Revision requested')->body('It takes effect once released.')->success()->send();
             });
     }
 
