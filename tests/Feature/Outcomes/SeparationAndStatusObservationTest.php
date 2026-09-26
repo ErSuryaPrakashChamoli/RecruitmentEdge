@@ -183,3 +183,10 @@ test('a tampered employee id outside the hierarchy cannot be given a separation'
 
     expect(EmployeeSeparation::query()->where('employee_id', $outsider->id)->exists())->toBeFalse();
 });
+
+test('the separation view page shows the record, including its notes, read-only', function (): void {
+    $separation = EmployeeSeparation::factory()->create(['notes' => 'Handover complete']);
+    actingAs(User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro'));
+
+    get("/admin/employee-separations/{$separation->id}")->assertOk()->assertSee('Handover complete');
+});

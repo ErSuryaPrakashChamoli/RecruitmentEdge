@@ -5,6 +5,7 @@ namespace App\Filament\Resources\EmployeeSeparations;
 use App\Filament\Resources\EmployeeSeparations\Pages\CreateEmployeeSeparation;
 use App\Filament\Resources\EmployeeSeparations\Pages\EditEmployeeSeparation;
 use App\Filament\Resources\EmployeeSeparations\Pages\ListEmployeeSeparations;
+use App\Filament\Resources\EmployeeSeparations\Pages\ViewEmployeeSeparation;
 use App\Filament\Resources\EmployeeSeparations\Schemas\EmployeeSeparationForm;
 use App\Filament\Resources\EmployeeSeparations\Tables\EmployeeSeparationsTable;
 use App\Models\EmployeeSeparation;
@@ -64,6 +65,7 @@ class EmployeeSeparationResource extends Resource
         return [
             'index' => ListEmployeeSeparations::route('/'),
             'create' => CreateEmployeeSeparation::route('/create'),
+            'view' => ViewEmployeeSeparation::route('/{record}'),
             'edit' => EditEmployeeSeparation::route('/{record}/edit'),
         ];
     }
