@@ -70,8 +70,8 @@ test('each hierarchy level is resolved through the management chain', function (
 });
 
 test('inactive managers are skipped and an inactive recruiter falls back to their manager', function (): void {
-    $this->chain['assistant_manager']->update(['status' => EmployeeStatus::Inactive]);
-    $this->chain['recruiter']->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $this->chain['assistant_manager']->update(['status' => EmployeeStatus::Inactive]));
+    lifecycleFixture(fn () => $this->chain['recruiter']->update(['status' => EmployeeStatus::Inactive]));
     $context = AutomationContext::for($this->application->fresh(), 'candidate.stage_changed');
     $resolver = app(RecipientResolver::class);
 
@@ -139,7 +139,7 @@ test('escalation stops when the rule\'s action is completed', function (): void 
 });
 
 test('an escalation with nobody to escalate to fails visibly instead of silently', function (): void {
-    $this->chain['chro']->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $this->chain['chro']->update(['status' => EmployeeStatus::Inactive]));
     escalationRule([['after' => 0, 'unit' => 'hours', 'target' => 'role:chro']]);
     escalationInterview($this->application);
 

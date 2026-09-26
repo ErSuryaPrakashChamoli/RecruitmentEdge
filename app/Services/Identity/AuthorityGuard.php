@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\HierarchyService;
+use Closure;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -62,13 +63,41 @@ class AuthorityGuard
         }
 
         if ($this->effectiveChroIds()->reject(fn (int $id) => $id === (int) $user->getKey())->isEmpty()) {
-            throw new LastChroProtectedException('This is the last active CHRO. Assign the CHRO role to another person first.');
+            throw new LastChroProtectedException('This is the last active CHRO. Assign the CHRO role to another person first.', $user);
+        }
+    }
+
+    private static int $depth = 0;
+
+    /**
+     * Runs an identity operation. If it would leave the organisation without an effective CHRO,
+     * the outermost operation audits the refused attempt once everything has rolled back (nested
+     * operations — employment calling access — let it bubble up).
+     *
+     * @template T
+     *
+     * @param  Closure(): T  $operation
+     * @return T
+     */
+    public function protecting(string $attempt, ?User $actor, Closure $operation): mixed
+    {
+        self::$depth++;
+
+        try {
+            return $operation();
+        } catch (LastChroProtectedException $e) {
+            if (self::$depth === 1 && $e->user !== null) {
+                $this->recordProtection($e->user, $attempt, $actor);
+            }
+
+            throw $e;
+        } finally {
+            self::$depth--;
         }
     }
 
     /**
-     * Audits a refused protected-authority change. Called after the caller's transaction rolled
-     * back, so the record of the attempt survives.
+     * Audits a refused protected-authority change.
      */
     public function recordProtection(User $user, string $attempt, ?User $actor = null): void
     {

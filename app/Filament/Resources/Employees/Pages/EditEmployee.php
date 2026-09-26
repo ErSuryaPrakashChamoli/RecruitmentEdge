@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Employees\Pages;
 
 use App\Filament\Pages\AiCopilot;
+use App\Filament\Resources\Employees\Actions\EmploymentActions;
 use App\Filament\Resources\Employees\EmployeeResource;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -24,6 +25,8 @@ class EditEmployee extends EditRecord
                 ->color('gray')
                 ->visible(fn () => (bool) auth()->user()?->can('ai.query'))
                 ->url(fn () => AiCopilot::linkForContext('employee', $this->record->id)),
+            EmploymentActions::deactivate(),
+            EmploymentActions::reactivate(),
             DeleteAction::make(),
             ForceDeleteAction::make(),
             RestoreAction::make(),

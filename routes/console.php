@@ -20,3 +20,5 @@ Schedule::command('recruitment:automation:process')->everyFiveMinutes()->without
 Schedule::command('recruitment:automation:cleanup')->dailyAt('02:00');
 Schedule::command('intelligence:refresh')->hourly()->withoutOverlapping();
 Schedule::command('outcomes:evaluate')->dailyAt('03:00')->withoutOverlapping();
+// Phase 8.4: separations whose last working day has passed (identity.scheduled_enforcement).
+Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping()->when(fn (): bool => (bool) config('identity.scheduled_enforcement'));

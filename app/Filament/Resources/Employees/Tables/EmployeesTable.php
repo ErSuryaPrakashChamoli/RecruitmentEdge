@@ -39,10 +39,7 @@ class EmployeesTable
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (EmployeeStatus $state) => $state->label())
-                    ->color(fn (EmployeeStatus $state) => match ($state) {
-                        EmployeeStatus::Active => 'success',
-                        EmployeeStatus::Inactive => 'gray',
-                    }),
+                    ->color(fn (EmployeeStatus $state) => $state->color()),
             ])
             ->filters([
                 SelectFilter::make('department')

@@ -170,13 +170,7 @@ class StaffAccessService
             throw new DomainException('A reason is required to change access.');
         }
 
-        try {
-            $user = DB::transaction(fn (): User => $this->apply($target, $actor, $reason, $source, $decide, $effects));
-        } catch (LastChroProtectedException $e) {
-            $this->authority->recordProtection($target, "access_{$to->value}", $actor);
-
-            throw $e;
-        }
+        $user = $this->authority->protecting("access_{$to->value}", $actor, fn (): User => DB::transaction(fn (): User => $this->apply($target, $actor, $reason, $source, $decide, $effects)));
 
         $target->setRawAttributes($user->getAttributes(), true);
         $target->unsetRelation('roles');
@@ -212,6 +206,7 @@ class StaffAccessService
             'access_changed_at' => now(),
             'access_changed_by' => $actor?->getKey(),
             'access_reason' => mb_substr($reason, 0, 255),
+            'access_source' => mb_substr($source, 0, 30),
         ])->save());
 
         AuditLog::record($user, 'access_'.match ($next) {

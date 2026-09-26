@@ -44,7 +44,7 @@ test('creating an action notifies the owner with its priority and audits it', fu
 });
 
 test('an action for an inactive owner goes to their nearest active manager', function (): void {
-    $this->recruiter->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $this->recruiter->update(['status' => EmployeeStatus::Inactive]));
 
     expect(actionFor($this->recruiter)->owner_id)->toBe($this->manager->id);
 });
@@ -105,7 +105,7 @@ test('visibility follows the hierarchy', function (): void {
 test('cleanup reassigns actions of deactivated owners and expires stale ones', function (): void {
     $stale = actionFor($this->recruiter, ['due_at' => now()->subDays(20)]);
     $orphan = actionFor($this->recruiter, ['due_at' => now()->addDay()]);
-    $this->recruiter->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $this->recruiter->update(['status' => EmployeeStatus::Inactive]));
 
     $this->artisan('recruitment:automation:cleanup')->assertSuccessful();
 

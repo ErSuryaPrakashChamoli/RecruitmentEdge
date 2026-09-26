@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Enums\EmployeeStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Observers\EmployeeObserver;
+use Carbon\CarbonInterface;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -38,7 +40,22 @@ use Illuminate\Support\Facades\Storage;
 class Employee extends Model
 {
     /** @use HasFactory<EmployeeFactory> */
-    use Auditable, HasFactory, SoftDeletes;
+    use Auditable, GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+
+    /**
+     * Phase 8.4: employment state changes only through EmployeeLifecycleService.
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['status'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'EmployeeLifecycleService';
+    }
 
     protected function casts(): array
     {
@@ -118,13 +135,37 @@ class Employee extends Model
     }
 
     /**
-     * Phase 8.2: the minimal separation record, if the employee has left.
+     * Phase 8.2: the minimal separation record, if the employee has left. Phase 8.4: the latest
+     * one that was not cancelled — an employee rehired after a separation can separate again.
      *
      * @return HasOne<EmployeeSeparation, $this>
      */
     public function separation(): HasOne
     {
-        return $this->hasOne(EmployeeSeparation::class);
+        return $this->hasOne(EmployeeSeparation::class)->ofMany(['id' => 'max'], fn ($query) => $query->whereNull('cancelled_at'));
+    }
+
+    /**
+     * Phase 8.4: every separation, cancelled ones included (history).
+     *
+     * @return HasMany<EmployeeSeparation, $this>
+     */
+    public function separations(): HasMany
+    {
+        return $this->hasMany(EmployeeSeparation::class);
+    }
+
+    /**
+     * Phase 8.4: the separation that ended the employment which started on $joinedOn — the
+     * earliest non-cancelled separation dated on or after it. A separation from an earlier
+     * employment (before a rehire) never counts against a later one.
+     */
+    public function separationForEmploymentFrom(CarbonInterface $joinedOn): ?EmployeeSeparation
+    {
+        return $this->separations
+            ->filter(fn (EmployeeSeparation $separation) => $separation->cancelled_at === null && $separation->separation_date->copy()->startOfDay()->gte($joinedOn->copy()->startOfDay()))
+            ->sortBy(fn (EmployeeSeparation $separation) => $separation->separation_date->toDateString())
+            ->first();
     }
 
     /**

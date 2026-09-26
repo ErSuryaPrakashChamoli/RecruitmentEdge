@@ -81,7 +81,7 @@ test('a referrer who is the application\'s own recruiter gets no referral bonus,
 test('an inactive referrer gets no referral bonus', function (): void {
     $referrer = Employee::factory()->create();
     $referral = acceptedReferral($referrer, Employee::factory()->create());
-    $referrer->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $referrer->update(['status' => EmployeeStatus::Inactive]));
 
     expect(joinReferral($referral)->incentive_status)->toBe(ReferralIncentiveStatus::NotEligible);
 });

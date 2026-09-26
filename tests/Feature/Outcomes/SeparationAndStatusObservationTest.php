@@ -55,7 +55,7 @@ test('a due checkpoint records the status observed that day, with medium confide
 });
 
 test('an observation made well after its checkpoint has low confidence, and inactive is not treated as an exit', function (): void {
-    $this->employee->update(['status' => EmployeeStatus::Inactive]);
+    lifecycleFixture(fn () => $this->employee->update(['status' => EmployeeStatus::Inactive]));
     $snapshot = statusObservationSnapshot($this->employee, 60);
 
     app(OutcomeEvaluator::class)->evaluate();
@@ -145,7 +145,7 @@ test('HR records and corrects a separation; every change is audited without the 
     expect($separation->created_by)->toBe($hr->id)
         ->and($separation->fresh()->separation_reason)->toBe(SeparationReason::ContractEnd)
         ->and($separation->fresh()->notes)->toBe('PRIVATE-SEPARATION-NOTE')
-        ->and($audits->pluck('action')->all())->toBe(['created', 'updated'])
+        ->and($audits->pluck('action')->all())->toBe(['created', 'separation_effective', 'updated'])
         ->and($audits->last()->old_values['separation_reason'])->toBe('resignation')
         ->and($audits->last()->changes['separation_reason'])->toBe('contract_end')
         ->and(json_encode($audits->toArray()))->not->toContain('PRIVATE-SEPARATION-NOTE');

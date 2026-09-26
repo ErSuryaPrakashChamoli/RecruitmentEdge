@@ -136,6 +136,12 @@ class OutcomeCalculator
      *    An observation is never re-observed later — only separation evidence can revise it.
      * 3. A checkpoint that passed before the snapshot was taken (a backfilled hire), or a hire with
      *    no employee record, is NotObserved — never inferred.
+     *
+     * Phase 8.4 (compatibility, same results for existing data): the separation considered is the
+     * one that ended *this* employment (Employee::separationForEmploymentFrom — cancelled
+     * separations and those from before a rehire never count), and an employee whose status is now
+     * Separated was still employed at a checkpoint before that separation's date, so it observes as
+     * Active — exactly what the unchanged status showed before 8.4.
      */
     public function statusObservation(HiringOutcomeSnapshot $snapshot, OutcomeType $type, ?CarbonInterface $today = null): ?HiringOutcome
     {
@@ -152,9 +158,9 @@ class OutcomeCalculator
             return null;
         }
 
-        $snapshot->loadMissing('employee.separation');
+        $snapshot->loadMissing('employee.separations');
         $employee = $snapshot->employee;
-        $separation = $employee?->separation;
+        $separation = $employee?->separationForEmploymentFrom($snapshot->joined_on);
         $key = "snapshot:{$snapshot->id}:{$type->value}";
         $base = [
             'hiring_outcome_snapshot_id' => $snapshot->id,
@@ -205,7 +211,7 @@ class OutcomeCalculator
 
         return $this->outcomes->record($type, $key, [
             ...$base,
-            'result' => $employee->status === EmployeeStatus::Active ? OutcomeResult::Active : OutcomeResult::Inactive,
+            'result' => in_array($employee->status, [EmployeeStatus::Active, EmployeeStatus::Separated], true) ? OutcomeResult::Active : OutcomeResult::Inactive,
             'confidence' => $daysLate > (int) config('outcomes.status_observation_grace_days', 7) ? OutcomeConfidence::Low : OutcomeConfidence::Medium,
             'source' => $employee,
             'observed_at' => now(),

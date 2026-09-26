@@ -3,7 +3,14 @@
 namespace App\Filament\Resources\EmployeeSeparations\Pages;
 
 use App\Filament\Resources\EmployeeSeparations\EmployeeSeparationResource;
+use App\Models\EmployeeSeparation;
+use App\Models\User;
+use App\Services\Identity\EmployeeLifecycleService;
+use DomainException;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 
 class EditEmployeeSeparation extends EditRecord
 {
@@ -22,15 +29,23 @@ class EditEmployeeSeparation extends EditRecord
     }
 
     /**
-     * The employee of a separation never changes; only the date, reason and notes are corrected.
+     * The employee of a separation never changes; the date, reason and notes are corrected
+     * through EmployeeLifecycleService (Phase 8.4: the date is fixed once the separation applied).
      *
      * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
      */
-    protected function mutateFormDataBeforeSave(array $data): array
+    protected function handleRecordUpdate(Model $record, array $data): Model
     {
-        unset($data['employee_id']);
+        unset($data['employee_id'], $data['revoke_access_now']);
+        $user = auth()->user();
+        abort_unless($record instanceof EmployeeSeparation && $user instanceof User, 403);
 
-        return $data;
+        try {
+            return app(EmployeeLifecycleService::class)->correctSeparation($record, $user, $data);
+        } catch (DomainException $e) {
+            Notification::make()->title('Separation could not be corrected')->body($e->getMessage())->danger()->persistent()->send();
+
+            throw new Halt;
+        }
     }
 }

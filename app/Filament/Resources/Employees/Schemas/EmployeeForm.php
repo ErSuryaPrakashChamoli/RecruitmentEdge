@@ -67,7 +67,10 @@ class EmployeeForm
                 Select::make('status')
                     ->options(self::statusOptions())
                     ->default(EmployeeStatus::Active)
-                    ->required(),
+                    ->required()
+                    ->disabled()
+                    ->dehydrated(fn (string $operation): bool => $operation === 'create')
+                    ->helperText('Changed with the Deactivate / Reactivate actions and separations — access follows employment.'),
                 TextInput::make('category')
                     ->maxLength(255),
                 TextInput::make('level')
