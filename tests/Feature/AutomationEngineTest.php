@@ -7,6 +7,7 @@ use App\Enums\AutomationScope;
 use App\Enums\CandidateStage;
 use App\Enums\TimelineVisibility;
 use App\Events\InterviewScheduled;
+use App\Jobs\RunAutomationExecutionJob;
 use App\Models\AuditLog;
 use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
@@ -80,6 +81,18 @@ test('a duplicate event creates only one execution and one action', function ():
 
     expect(AutomationExecution::query()->count())->toBe(1)
         ->and(RecruiterAction::query()->count())->toBe(1);
+});
+
+test('delivering the same execution job again does not repeat its actions (Phase 8.3)', function (): void {
+    AutomationRule::factory()->active()->create();
+    engineInterview(engineApplication($this->recruiter));
+    $execution = AutomationExecution::query()->sole();
+
+    (new RunAutomationExecutionJob($execution->id))->handle(app(AutomationEngine::class));
+    (new RunAutomationExecutionJob($execution->id))->handle(app(AutomationEngine::class));
+
+    expect(RecruiterAction::query()->count())->toBe(1)
+        ->and($execution->fresh()->status)->not->toBe(AutomationExecutionStatus::Pending);
 });
 
 test('conditions that are not met skip the run with a readable trace', function (): void {

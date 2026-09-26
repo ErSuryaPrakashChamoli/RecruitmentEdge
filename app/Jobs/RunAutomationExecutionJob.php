@@ -25,6 +25,15 @@ class RunAutomationExecutionJob implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
+    /**
+     * Phase 8.3: the uniqueness lock expires, so a lost job (worker killed, queue row removed) can
+     * never permanently swallow a later dispatch or a manual retry of the same execution. It matches
+     * the stale-run window (automation.stale_running_minutes, 60): after that the run is treated as
+     * interrupted anyway. A duplicate delivery is still harmless — the engine only claims a Pending
+     * execution under a row lock.
+     */
+    public int $uniqueFor = 3600;
+
     public function __construct(public readonly int $executionId)
     {
         $this->onQueue(config('automation.queue', 'automation'));

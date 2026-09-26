@@ -82,9 +82,13 @@ class ActionExecutor
 
         RateLimiter::hit("ai-action:{$actor->id}", 60);
 
-        $toolCall->forceFill(['approved_by' => $actor->id, 'approved_at' => now()])->save();
+        // Phase 8.3: claim the call atomically (Pending → Approved) before running it, so two
+        // concurrent approvals — a double click, two approvers — can never execute it twice.
+        if (! $this->claim($toolCall, AiToolCallStatus::Approved, $actor)) {
+            throw new DomainException('This action has already been decided.');
+        }
 
-        return $this->execute($toolCall, $tool, $actor);
+        return $this->execute($toolCall->refresh(), $tool, $actor);
     }
 
     /**
@@ -101,11 +105,9 @@ class ActionExecutor
             throw new DomainException('This action has already been decided.');
         }
 
-        $toolCall->forceFill([
-            'status' => AiToolCallStatus::Rejected,
-            'approved_by' => $actor->id,
-            'approved_at' => now(),
-        ])->save();
+        if (! $this->claim($toolCall, AiToolCallStatus::Rejected, $actor)) {
+            throw new DomainException('This action has already been decided.');
+        }
 
         $summary = $reason !== null ? $this->sanitizer->sanitizeText($reason)['text'] : 'The user declined to approve this action.';
         $output = ['success' => false, 'error' => $summary];
@@ -137,6 +139,18 @@ class ActionExecutor
     public function hasUnresolvedSiblings(AiToolCall $toolCall): bool
     {
         return $toolCall->message->toolCalls()->where('status', AiToolCallStatus::Pending)->exists();
+    }
+
+    /**
+     * Moves a Pending tool call to $status in one conditional update; false when another request
+     * decided it first.
+     */
+    private function claim(AiToolCall $toolCall, AiToolCallStatus $status, User $actor): bool
+    {
+        return AiToolCall::query()
+            ->whereKey($toolCall->id)
+            ->where('status', AiToolCallStatus::Pending->value)
+            ->update(['status' => $status->value, 'approved_by' => $actor->id, 'approved_at' => now()]) === 1;
     }
 
     private function execute(AiToolCall $toolCall, AiTool $tool, User $user): ToolResult
