@@ -24,11 +24,16 @@ class EvaluateOutcomes extends Command
 
         $this->info(($dryRun ? '[dry run] due: ' : 'Evaluated: ').collect($counts)->map(fn (int $n, string $key) => str_replace('_', ' ', $key).' '.$n)->implode(', ').'.');
 
+        // Phase 8.3: one bad record never aborts the pass; failures are listed (ids only) and retried next time.
+        foreach ($evaluator->failures() as $failure) {
+            $this->warn("Failed: {$failure['step']} — {$failure['record']} ({$failure['exception']}). It will be retried on the next pass.");
+        }
+
         if (! $dryRun) {
             $insights = $learning->refresh();
             $this->info("Learning insights: {$insights['created']} new, {$insights['updated']} refreshed, {$insights['expired']} expired (all await human review).");
         }
 
-        return self::SUCCESS;
+        return ($counts['failed'] ?? 0) > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

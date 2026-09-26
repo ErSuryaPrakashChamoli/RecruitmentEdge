@@ -13,6 +13,9 @@ use App\Models\Offer;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Outcome Loop™ (Phase 8.2): the single evaluation pass behind `outcomes:evaluate`. Events record
@@ -23,6 +26,11 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  */
 class OutcomeEvaluator
 {
+    /**
+     * @var array<int, array{step: string, record: string, exception: string, message: string}>
+     */
+    private array $failures = [];
+
     public function __construct(
         private readonly OutcomeCalculator $calculator,
         private readonly HiringSnapshotService $snapshots,
@@ -35,32 +43,34 @@ class OutcomeEvaluator
     {
         $batch = max(1, (int) config('outcomes.batch_size', 200));
         $counts = [];
+        $this->failures = [];
 
         $since = now()->subDays(max(0, (int) config('outcomes.catch_up_days', 7)))->startOfDay();
 
         $joinings = $this->pendingJoinings($since);
-        $counts['joining_outcomes'] = $dryRun ? $joinings->count() : $this->each($joinings, $batch, fn (CandidateJoining $joining) => $this->calculator->joining($joining));
+        $counts['joining_outcomes'] = $dryRun ? $joinings->count() : $this->each('joining_outcomes', $joinings, $batch, fn (CandidateJoining $joining) => $this->calculator->joining($joining));
 
         $unsnapshotted = $this->joinedWithoutSnapshot($since);
-        $counts['snapshots'] = $dryRun ? $unsnapshotted->count() : $this->each($unsnapshotted, $batch, fn (CandidateJoining $joining) => $this->snapshots->captureForJoining($joining));
+        $counts['snapshots'] = $dryRun ? $unsnapshotted->count() : $this->each('snapshots', $unsnapshotted, $batch, fn (CandidateJoining $joining) => $this->snapshots->captureForJoining($joining));
 
         $offers = $this->pendingOffers($since);
-        $counts['offers'] = $dryRun ? $offers->count() : $this->each($offers, $batch, fn (Offer $offer) => $this->calculator->offer($offer));
+        $counts['offers'] = $dryRun ? $offers->count() : $this->each('offers', $offers, $batch, fn (Offer $offer) => $this->calculator->offer($offer));
 
         $snapshots = $this->snapshotsWithoutProcessOutcomes();
-        $counts['process_outcomes'] = $dryRun ? $snapshots->count() : $this->each($snapshots, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->process($snapshot));
+        $counts['process_outcomes'] = $dryRun ? $snapshots->count() : $this->each('process_outcomes', $snapshots, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->process($snapshot));
 
         $counts['status_observations'] = 0;
 
         foreach ($this->observationTypes() as $type) {
-            $due = $this->dueStatusObservations($type);
-            $counts['status_observations'] += $dryRun ? $due->count() : $this->each($due, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->statusObservation($snapshot, $type));
+            $due = $this->dueStatusObservations($type)->with('employee.separation');
+            $counts['status_observations'] += $dryRun ? $due->count() : $this->each('status_observations', $due, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->statusObservation($snapshot, $type));
         }
 
         // Separation records can arrive after a status was observed. Saving one re-evaluates that
         // employee at once; this re-checks recent ones in case that failed — never the whole history.
-        $separated = HiringOutcomeSnapshot::query()->whereHas('employee.separation', fn (Builder $query) => $query->where('updated_at', '>=', $since));
-        $counts['separation_rechecks'] = $dryRun ? $separated->count() : $this->each($separated, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->observeAll($snapshot));
+        $separated = HiringOutcomeSnapshot::query()->whereHas('employee.separation', fn (Builder $query) => $query->where('updated_at', '>=', $since))->with('employee.separation');
+        $counts['separation_rechecks'] = $dryRun ? $separated->count() : $this->each('separation_rechecks', $separated, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->observeAll($snapshot));
+        $counts['failed'] = count($this->failures);
 
         return $counts;
     }
@@ -186,15 +196,39 @@ class OutcomeEvaluator
      *
      * @param  Builder<TModel>  $query
      */
-    private function each(Builder $query, int $batch, callable $callback): int
+    /**
+     * The records that failed in the last evaluate() pass — each left unrecorded, so the next pass
+     * retries it.
+     *
+     * @return array<int, array{step: string, record: string, exception: string, message: string}>
+     */
+    public function failures(): array
+    {
+        return $this->failures;
+    }
+
+    /**
+     * Phase 8.3: one transaction per chunk (not per record — far fewer durable commits), with each
+     * record in its own savepoint: a failing record is rolled back alone, logged with its id and
+     * counted, and the pass carries on. Nothing is marked evaluated for it, so it is retried.
+     */
+    private function each(string $step, Builder $query, int $batch, callable $callback): int
     {
         $count = 0;
 
-        $query->chunkById($batch, function ($models) use ($callback, &$count): void {
-            foreach ($models as $model) {
-                $callback($model);
-                $count++;
-            }
+        $query->chunkById($batch, function ($models) use ($step, $callback, &$count): void {
+            DB::transaction(function () use ($models, $step, $callback, &$count): void {
+                foreach ($models as $model) {
+                    try {
+                        DB::transaction(fn () => $callback($model));
+                        $count++;
+                    } catch (Throwable $e) {
+                        $failure = ['step' => $step, 'record' => class_basename($model).' #'.$model->getKey(), 'exception' => $e::class, 'message' => mb_substr($e->getMessage(), 0, 300)];
+                        $this->failures[] = $failure;
+                        Log::warning('Outcome evaluation failed for a record; it will be retried on the next pass.', $failure);
+                    }
+                }
+            });
         });
 
         return $count;
