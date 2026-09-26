@@ -50,17 +50,22 @@ class InterviewForm
                 ->default(fn (): ?int => $application !== null ? InterviewRoundNumber::tryFrom($application->interviews()->count() + 1)?->value : null)
                 ->placeholder('Next round')
                 ->helperText('Leave blank to use the next round number.')
-                ->required(fn (?string $operation): bool => $operation === 'edit'),
+                ->required(fn (?string $operation): bool => $operation === 'edit')
+                ->disabled(fn (?string $operation): bool => $operation === 'edit'),
             Select::make('round_name')
                 ->options(collect(InterviewRoundName::cases())->mapWithKeys(fn (InterviewRoundName $round) => [$round->value => $round->label()])),
             Select::make('interviewer_id')
                 ->label('Interviewer')
                 ->options(fn (?Model $record): array => Interviewer::selectOptions($record instanceof Interview ? $record->interviewer_id : null))
-                ->helperText('Only employees on the interviewer list (Administration → Interviewers) are shown.')
+                ->helperText(fn (?string $operation): string => $operation === 'edit'
+                    ? 'Use "Reschedule" to change the interviewer or time — the candidate and calendar are updated.'
+                    : 'Only employees on the interviewer list (Administration → Interviewers) are shown.')
                 ->required()
+                ->disabled(fn (?string $operation): bool => $operation === 'edit')
                 ->searchable(),
             DateTimePicker::make('scheduled_at')
-                ->required(),
+                ->required()
+                ->disabled(fn (?string $operation): bool => $operation === 'edit'),
             Select::make('mode')
                 ->options(collect(InterviewMode::cases())->mapWithKeys(fn (InterviewMode $m) => [$m->value => $m->label()]))
                 ->required(),
@@ -88,7 +93,8 @@ class InterviewForm
     public static function applicationSelect(): Select
     {
         return ApplicationPicker::make(modifyOptionsQueryUsing: fn (Builder $query): Builder => $query->where('status', ApplicationStatus::Active))
-            ->required();
+            ->required()
+            ->disabled(fn (?string $operation): bool => $operation === 'edit');
     }
 
     /**

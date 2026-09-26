@@ -92,7 +92,8 @@ test('adding feedback from the workspace creates a real InterviewFeedback row', 
     $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]);
     $interview = Interview::factory()->create([
         'candidate_application_id' => $application->id,
-        'status' => InterviewStatus::Completed,
+        'interviewer_id' => $interviewer->id,
+        'status' => InterviewStatus::Scheduled,
         'result' => null,
     ]);
 
@@ -102,12 +103,11 @@ test('adding feedback from the workspace creates a real InterviewFeedback row', 
 
     Livewire::test(InterviewWorkspace::class)
         ->callAction(TestAction::make('addFeedback')->arguments(['interviewId' => $interview->id]), data: [
-            'interviewer_id' => $interviewer->id,
             'recommendation' => 'recommend',
             'feedback' => 'Strong candidate.',
         ]);
 
-    expect(InterviewFeedback::query()->where('interview_id', $interview->id)->count())->toBe(1);
+    expect(InterviewFeedback::query()->where('interview_id', $interview->id)->where('interviewer_id', $interviewer->id)->where('submitted_by', $user->id)->count())->toBe(1);
 });
 
 test('a recruiter outside the hierarchy does not see another team\'s interview in the workspace', function (): void {

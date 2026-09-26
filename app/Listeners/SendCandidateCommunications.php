@@ -57,6 +57,13 @@ class SendCandidateCommunications implements ShouldQueue
 
     public function handleInterviewCancelled(InterviewCancelled $event): void
     {
+        // Phase 8.3: an interview cancelled because the application closed is not announced on its
+        // own — what the candidate hears about a rejection or dropout is a communication-policy
+        // decision (automation rules on the stage change), never an automatic side effect.
+        if ($event->cause !== null) {
+            return;
+        }
+
         $this->communications->sendAutomatic('interview_cancelled', MessageContext::forInterview($event->interview), "interview.cancelled:{$event->interview->id}");
     }
 

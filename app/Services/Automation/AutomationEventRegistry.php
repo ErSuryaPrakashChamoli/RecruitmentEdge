@@ -16,6 +16,7 @@ use App\Events\HiringRiskDetected;
 use App\Events\InterviewCancelled;
 use App\Events\InterviewCompleted;
 use App\Events\InterviewConfirmed;
+use App\Events\InterviewMarkedNoShow;
 use App\Events\InterviewRescheduled;
 use App\Events\InterviewScheduled;
 use App\Events\OfferAccepted;
@@ -99,7 +100,8 @@ class AutomationEventRegistry
             $event instanceof CandidateAppliedOnline => ['application.applied_online', $event->application, []],
             $event instanceof InterviewScheduled => ['interview.scheduled', $event->interview, []],
             $event instanceof InterviewRescheduled => ['interview.rescheduled', $event->interview, []],
-            $event instanceof InterviewCancelled => ['interview.cancelled', $event->interview, []],
+            $event instanceof InterviewCancelled => ['interview.cancelled', $event->interview, ['cancellation_cause' => $event->cause]],
+            $event instanceof InterviewMarkedNoShow => ($interview = Interview::query()->find($event->interviewId)) !== null ? ['interview.no_show', $interview, []] : null,
             $event instanceof InterviewConfirmed => ['interview.confirmed', $event->interview, []],
             $event instanceof InterviewCompleted => ['interview.completed', $event->interview, []],
             $event instanceof OfferReleased => ['offer.released', $event->offer, []],
@@ -137,6 +139,8 @@ class AutomationEventRegistry
                 'An interview moved to a new time.', InterviewRescheduled::class, $interviewAnchors),
             new TriggerDefinition('interview.cancelled', 'Interview cancelled', 'Interview', 'event', Interview::class,
                 'An interview was cancelled.', InterviewCancelled::class, ['event' => 'When the event happens']),
+            new TriggerDefinition('interview.no_show', 'Candidate did not attend', 'Interview', 'event', Interview::class,
+                'An interview was marked as a no-show.', InterviewMarkedNoShow::class, ['event' => 'When the event happens']),
             new TriggerDefinition('interview.confirmed', 'Interview confirmed', 'Interview', 'event', Interview::class,
                 'An interview was confirmed.', InterviewConfirmed::class, $interviewAnchors),
             new TriggerDefinition('interview.completed', 'Interview completed', 'Interview', 'event', Interview::class,

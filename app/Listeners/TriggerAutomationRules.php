@@ -9,6 +9,7 @@ use App\Events\HiringRiskDetected;
 use App\Events\InterviewCancelled;
 use App\Events\InterviewCompleted;
 use App\Events\InterviewConfirmed;
+use App\Events\InterviewMarkedNoShow;
 use App\Events\InterviewRescheduled;
 use App\Events\InterviewScheduled;
 use App\Events\OfferAccepted;
@@ -52,6 +53,11 @@ class TriggerAutomationRules
     }
 
     public function handleInterviewCancelled(InterviewCancelled $event): void
+    {
+        $this->feed($event);
+    }
+
+    public function handleInterviewMarkedNoShow(InterviewMarkedNoShow $event): void
     {
         $this->feed($event);
     }

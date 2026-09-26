@@ -11,20 +11,17 @@ use App\Enums\InterviewRoundNumber;
 use App\Enums\InterviewStatus;
 use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Exports\InterviewExporter;
-use App\Filament\Resources\Interviews\InterviewResource;
-use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\InterviewFeedback;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\InterviewFeedbackService;
 use App\Services\InterviewService;
-use App\Services\NotificationDispatchService;
 use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
-use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -281,6 +278,8 @@ class InterviewsTable
     /**
      * Completing an interview requires feedback, so feedback has to be capturable from the same
      * surface as the Complete action — otherwise the guard above is a dead end from the list page.
+     * Phase 8.3: feedback is always attributed to the assigned interviewer and written through
+     * InterviewFeedbackService (the interviewer, or a hiring/HR user managing the interview).
      */
     public static function addFeedbackAction(): Action
     {
@@ -288,7 +287,9 @@ class InterviewsTable
             ->label('Add Feedback')
             ->color('gray')
             ->icon('heroicon-o-chat-bubble-left-right')
-            ->visible(fn (): bool => (bool) auth()->user()?->can('interviews.manage'))
+            ->visible(fn (Interview $record): bool => ! $record->status->isTerminal()
+                && auth()->user() !== null
+                && app(InterviewFeedbackService::class)->canSubmit(auth()->user(), $record))
             ->schema(self::feedbackSchema())
             ->action(fn (Interview $record, array $data) => self::performAddFeedback($record, $data));
     }
@@ -299,17 +300,12 @@ class InterviewsTable
     public static function feedbackSchema(): array
     {
         return [
-            Select::make('interviewer_id')
-                ->label('Interviewer')
-                ->options(fn () => Employee::query()->get()->mapWithKeys(fn (Employee $e) => [$e->id => $e->fullName()]))
-                ->default(fn () => Filament::auth()->user()?->employee_id)
-                ->searchable()
-                ->required(),
             ...self::ratingFields(),
             Select::make('recommendation')
                 ->options(collect(FeedbackRecommendation::cases())->mapWithKeys(fn (FeedbackRecommendation $r) => [$r->value => $r->label()]))
                 ->required(),
-            Textarea::make('feedback')->required()->columnSpanFull(),
+            Textarea::make('feedback')->required()->columnSpanFull()
+                ->helperText('Recorded as the assigned interviewer\'s feedback. It is locked once the interview is completed.'),
         ];
     }
 
@@ -347,9 +343,7 @@ class InterviewsTable
      */
     public static function performAddFeedback(Interview $record, array $data): void
     {
-        abort_unless((bool) auth()->user()?->can('interviews.manage'), 403);
-
-        $record->feedback()->create($data);
+        self::guarded('Feedback could not be recorded', fn () => app(InterviewFeedbackService::class)->submit($record, $data, auth()->user()));
 
         Notification::make()->title('Feedback added')->success()->send();
     }
@@ -367,16 +361,7 @@ class InterviewsTable
 
     public static function performNoShow(Interview $record): void
     {
-        $record->update(['status' => InterviewStatus::NoShow]);
-
-        app(NotificationDispatchService::class)->alert(
-            $record->candidateApplication->recruiter?->user,
-            'Interviews',
-            'Candidate no-show',
-            "{$record->candidateApplication->candidate->full_name} did not show up for their interview.",
-            'danger',
-            InterviewResource::getUrl('edit', ['record' => $record]),
-        );
+        self::guarded('Interview could not be marked as a no-show', fn () => app(InterviewService::class)->markNoShow($record, auth()->user()?->employee));
 
         Notification::make()->title('Interview marked no-show')->success()->send();
     }
@@ -388,13 +373,15 @@ class InterviewsTable
             ->color('gray')
             ->icon('heroicon-o-no-symbol')
             ->visible(fn (Interview $record) => ! $record->status->isTerminal())
-            ->requiresConfirmation()
-            ->action(fn (Interview $record) => self::performCancel($record));
+            ->schema([Textarea::make('remarks')->label('Reason')->required()->rows(2)])
+            ->modalDescription('The candidate and interviewer are notified and the calendar event is removed.')
+            ->action(fn (Interview $record, array $data) => self::performCancel($record, $data['remarks']));
     }
 
-    public static function performCancel(Interview $record): void
+    public static function performCancel(Interview $record, string $remarks): void
     {
-        $record->update(['status' => InterviewStatus::Cancelled]);
+        self::guarded('Interview could not be cancelled', fn () => app(InterviewService::class)->cancel($record, $remarks, auth()->user()?->employee));
+
         Notification::make()->title('Interview cancelled')->success()->send();
     }
 }

@@ -10,6 +10,7 @@ use App\Enums\InterviewStatus;
 use App\Events\InterviewCancelled;
 use App\Events\InterviewCompleted;
 use App\Events\InterviewConfirmed;
+use App\Events\InterviewMarkedNoShow;
 use App\Events\InterviewRescheduled;
 use App\Events\InterviewScheduled;
 use App\Filament\Resources\Interviews\InterviewResource;
@@ -17,13 +18,15 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\Lifecycle\LifecycleGuard;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The only code path allowed to schedule, reschedule, hold, confirm or complete an interview.
+ * The only code path allowed to schedule, reschedule, hold, confirm, cancel, mark a no-show or
+ * complete an interview (Phase 8.3: the model refuses any other write).
  * Section 15: "Interview feedback must be mandatory before completing the interview" — enforced
  * here, not just as a UI validation, so it can't be bypassed by any other write path. Scheduling
  * also keeps the application's pipeline stage in sync (forward-only) inside the same transaction.
@@ -104,12 +107,12 @@ class InterviewService
     {
         $this->ensureNotTerminal($interview, 'reschedule');
 
-        $interview->forceFill([
+        LifecycleGuard::allow(fn () => $interview->forceFill([
             ...array_filter(array_intersect_key($changes, array_flip(['interviewer_id', 'mode', 'location', 'meeting_link'])), fn ($value) => $value !== null),
             'scheduled_at' => $scheduledAt,
             'status' => InterviewStatus::Rescheduled,
             'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
-        ])->save();
+        ])->save());
 
         InterviewRescheduled::dispatch($interview, $actor);
 
@@ -126,8 +129,10 @@ class InterviewService
     /**
      * Cancels a not-yet-finished interview (e.g. the candidate cancelled a self-scheduled slot).
      * The application's stage is left as-is — cancelling a meeting is not a pipeline decision.
+     * $cause is set when the cancellation is a consequence of the application closing (Phase 8.3
+     * cascade); listeners use it so the candidate isn't sent a separate cancellation message.
      */
-    public function cancel(Interview $interview, string $remarks, ?Employee $actor = null): Interview
+    public function cancel(Interview $interview, string $remarks, ?Employee $actor = null, ?string $cause = null): Interview
     {
         $this->ensureNotTerminal($interview, 'cancel');
 
@@ -135,12 +140,12 @@ class InterviewService
             throw new DomainException('Remarks are required to cancel an interview.');
         }
 
-        $interview->forceFill([
+        LifecycleGuard::allow(fn () => $interview->forceFill([
             'status' => InterviewStatus::Cancelled,
             'remarks' => $this->appendRemarks($interview, 'Cancelled', $remarks, $actor),
-        ])->save();
+        ])->save());
 
-        InterviewCancelled::dispatch($interview, $actor);
+        InterviewCancelled::dispatch($interview, $actor, $cause);
 
         $this->notifyParticipants(
             $interview,
@@ -160,10 +165,40 @@ class InterviewService
             throw new DomainException('Remarks are required to put an interview on hold.');
         }
 
-        $interview->forceFill([
+        LifecycleGuard::allow(fn () => $interview->forceFill([
             'status' => InterviewStatus::Hold,
             'remarks' => $this->appendRemarks($interview, 'On hold', $remarks, $actor),
-        ])->save();
+        ])->save());
+
+        return $interview;
+    }
+
+    /**
+     * Phase 8.3: the candidate did not attend. Recorded once (a finished interview cannot become a
+     * no-show), announced after commit and the recruiter is alerted. The application's stage is
+     * left as-is — a no-show is a fact about the meeting, not a hiring decision.
+     */
+    public function markNoShow(Interview $interview, ?Employee $actor = null, ?string $remarks = null): Interview
+    {
+        $this->ensureNotTerminal($interview, 'mark as a no-show');
+
+        LifecycleGuard::allow(fn () => $interview->forceFill([
+            'status' => InterviewStatus::NoShow,
+            'remarks' => $this->appendRemarks($interview, 'No-show', $remarks ?? 'Candidate did not attend', $actor),
+        ])->save());
+
+        InterviewMarkedNoShow::dispatch($interview->id, $interview->candidate_application_id, $actor?->id);
+
+        $application = $interview->candidateApplication;
+
+        $this->notifications->alert(
+            $application->recruiter?->user,
+            'Interviews',
+            'Candidate no-show',
+            "{$application->candidate->full_name} did not show up for their interview.",
+            'danger',
+            InterviewResource::getUrl('edit', ['record' => $interview]),
+        );
 
         return $interview;
     }
@@ -174,7 +209,7 @@ class InterviewService
             throw new DomainException("Only a scheduled or rescheduled interview can be confirmed (current status: {$interview->status->label()}).");
         }
 
-        $interview->forceFill(['status' => InterviewStatus::Confirmed])->save();
+        LifecycleGuard::allow(fn () => $interview->forceFill(['status' => InterviewStatus::Confirmed])->save());
 
         InterviewConfirmed::dispatch($interview);
 
@@ -200,11 +235,14 @@ class InterviewService
         }
 
         return DB::transaction(function () use ($interview, $result, $actor, $rejectionReason): Interview {
-            $interview->forceFill([
+            LifecycleGuard::allow(fn () => $interview->forceFill([
                 'status' => InterviewStatus::Completed,
                 'result' => $result,
                 'rejection_reason_id' => $result === InterviewResult::Rejected ? $rejectionReason->id : null,
-            ])->save();
+            ])->save());
+
+            // Phase 8.3: the round's decision locks its feedback; later changes are corrections.
+            app(InterviewFeedbackService::class)->lock($interview);
 
             $application = $interview->candidateApplication;
 

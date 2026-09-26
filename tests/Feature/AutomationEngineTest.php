@@ -232,7 +232,7 @@ test('a run timed before an interview waits, and is dropped if the interview is 
     expect($execution->status)->toBe(AutomationExecutionStatus::Pending)
         ->and($execution->scheduled_for->equalTo($interview->scheduled_at->copy()->subDay()))->toBeTrue();
 
-    $interview->forceFill(['scheduled_at' => now()->addDays(5)])->save();
+    app(InterviewService::class)->reschedule($interview, now()->addDays(5));
     $this->travel(2)->days();
     $this->artisan('recruitment:automation:process')->assertSuccessful();
 

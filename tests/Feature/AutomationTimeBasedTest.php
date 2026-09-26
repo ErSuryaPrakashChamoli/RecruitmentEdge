@@ -21,6 +21,7 @@ use App\Models\RecruiterAction;
 use App\Models\User;
 use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\Communication\CommunicationTemplateService;
+use App\Services\InterviewService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Mail;
 
@@ -67,7 +68,7 @@ test('rescheduling re-arms a time-based rule for the new interview time', functi
     $interview = sweepInterview($this->recruiter);
 
     $this->artisan('recruitment:automation:dispatch');
-    $interview->update(['scheduled_at' => now()->addHours(20)]);
+    app(InterviewService::class)->reschedule($interview, now()->addHours(20));
     $this->artisan('recruitment:automation:dispatch');
 
     expect(AutomationExecution::query()->count())->toBe(2);

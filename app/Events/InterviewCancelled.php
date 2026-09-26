@@ -9,7 +9,8 @@ use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Fired by InterviewService after the change commits (Phase 5) — drives external calendar sync
- * (SyncInterviewCalendar) and candidate communications (SendInterviewCommunications).
+ * (SyncInterviewCalendar) and candidate communications (SendInterviewCommunications). $cause is set
+ * when the application closed (Phase 8.3 cascade), e.g. 'application_rejected'.
  */
 class InterviewCancelled implements ShouldDispatchAfterCommit
 {
@@ -18,5 +19,6 @@ class InterviewCancelled implements ShouldDispatchAfterCommit
     public function __construct(
         public readonly Interview $interview,
         public readonly ?Employee $actor = null,
+        public readonly ?string $cause = null,
     ) {}
 }
