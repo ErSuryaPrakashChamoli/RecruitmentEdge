@@ -3,6 +3,7 @@
 namespace App\Services\AI\Tools\IntelligenceTools;
 
 use App\Enums\AiRiskLevel;
+use App\Enums\RoleDnaCategory;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Contracts\AiTool;
@@ -52,7 +53,8 @@ class GetRoleDnaTool implements AiTool
         }
 
         $version = $this->roleDna->currentVersionFor($requisition, $user);
-        $describe = fn (array $a) => ['category' => $a['category'], 'name' => $a['label'], 'value' => $a['value'], 'level' => $a['level'], 'origin' => $a['origin'], 'note' => $a['note'] ?? null];
+        // Phase 8.1: the budget attribute is described, never quoted — no salary figures reach the AI.
+        $describe = fn (array $a) => ['category' => $a['category'], 'name' => $a['label'], 'value' => $a['category'] === RoleDnaCategory::Compensation->value ? 'configured on the requisition' : $a['value'], 'level' => $a['level'], 'origin' => $a['origin'], 'note' => $a['category'] === RoleDnaCategory::Compensation->value ? null : ($a['note'] ?? null)];
 
         return ToolResult::ok(
             data: [

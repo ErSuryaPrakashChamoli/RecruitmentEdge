@@ -19,7 +19,7 @@ final class AiFieldPolicy
         'full_name', 'first_name', 'last_name', 'name_normalized',
         'email', 'candidate_email', 'recipient', 'recipient_email', 'email_normalized',
         'mobile', 'alternate_mobile', 'phone', 'mobile_normalized', 'alternate_mobile_normalized',
-        'address', 'photo_path', 'resume_path', 'account_email',
+        'address', 'photo_path', 'resume_path', 'account_email', 'current_company',
         // compensation
         'current_salary', 'expected_salary', 'offered_ctc', 'fixed_salary', 'variable_salary',
         'joining_bonus', 'salary_min', 'salary_max', 'ctc', 'salary',

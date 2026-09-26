@@ -7,6 +7,7 @@ use App\Enums\ApplicationStatus;
 use App\Models\CandidateApplication;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
@@ -65,11 +66,18 @@ class RecommendNextStepTool implements AiTool
             return ToolResult::fail('Application not found, or not visible to you. Pass an application_id or a candidate_id.');
         }
 
+        // Signal text can quote stored titles (e.g. a Risk Radar title naming the candidate or an
+        // interviewer): register everyone involved, then scrub the text before it reaches the AI.
+        $candidateRef = $this->projector()->candidateRef($application->candidate);
+        $this->projector()->employeeRef($application->recruiter);
+        $application->interviews->each(fn ($interview) => $this->projector()->employeeRef($interview->interviewer));
+        $sanitizer = app(AiPayloadSanitizer::class);
+
         $signals = $this->nextBestActions->forApplication($application)
             ->map(fn (NextBestAction $action) => [
                 'priority' => $action->legacyPriority(),
-                'action' => $action->suggestedAction,
-                'reason' => $action->reason,
+                'action' => $sanitizer->sanitizeText((string) $action->suggestedAction)['text'],
+                'reason' => $sanitizer->sanitizeText((string) $action->reason)['text'],
                 'suggested_tool' => $action->suggestedTool,
             ])
             ->all();
@@ -79,7 +87,7 @@ class RecommendNextStepTool implements AiTool
             data: [
                 'application_id' => $application->id,
                 'application_ref' => $application->application_code,
-                'candidate_ref' => $candidateRef = $this->projector()->candidateRef($application->candidate),
+                'candidate_ref' => $candidateRef,
                 'stage' => $application->current_stage->label(),
                 'status' => $application->status->label(),
                 'days_since_last_activity' => $application->last_activity_at !== null ? (int) $application->last_activity_at->diffInDays(now()) : null,
