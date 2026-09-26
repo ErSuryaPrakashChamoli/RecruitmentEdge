@@ -25,7 +25,12 @@ class IndexAiDocumentJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 3600;
 
-    public function __construct(private readonly int $documentId) {}
+    public function __construct(private readonly int $documentId)
+    {
+        // Phase 8.3: embedding calls are slow provider work — the background (intelligence)
+        // worker, never the one delivering candidate messages and notifications.
+        $this->onQueue(config('intelligence.queue', 'intelligence'));
+    }
 
     public function uniqueId(): string
     {

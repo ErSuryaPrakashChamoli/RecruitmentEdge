@@ -1,6 +1,12 @@
-# The web app, scheduler and queue worker share one image, env and storage volumes. Only `app`
+# The web app, scheduler and queue workers share one image, env and storage volumes. Only `app`
 # runs migrations on start (RUN_MIGRATIONS); the scheduler/queue containers set it to "false" so
 # they never race the app container's migration run.
+#
+# Queue topology (Phase 8.3 — see docs/phase-8-3-lifecycle-integrity.md): every application queue is
+# consumed. `queue` serves time-sensitive work (candidate messages, automation, in-app
+# notifications); `queue-background` serves slow provider calls (AI, embeddings, calendar and
+# job-board APIs, Outcome Loop / Hiring Memory capture) so they never delay the first. Both also
+# take `default` as a fallback. DB_QUEUE_RETRY_AFTER must stay above the longest worker --timeout.
 x-app-base: &app-base
   build:
     context: .
@@ -22,6 +28,7 @@ x-app-environment: &app-environment
   DB_DATABASE: ${DB_DATABASE:-recruitment_edge}
   DB_USERNAME: ${DB_USERNAME:-recruitment_edge}
   DB_PASSWORD: ${DB_PASSWORD:-secret}
+  DB_QUEUE_RETRY_AFTER: "330"
 
 services:
   app:
@@ -48,7 +55,20 @@ services:
   queue:
     <<: *app-base
     restart: unless-stopped
-    command: ["php", "artisan", "queue:work", "--tries=3"]
+    command: ["php", "artisan", "queue:work", "--queue=communications,automation,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+  queue-background:
+    <<: *app-base
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--queue=intelligence,integrations,default", "--tries=3", "--timeout=300", "--max-time=3600"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"

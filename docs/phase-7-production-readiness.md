@@ -54,18 +54,26 @@ Reviewed 2026-09-26 at the Phase 7 freeze, before Phase 8. Covers everything unc
 
 ## 4. Queue worker
 
-Run under Supervisor/systemd with automatic restart:
+Run under Supervisor/systemd with automatic restart. Phase 8.3 splits the work into two workers
+so slow provider calls never delay candidate messages (the shipped `docker-compose.yml` runs the
+same two services, `queue` and `queue-background`):
 
 ```bash
-php artisan queue:work --queue=automation,communications,integrations,intelligence,default --tries=3 --max-time=3600
+# time-sensitive: candidate messages, automation, in-app notifications
+php artisan queue:work --queue=communications,automation,default --tries=3 --timeout=120 --max-time=3600
+# slow provider work: AI, embeddings, calendar and job-board APIs, Outcome Loop / Hiring Memory capture
+php artisan queue:work --queue=intelligence,integrations,default --tries=3 --timeout=300 --max-time=3600
 ```
+
+Set `DB_QUEUE_RETRY_AFTER` above the longest `--timeout` (330), so a slow job is never handed to a
+second worker while it is still running.
 
 | Queue | Used by |
 |---|---|
 | `automation` | `RunAutomationExecutionJob` |
 | `communications` | `SendCommunicationJob`, `SendCandidateCommunications` listener |
 | `integrations` | `SyncInterviewCalendarJob`, `PublishJobDistributionJob` |
-| `intelligence` | `GenerateRoleDnaSuggestionsJob`, `SummarizeHiringMemoryJob`, `CaptureHiringMemory` listener |
+| `intelligence` | `GenerateRoleDnaSuggestionsJob`, `SummarizeHiringMemoryJob`, `SummarizeOutcomeInsightJob`, `IndexAiDocumentJob`, `ReindexKnowledgeArticleJob`, `CaptureHiringMemory` and `RecordHiringOutcomes` listeners |
 | `default` | Filament database notifications and anything unrouted |
 
 - Retries: AI jobs `tries = 2` (one retry after 60 s), then marked failed with an honest message. The uniqueness lock expires after 1 hour (`uniqueFor`).
