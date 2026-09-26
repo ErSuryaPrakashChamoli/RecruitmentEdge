@@ -9,6 +9,7 @@ use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewRoundNumber;
 use App\Enums\InterviewStatus;
+use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Exports\InterviewExporter;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Models\Employee;
@@ -40,6 +41,8 @@ use Illuminate\Support\Carbon;
 
 class InterviewsTable
 {
+    use GuardsDomainExceptions;
+
     public static function configure(Table $table): Table
     {
         return $table
@@ -393,27 +396,5 @@ class InterviewsTable
     {
         $record->update(['status' => InterviewStatus::Cancelled]);
         Notification::make()->title('Interview cancelled')->success()->send();
-    }
-
-    /**
-     * Runs a domain-service call, turning a DomainException into a danger notification and a Halt
-     * (see .ai/rules/resources-filament-pages.md) instead of a 500 page over the panel.
-     *
-     * @param  callable(): mixed  $callback
-     */
-    public static function guarded(string $failureTitle, callable $callback): mixed
-    {
-        try {
-            return $callback();
-        } catch (DomainException $e) {
-            Notification::make()
-                ->title($failureTitle)
-                ->body($e->getMessage())
-                ->danger()
-                ->persistent()
-                ->send();
-
-            throw new Halt;
-        }
     }
 }

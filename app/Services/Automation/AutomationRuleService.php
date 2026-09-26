@@ -1,0 +1,282 @@
+<?php
+
+namespace App\Services\Automation;
+
+use App\Enums\AutomationExecutionStatus;
+use App\Enums\AutomationRuleStatus;
+use App\Enums\AutomationScope;
+use App\Models\AuditLog;
+use App\Models\AutomationExecution;
+use App\Models\AutomationRule;
+use App\Models\AutomationRuleVersion;
+use App\Models\User;
+use DomainException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+/**
+ * The only writer of automation rules (Phase 6). Validates every save, freezes each changed
+ * configuration into an immutable version, and guards the lifecycle:
+ * Draft → Active (validated, permission- and scope-checked) ⇄ Paused → Archived.
+ * Rule edits and status changes are audited (Auditable + explicit lifecycle entries).
+ */
+class AutomationRuleService
+{
+    public function __construct(
+        private readonly AutomationRuleValidator $validator,
+        private readonly AutomationScopeResolver $scopes,
+        private readonly AutomationTemplateCatalog $templates,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function create(array $data, User $actor): AutomationRule
+    {
+        $rule = new AutomationRule($this->normalize($data));
+        $rule->key = $this->uniqueKey($data['key'] ?? $rule->name);
+        $rule->owner_id ??= $actor->id;
+        $rule->created_by = $actor->id;
+
+        $this->guardScope($rule, $actor);
+        $this->guardValid($rule);
+
+        return DB::transaction(function () use ($rule, $actor): AutomationRule {
+            $rule->save();
+            $this->snapshot($rule, $actor, 'Created');
+
+            return $rule;
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function update(AutomationRule $rule, array $data, User $actor, ?string $changeSummary = null): AutomationRule
+    {
+        if ($rule->status === AutomationRuleStatus::Archived) {
+            throw new DomainException('Archived rules cannot be edited — duplicate it instead.');
+        }
+
+        $before = $rule->configuration();
+        $rule->fill($this->normalize($data));
+
+        $this->guardScope($rule, $actor);
+        $this->guardValid($rule);
+
+        if ($rule->isActive() && ($errors = $this->validator->activationErrors($rule, $actor)) !== []) {
+            throw new DomainException('This rule is active, so the change must keep it valid: '.implode(' ', $errors));
+        }
+
+        return DB::transaction(function () use ($rule, $actor, $before, $changeSummary): AutomationRule {
+            $rule->save();
+
+            if ($rule->configuration() !== $before) {
+                $this->snapshot($rule, $actor, $changeSummary ?? 'Edited');
+            }
+
+            return $rule;
+        });
+    }
+
+    public function activate(AutomationRule $rule, User $actor): AutomationRule
+    {
+        if ($rule->status === AutomationRuleStatus::Archived) {
+            throw new DomainException('Archived rules cannot be activated.');
+        }
+
+        $errors = $this->validator->activationErrors($rule, $actor);
+
+        if ($errors !== []) {
+            throw new DomainException('This rule cannot be activated yet: '.implode(' ', $errors));
+        }
+
+        return $this->transition($rule, AutomationRuleStatus::Active, $actor, 'automation_rule_activated', ['activated_at' => now(), 'activated_by' => $actor->id]);
+    }
+
+    public function pause(AutomationRule $rule, User $actor): AutomationRule
+    {
+        if (! $rule->isActive()) {
+            throw new DomainException('Only an active rule can be paused.');
+        }
+
+        return $this->transition($rule, AutomationRuleStatus::Paused, $actor, 'automation_rule_paused');
+    }
+
+    /**
+     * Archiving also cancels the rule's pending runs and escalations.
+     */
+    public function archive(AutomationRule $rule, User $actor): AutomationRule
+    {
+        if ($rule->status === AutomationRuleStatus::Archived) {
+            return $rule;
+        }
+
+        $rule = $this->transition($rule, AutomationRuleStatus::Archived, $actor, 'automation_rule_archived');
+
+        AutomationExecution::query()
+            ->where('automation_rule_id', $rule->id)
+            ->where('status', AutomationExecutionStatus::Pending)
+            ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => 'Rule archived.', 'completed_at' => now()]);
+
+        $rule->escalations()->where('status', 'pending')->update(['status' => 'cancelled', 'outcome' => 'Rule archived.', 'processed_at' => now()]);
+
+        return $rule;
+    }
+
+    public function duplicate(AutomationRule $rule, User $actor): AutomationRule
+    {
+        $copy = $rule->replicate(['key', 'status', 'version', 'activated_at', 'activated_by', 'created_by']);
+        $copy->name = Str::limit($rule->name.' (copy)', 250, '');
+        $copy->key = $this->uniqueKey($rule->key.'-copy');
+        $copy->owner_id = $actor->id;
+        $copy->created_by = $actor->id;
+        $copy->status = AutomationRuleStatus::Draft;
+        $copy->version = 0;
+
+        if (! $this->scopes->canUseScope($actor, $copy->scope_type, $copy->scope_id)) {
+            $copy->scope_type = AutomationScope::Recruiter;
+            $copy->scope_id = $actor->employee_id;
+        }
+
+        return DB::transaction(function () use ($copy, $actor, $rule): AutomationRule {
+            $copy->save();
+            $this->snapshot($copy, $actor, "Duplicated from {$rule->key} v{$rule->version}");
+
+            return $copy;
+        });
+    }
+
+    /**
+     * Creates a Draft rule from a catalogue template. Users without organization rights get the
+     * rule scoped to their own team.
+     */
+    public function createFromTemplate(string $templateKey, User $actor): AutomationRule
+    {
+        $template = $this->templates->find($templateKey) ?? throw new DomainException('Unknown automation template.');
+        $organization = $this->scopes->canUseScope($actor, AutomationScope::Organization, null);
+
+        $rule = $this->create([
+            ...$template['rule'],
+            'name' => $template['name'],
+            'description' => $template['description'],
+            'key' => $template['key'],
+            'scope_type' => $organization ? AutomationScope::Organization->value : AutomationScope::Team->value,
+            'scope_id' => $organization ? null : $actor->employee_id,
+        ], $actor);
+
+        $rule->forceFill(['template_key' => $template['key'], 'template_version' => $template['version']])->saveQuietly();
+
+        return $rule;
+    }
+
+    /**
+     * Built-in notifications:dispatch-alerts checks that an Active template-based rule now does
+     * instead (see AutomationTemplateCatalog::replaces_alert).
+     *
+     * @return array<int, string>
+     */
+    public function supersededAlertChecks(): array
+    {
+        return AutomationRule::query()
+            ->active()
+            ->whereNotNull('template_key')
+            ->pluck('template_key')
+            ->flatMap(fn (string $key) => $this->templates->find($key)['replaces_alert'] ?? [])
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalize(array $data): array
+    {
+        $allowed = [
+            'name', 'description', 'priority', 'trigger', 'conditions', 'actions', 'timing', 'escalation',
+            'scope_type', 'scope_id', 'owner_id', 'effective_from', 'effective_until', 'failure_behavior',
+            'cooldown_minutes', 'max_executions_per_day', 'max_executions_per_entity',
+        ];
+
+        $data = array_intersect_key($data, array_flip($allowed));
+
+        if (array_key_exists('actions', $data)) {
+            $data['actions'] = array_values(array_filter((array) $data['actions'], fn ($action) => filled($action['type'] ?? null)));
+        }
+
+        if (array_key_exists('escalation', $data)) {
+            $data['escalation'] = [
+                'steps' => array_values((array) ($data['escalation']['steps'] ?? [])),
+                'stop_conditions' => $data['escalation']['stop_conditions'] ?? null,
+            ];
+        }
+
+        if (($data['scope_type'] ?? null) === AutomationScope::Organization->value) {
+            $data['scope_id'] = null;
+        }
+
+        return $data;
+    }
+
+    private function guardValid(AutomationRule $rule): void
+    {
+        $errors = $this->validator->errors($rule);
+
+        if ($errors !== []) {
+            throw new DomainException(implode(' ', $errors));
+        }
+    }
+
+    private function guardScope(AutomationRule $rule, User $actor): void
+    {
+        if (! $this->scopes->canUseScope($actor, $rule->scope_type, $rule->scope_id)) {
+            throw new DomainException($rule->scope_type === AutomationScope::Organization
+                ? 'Organization-wide rules need the "automation.organization" permission — scope the rule to your team instead.'
+                : 'You can only create rules for records inside your own team.');
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function transition(AutomationRule $rule, AutomationRuleStatus $status, User $actor, string $auditAction, array $extra = []): AutomationRule
+    {
+        $previous = $rule->status;
+        $rule->forceFill(['status' => $status, ...$extra])->save();
+
+        AuditLog::record($rule, $auditAction, ['status' => $previous->value], ['status' => $status->value, 'version' => $rule->version, 'by_user_id' => $actor->id]);
+
+        return $rule;
+    }
+
+    private function snapshot(AutomationRule $rule, User $actor, string $summary): AutomationRuleVersion
+    {
+        $version = $rule->versions()->create([
+            'version' => $rule->version + 1,
+            'snapshot' => $rule->configuration(),
+            'change_summary' => $summary,
+            'created_by' => $actor->id,
+        ]);
+
+        $rule->forceFill(['version' => $version->version])->saveQuietly();
+        $rule->unsetRelation('currentVersion');
+
+        return $version;
+    }
+
+    private function uniqueKey(string $source): string
+    {
+        $base = Str::limit(Str::slug($source, '_') ?: 'rule', 70, '');
+        $key = $base;
+        $suffix = 2;
+
+        while (AutomationRule::query()->where('key', $key)->exists()) {
+            $key = "{$base}_{$suffix}";
+            $suffix++;
+        }
+
+        return $key;
+    }
+}
