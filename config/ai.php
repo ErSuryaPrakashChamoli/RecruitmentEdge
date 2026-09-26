@@ -190,4 +190,21 @@ return [
         'min_similarity' => (float) env('AI_RAG_MIN_SIMILARITY', 0.15),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Privacy boundary (Phase 8.1)
+    |--------------------------------------------------------------------------
+    |
+    | Every provider-bound payload passes AiEgressGuard. `redact` removes personal data and logs
+    | the counts; `block` throws (used in tests so regressions fail loudly). There is no "off":
+    | any other value behaves as `redact`. See docs/phase-8-1-ai-data-boundary.md.
+    |
+    */
+
+    'privacy' => [
+        'egress_mode' => env('AI_PRIVACY_EGRESS_MODE', 'redact'),
+        'feedback_excerpt_chars' => (int) env('AI_PRIVACY_FEEDBACK_EXCERPT_CHARS', 1000),
+        'research_query_max_chars' => 120,
+    ],
+
 ];
