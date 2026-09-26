@@ -87,6 +87,27 @@ class RoleAssignmentService
     }
 
     /**
+     * Gives a newly provisioned login the base role (identity.base_role) and nothing else — the
+     * provisioning path of candidate conversion and rehire, which needs employees.convert, never
+     * users.manage. Privileged roles are only ever granted through syncUserRoles().
+     */
+    public function grantBaseRole(User $user, string $source, ?User $actor): void
+    {
+        $base = Role::byKeyOrFail((string) config('identity.base_role'));
+
+        if ($user->roles()->whereKey($base->getKey())->exists() && $user->roles()->count() === 1) {
+            return;
+        }
+
+        $before = $user->roles()->pluck('name')->sort()->values()->all();
+        $user->syncRoles([$base]);
+
+        AuditLog::record($user, 'roles_changed', ['roles' => $before], ['roles' => [$base->name], 'source' => $source, 'by_user_id' => $actor?->id]);
+        StaffAccessService::invalidateDecisions();
+        UserRoleChanged::dispatch($user->id, $actor?->id);
+    }
+
+    /**
      * @param  array<int, int|string>  $permissionIds
      */
     public function createRole(string $name, array $permissionIds, User $actor): Role

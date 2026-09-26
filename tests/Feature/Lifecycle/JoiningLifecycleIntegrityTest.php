@@ -66,10 +66,10 @@ test('an authorised converter in scope converts once, audited; outside the hiera
 
     expect(fn () => $this->conversion->convert($this->joining, $outsider))->toThrow(DomainException::class, 'employees.convert');
 
-    $employee = $this->conversion->convert($this->joining, $this->vpHrUser);
+    $employee = $this->conversion->convert($this->joining, $this->vpHrUser, $this->vpHr->id);
 
     expect(AuditLog::query()->where('action', 'employee_converted')->sole()->changes)->toMatchArray(['employee_id' => $employee->id, 'by_user_id' => $this->vpHrUser->id])
-        ->and(fn () => $this->conversion->convert($this->joining->fresh(), $this->vpHrUser))->toThrow(DomainException::class, 'already been converted')
+        ->and(fn () => $this->conversion->convert($this->joining->fresh(), $this->vpHrUser, $this->vpHr->id))->toThrow(DomainException::class, 'already been converted')
         ->and(Employee::query()->where('candidate_id', $this->joining->candidateApplication->candidate_id)->count())->toBe(1);
 });
 

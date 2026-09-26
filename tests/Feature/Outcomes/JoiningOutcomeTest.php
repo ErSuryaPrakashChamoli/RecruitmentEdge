@@ -111,7 +111,7 @@ test('converting to an employee raises an ids-only event', function (): void {
     app(CandidateJoiningService::class)->markJoined($this->joining, now()->subDay());
     Event::fake([EmployeeConvertedFromCandidate::class]);
 
-    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), joiningOutcomeConverter());
+    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), $converter = joiningOutcomeConverter(), $converter->employee_id);
 
     Event::assertDispatched(EmployeeConvertedFromCandidate::class, fn (EmployeeConvertedFromCandidate $event) => $event->employeeId === $employee->id
         && $event->applicationId === $this->application->id
@@ -121,7 +121,7 @@ test('converting to an employee raises an ids-only event', function (): void {
 test('conversion links the employee to the hiring snapshot', function (): void {
     app(CandidateJoiningService::class)->markJoined($this->joining, now()->subDay());
 
-    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), joiningOutcomeConverter());
+    $employee = app(EmployeeConversionService::class)->convert($this->joining->fresh(), $converter = joiningOutcomeConverter(), $converter->employee_id);
 
     expect(HiringOutcomeSnapshot::query()->sole()->employee_id)->toBe($employee->id);
 });

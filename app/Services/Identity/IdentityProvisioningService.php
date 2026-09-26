@@ -4,14 +4,19 @@ namespace App\Services\Identity;
 
 use App\Enums\EmployeeStatus;
 use App\Events\UserProvisioned;
+use App\Mail\StaffAccessInvitation;
 use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
+use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 
 /**
  * Phase 8.4: the only way a staff login is created or linked to an employee record (User.employee_id
@@ -60,6 +65,79 @@ class IdentityProvisioningService
             UserProvisioned::dispatch($user->id, $employee?->id, 'administrator', $actor->id);
 
             return $user;
+        });
+    }
+
+    /**
+     * Candidate conversion: the new employee's login — linked to the employee, the base role only,
+     * access Active, and a random password nobody knows; the person sets their own through the
+     * invitation link (sent after commit). Needs employees.convert (checked by the conversion),
+     * never users.manage.
+     */
+    public function provisionLogin(Employee $employee, User $actor, string $source): User
+    {
+        if (blank($employee->email)) {
+            throw new DomainException('A login needs an email address. Add the candidate\'s email before converting.');
+        }
+
+        if (User::query()->where('email', $employee->email)->exists()) {
+            throw new DomainException('Another login already uses this email address. Resolve it under Administration → Users first.');
+        }
+
+        $user = User::query()->create([
+            'name' => $employee->fullName(),
+            'email' => $employee->email,
+            'password' => Str::password(40),
+            'employee_id' => $employee->id,
+        ]);
+
+        $this->roles->grantBaseRole($user, $source, $actor);
+
+        AuditLog::record($user, 'user_provisioned', null, ['employee_id' => $employee->id, 'source' => $source, 'by_user_id' => $actor->id]);
+        Log::info('identity.user_provisioned', ['user_id' => $user->id, 'employee_id' => $employee->id, 'source' => $source, 'actor_id' => $actor->id]);
+        UserProvisioned::dispatch($user->id, $employee->id, $source, $actor->id);
+
+        $this->sendInvitationAfterCommit($user);
+
+        return $user;
+    }
+
+    /**
+     * Rehire: the person's existing login comes back — through StaffAccessService, so from Revoked
+     * it gets the base role only (earlier roles are never restored blindly) — or a new login is
+     * provisioned if there was none.
+     */
+    public function reactivateForRehire(Employee $employee, User $actor): User
+    {
+        $user = User::query()->where('employee_id', $employee->id)->first();
+
+        if ($user === null) {
+            return $this->provisionLogin($employee, $actor, 'rehire');
+        }
+
+        app(StaffAccessService::class)->restore($user, null, 'Rehired', 'rehire');
+
+        if ($user->roles()->doesntExist()) {
+            $this->roles->grantBaseRole($user, 'rehire', $actor);
+        }
+
+        $this->sendInvitationAfterCommit($user);
+
+        return $user;
+    }
+
+    /**
+     * A single-use link to set a password (the panel's password-reset page), sent once the
+     * surrounding transaction has committed.
+     */
+    public function sendInvitationAfterCommit(User $user): void
+    {
+        DB::afterCommit(function () use ($user): void {
+            $token = Password::broker()->createToken($user);
+            $url = Filament::getPanel('admin')->getResetPasswordUrl($token, $user);
+
+            Mail::to($user->email)->send(new StaffAccessInvitation($user->name, $url, (int) config('auth.passwords.users.expire', 60)));
+            AuditLog::record($user, 'invitation_sent', null, null);
         });
     }
 

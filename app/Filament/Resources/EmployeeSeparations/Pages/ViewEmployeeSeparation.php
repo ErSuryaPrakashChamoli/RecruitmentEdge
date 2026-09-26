@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\EmployeeSeparations\Pages;
 
+use App\Filament\Resources\EmployeeSeparations\Actions\CancelSeparationAction;
 use App\Filament\Resources\EmployeeSeparations\EmployeeSeparationResource;
+use App\Models\EmployeeSeparation;
 use Filament\Actions\EditAction;
 use Filament\Resources\Pages\ViewRecord;
 
@@ -13,7 +15,8 @@ class ViewEmployeeSeparation extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            EditAction::make(),
+            EditAction::make()->visible(fn (EmployeeSeparation $record): bool => $record->cancelled_at === null && (bool) auth()->user()?->can('update', $record)),
+            CancelSeparationAction::make(),
         ];
     }
 

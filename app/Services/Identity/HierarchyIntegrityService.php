@@ -51,14 +51,33 @@ class HierarchyIntegrityService
         $this->assertAssignableManager($managerId, $actor);
         $this->assertNotProtected($employee, $actor);
 
+        return $this->place($employee, $managerId, $actor);
+    }
+
+    /**
+     * Places an employee under a manager for a lifecycle operation that has already authorised it
+     * (candidate conversion, rehire: the manager was checked with assertAssignableManager). Same
+     * locking, cycle check and audit as a reassignment.
+     */
+    public function placeUnder(Employee $employee, int $managerId, User $actor): Employee
+    {
+        return $this->place($employee, $managerId, $actor);
+    }
+
+    private function place(Employee $employee, ?int $managerId, User $actor): Employee
+    {
         return DB::transaction(function () use ($employee, $managerId, $actor): Employee {
             // Lock both rows in a fixed order, then re-check the tree: a concurrent move of the
             // other one waits here and then sees the updated closure table.
             $ids = collect([$employee->id, $managerId])->filter()->sort()->values();
             Employee::withTrashed()->whereKey($ids)->orderBy('id')->lockForUpdate()->get();
 
-            $locked = Employee::query()->whereKey($employee->id)->firstOrFail();
+            $locked = Employee::withTrashed()->whereKey($employee->id)->firstOrFail();
             $old = $locked->reports_to_id;
+
+            if ($old === $managerId) {
+                return $employee;
+            }
 
             if ($managerId !== null && ($managerId === $locked->id || DB::table('employee_hierarchy')->where('ancestor_id', $locked->id)->where('descendant_id', $managerId)->exists())) {
                 $this->refuse($locked, $actor, 'cycle', "{$locked->fullName()} cannot report to someone in their own reporting line.");

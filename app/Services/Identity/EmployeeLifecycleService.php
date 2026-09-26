@@ -4,13 +4,17 @@ namespace App\Services\Identity;
 
 use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
+use App\Enums\OutcomeState;
 use App\Events\EmployeeSeparated;
+use App\Events\SeparationCancelled;
 use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\EmployeeSeparation;
+use App\Models\HiringOutcome;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Outcomes\OutcomeService;
 use Closure;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
@@ -88,6 +92,34 @@ class EmployeeLifecycleService
             }
 
             return $locked;
+        });
+    }
+
+    /**
+     * Rehire: a separated employee record becomes current again (restored if it was deleted). The
+     * separation stays in history; the new employment starts with the new joining. Called by
+     * candidate conversion, which has authorised the rehire (employees.convert in scope).
+     */
+    public function rehire(Employee $employee, User $actor, string $reason): Employee
+    {
+        return DB::transaction(function () use ($employee, $actor, $reason): Employee {
+            $locked = $this->lockEmployee($employee);
+
+            if ($locked->status !== EmployeeStatus::Separated) {
+                throw new DomainException('Only a separated employee can be rehired.');
+            }
+
+            if ($locked->trashed()) {
+                $locked->restore();
+            }
+
+            $this->setStatus($locked, EmployeeStatus::Active, $reason, $actor);
+            AuditLog::record($locked, 'employee_rehired', null, ['previous_separation_id' => $locked->separations()->whereNull('cancelled_at')->latest('id')->value('id'), 'by_user_id' => $actor->id]);
+            Log::info('identity.rehire', ['employee_id' => $locked->id, 'actor_id' => $actor->id]);
+
+            $employee->setRawAttributes($locked->getAttributes(), true);
+
+            return $employee;
         });
     }
 
@@ -189,6 +221,92 @@ class EmployeeLifecycleService
 
             return $locked->refresh();
         }));
+    }
+
+    /**
+     * Cancels a separation (withdrawn resignation, recorded in error). Needs
+     * employees.separation.cancel in scope and a reason; the record is kept, marked cancelled.
+     *
+     * - Not yet effective: nothing else changes — the person never lost anything.
+     * - Already effective: employment is Active again, but access is NOT restored automatically
+     *   (it stays Revoked; an administrator restores it deliberately, which grants the base role
+     *   only); paused automation stays paused; outcomes recorded from this separation are voided
+     *   through OutcomeService (history kept) and re-evaluated.
+     * - A separation followed by a rehire can no longer be cancelled.
+     */
+    public function cancelSeparation(EmployeeSeparation $separation, User $actor, string $reason): EmployeeSeparation
+    {
+        $reason = trim($reason);
+
+        if ($reason === '') {
+            throw new DomainException('A reason is required to cancel a separation.');
+        }
+
+        $employee = Employee::withTrashed()->find($separation->employee_id);
+
+        if (! $actor->can('employees.separation.cancel') || ! $this->hierarchy->canView($actor, $employee)) {
+            throw new DomainException('Cancelling a separation needs employees.separation.cancel for an employee in your hierarchy.');
+        }
+
+        if ($actor->employee_id !== null && (int) $actor->employee_id === (int) $separation->employee_id) {
+            throw new DomainException('You cannot cancel your own separation.');
+        }
+
+        return DB::transaction(function () use ($separation, $actor, $reason): EmployeeSeparation {
+            /** @var EmployeeSeparation $locked */
+            $locked = EmployeeSeparation::query()->whereKey($separation->id)->lockForUpdate()->firstOrFail();
+            $employee = $this->lockEmployee($locked->employee()->withTrashed()->firstOrFail());
+
+            if ($locked->cancelled_at !== null) {
+                throw new DomainException('This separation is already cancelled.');
+            }
+
+            $wasEffective = $locked->effective_applied_at !== null;
+
+            if ($wasEffective && $employee->status !== EmployeeStatus::Separated) {
+                throw new DomainException('This person has been rehired since; the separation is part of their history and cannot be cancelled.');
+            }
+
+            LifecycleGuard::allow(fn () => $locked->forceFill(['cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancellation_reason' => mb_substr($reason, 0, 255), 'updated_by' => $actor->id])->save());
+
+            if ($wasEffective) {
+                $this->setStatus($employee, EmployeeStatus::Active, 'Separation cancelled: '.$reason, $actor);
+                $this->voidOutcomesFrom($locked, $actor, $reason);
+            }
+
+            $user = $this->userOf($employee);
+
+            AuditLog::record($locked, 'separation_cancelled', null, [
+                'employee_id' => $employee->id,
+                'was_effective' => $wasEffective,
+                'reason' => $reason,
+                'access_status' => $user?->access_status?->value,
+                'access_review_required' => $user !== null && $user->access_status !== AccessState::Active,
+                'by_user_id' => $actor->id,
+            ]);
+            Log::info('identity.separation_cancelled', ['employee_id' => $employee->id, 'separation_id' => $locked->id, 'was_effective' => $wasEffective, 'actor_id' => $actor->id]);
+
+            SeparationCancelled::dispatch($employee->id, $locked->id, $wasEffective, $actor->id);
+
+            return $locked->refresh();
+        });
+    }
+
+    /**
+     * Outcomes recorded from a separation that turned out not to have happened are voided — a new,
+     * audited version; the original stays in history (Phase 8.2 correction semantics).
+     */
+    private function voidOutcomesFrom(EmployeeSeparation $separation, User $actor, string $reason): void
+    {
+        $outcomes = app(OutcomeService::class);
+
+        HiringOutcome::query()
+            ->current()
+            ->where('source_type', $separation->getMorphClass())
+            ->where('source_id', $separation->id)
+            ->where('state', '!=', OutcomeState::Void->value)
+            ->get()
+            ->each(fn (HiringOutcome $outcome) => $outcomes->void($outcome, 'Separation cancelled: '.$reason, $actor));
     }
 
     /**

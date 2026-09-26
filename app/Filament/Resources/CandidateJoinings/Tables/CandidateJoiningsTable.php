@@ -4,12 +4,16 @@ namespace App\Filament\Resources\CandidateJoinings\Tables;
 
 use App\Enums\CandidateStage;
 use App\Enums\DocumentStatus;
+use App\Enums\EmployeeStatus;
 use App\Enums\JoiningStatus;
 use App\Filament\Exports\CandidateJoiningExporter;
 use App\Models\CandidateJoining;
+use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\User;
 use App\Services\CandidateJoiningService;
 use App\Services\EmployeeConversionService;
+use App\Services\HierarchyService;
 use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -241,12 +245,25 @@ class CandidateJoiningsTable
             ->color('success')
             ->icon('heroicon-o-user-plus')
             ->visible(fn (CandidateJoining $record) => $record->status === JoiningStatus::Joined
-                && $record->candidateApplication->candidate->employee === null
+                // Phase 8.4: a separated former employee is rehired through the same action.
+                && in_array($record->candidateApplication->candidate->employee?->status, [null, EmployeeStatus::Separated], true)
                 && (bool) auth()->user()?->can('convert', $record))
             ->requiresConfirmation()
-            ->action(function (CandidateJoining $record): void {
+            ->modalDescription('Creates the employee record and their login (base role, set-password email), places them under the chosen manager and closes their candidate portal login.')
+            // Phase 8.4: the new employee's manager is part of the conversion (hierarchy scope).
+            ->schema([
+                Select::make('manager_id')
+                    ->label('Reports to')
+                    ->options(fn (): array => self::assignableManagers())
+                    ->default(fn (CandidateJoining $record): ?int => $record->candidateApplication->requisition?->reporting_manager_id
+                        ?? $record->candidateApplication->requisition?->hiring_manager_id
+                        ?? $record->candidateApplication->requisition?->manager_id)
+                    ->searchable()
+                    ->required(),
+            ])
+            ->action(function (CandidateJoining $record, array $data): void {
                 try {
-                    $employee = app(EmployeeConversionService::class)->convert($record, auth()->user());
+                    $employee = app(EmployeeConversionService::class)->convert($record, auth()->user(), (int) $data['manager_id']);
                 } catch (DomainException $e) {
                     Notification::make()->title('Candidate could not be converted')->body($e->getMessage())->danger()->persistent()->send();
 
@@ -255,6 +272,26 @@ class CandidateJoiningsTable
 
                 Notification::make()->title("Converted to employee {$employee->employee_code}")->success()->send();
             });
+    }
+
+    /**
+     * Current employees inside the converter's hierarchy (EmployeeConversionService re-checks).
+     *
+     * @return array<int, string>
+     */
+    private static function assignableManagers(): array
+    {
+        $user = auth()->user();
+        $visible = $user instanceof User ? app(HierarchyService::class)->visibleEmployeeIdsFor($user) : collect();
+
+        return Employee::query()
+            ->where('status', EmployeeStatus::Active->value)
+            ->when($visible !== null, fn ($query) => $query->whereIn('id', $visible))
+            ->orderBy('first_name')
+            ->limit(500)
+            ->get()
+            ->mapWithKeys(fn (Employee $employee) => [$employee->id => $employee->fullName().' ('.$employee->employee_code.')'])
+            ->all();
     }
 
     /**

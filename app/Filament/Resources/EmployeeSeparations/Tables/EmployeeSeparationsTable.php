@@ -27,6 +27,20 @@ class EmployeeSeparationsTable
                     ->label('Reason')
                     ->badge()
                     ->formatStateUsing(fn (EmployeeSeparation $record): string => $record->separation_reason->label()),
+                // Phase 8.4: where the separation is in its lifecycle.
+                TextColumn::make('lifecycle')
+                    ->label('Status')
+                    ->badge()
+                    ->state(fn (EmployeeSeparation $record): string => match (true) {
+                        $record->cancelled_at !== null => 'Cancelled',
+                        $record->effective_applied_at !== null => 'Effective',
+                        default => 'Scheduled',
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'Cancelled' => 'gray',
+                        'Effective' => 'danger',
+                        default => 'warning',
+                    }),
                 TextColumn::make('updated_at')
                     ->label('Last changed')
                     ->since()
