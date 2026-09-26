@@ -179,6 +179,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Approved actions (Phase 8.4)
+    |--------------------------------------------------------------------------
+    |
+    | A proposed write/external action must be approved by the person who asked for it within this
+    | many minutes, with the same authority (roles and hierarchy scope) they had when it was
+    | proposed. After that it expires and can never run — ask again.
+    |
+    */
+
+    'actions' => [
+        'pending_ttl_minutes' => (int) env('AI_ACTION_PENDING_TTL_MINUTES', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | RAG Chunking
     |--------------------------------------------------------------------------
     */

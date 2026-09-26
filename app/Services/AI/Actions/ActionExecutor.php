@@ -24,6 +24,8 @@ use Throwable;
  * reach run() via approve(), which is gated on ai.actions.execute, the tool's own permission, the
  * ai.features.actions_enabled flag, and a Pending status check — all re-evaluated at approval time,
  * since a permission or flag can change between the proposal and the click (spec section 26).
+ * Phase 8.4: only the requester may approve, within the approval window, with unchanged authority
+ * (ApprovalAuthority); otherwise the call is retired (Expired / Invalidated) and never runs.
  *
  * Phase 8.1: this is also the tool-output privacy boundary. Every result is passed through
  * AiPayloadSanitizer before it is persisted, appended to the conversation (and so replayed to the
@@ -37,6 +39,7 @@ class ActionExecutor
         private readonly ConfirmationGate $gate,
         private readonly ToolExecutionContext $toolContext,
         private readonly AiPayloadSanitizer $sanitizer,
+        private readonly ApprovalAuthority $authority,
     ) {}
 
     /**
@@ -61,6 +64,9 @@ class ActionExecutor
         if ($toolCall->status !== AiToolCallStatus::Pending) {
             throw new DomainException('This action has already been decided.');
         }
+
+        // Phase 8.4: an approval is never stronger than the requester's current authority.
+        $this->assertStillAuthorised($toolCall, $actor);
 
         $tool = $this->registry->find($toolCall->tool_name);
 
@@ -105,6 +111,8 @@ class ActionExecutor
             throw new DomainException('This action has already been decided.');
         }
 
+        $this->assertRequester($toolCall, $actor);
+
         if (! $this->claim($toolCall, AiToolCallStatus::Rejected, $actor)) {
             throw new DomainException('This action has already been decided.');
         }
@@ -130,6 +138,118 @@ class ActionExecutor
             'result_summary' => $summary,
             'status' => 'rejected',
         ]);
+    }
+
+    /**
+     * Phase 8.4: ends a pending call without running it — its approval window passed (Expired) or
+     * its requester's authority changed (Invalidated). Conditional, so it never races an approval;
+     * the conversation is told, so it can continue coherently. Returns false if already decided.
+     */
+    public function retire(AiToolCall $toolCall, AiToolCallStatus $status, string $reason): bool
+    {
+        $retired = AiToolCall::query()
+            ->whereKey($toolCall->id)
+            ->where('status', AiToolCallStatus::Pending->value)
+            ->update(['status' => $status->value, 'invalidated_at' => now(), 'invalidation_reason' => mb_substr($reason, 0, 100)]) === 1;
+
+        if (! $retired) {
+            return false;
+        }
+
+        $toolCall->refresh();
+        $summary = $status === AiToolCallStatus::Expired
+            ? 'This action was not carried out: it was not approved in time. Ask again if it is still needed.'
+            : 'This action was not carried out: the access of the person who asked for it changed.';
+        $output = ['success' => false, 'error' => $summary];
+
+        $toolCall->result()->create(['output' => [$status->value => true], 'success' => false, 'error' => $summary]);
+        $this->appendToolOutputMessage($toolCall, $output);
+
+        AiActionLog::query()->create([
+            'user_id' => $toolCall->requested_by,
+            'conversation_id' => $toolCall->message->conversation_id,
+            'tool_name' => $toolCall->tool_name,
+            'risk_level' => $toolCall->risk_level,
+            'input' => $toolCall->arguments,
+            'output' => $output,
+            'result_summary' => $summary,
+            'status' => $status->value,
+        ]);
+
+        Log::info('identity.ai_action_'.$status->value, ['tool_call_id' => $toolCall->id, 'requested_by' => $toolCall->requested_by, 'reason' => $reason]);
+
+        return true;
+    }
+
+    /**
+     * Phase 8.4: invalidates every pending action $userId asked for (their access or roles changed).
+     */
+    public function invalidatePendingFor(int $userId, string $reason): int
+    {
+        return AiToolCall::query()
+            ->where('requested_by', $userId)
+            ->where('status', AiToolCallStatus::Pending->value)
+            ->get()
+            ->filter(fn (AiToolCall $call) => $this->retire($call, AiToolCallStatus::Invalidated, $reason))
+            ->count();
+    }
+
+    /**
+     * Phase 8.4: expires every pending action past its approval window.
+     */
+    public function expirePending(): int
+    {
+        $expired = 0;
+
+        AiToolCall::query()
+            ->where('status', AiToolCallStatus::Pending->value)
+            ->where('requires_confirmation', true)
+            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '<=', now()))
+            ->chunkById(200, function ($calls) use (&$expired): void {
+                foreach ($calls as $call) {
+                    $expired += $this->retire($call, AiToolCallStatus::Expired, 'expired') ? 1 : 0;
+                }
+            });
+
+        return $expired;
+    }
+
+    /**
+     * Only the person who asked may decide on their action — no one else's approval (a tampered
+     * conversation id, another tab) can make it run.
+     */
+    private function assertRequester(AiToolCall $toolCall, User $actor): void
+    {
+        $requester = $toolCall->requested_by ?? $toolCall->message->conversation->user_id;
+
+        if ((int) $requester !== (int) $actor->getKey()) {
+            Log::warning('identity.ai_authorization_denied', ['tool_call_id' => $toolCall->id, 'actor_id' => $actor->getKey(), 'reason' => 'not_requester']);
+
+            throw new DomainException('Only the person who asked for this action can decide on it.');
+        }
+    }
+
+    /**
+     * Re-checked immediately before execution: the approver is the requester, the approval window
+     * is still open, and the requester's authority (roles, employee, visible scope) is unchanged
+     * since the action was proposed. Anything else retires the action for good.
+     */
+    private function assertStillAuthorised(AiToolCall $toolCall, User $actor): void
+    {
+        $this->assertRequester($toolCall, $actor);
+
+        if ($toolCall->isExpired()) {
+            $this->retire($toolCall, AiToolCallStatus::Expired, 'expired');
+
+            throw new DomainException('This action expired before it was approved. Ask again if it is still needed.');
+        }
+
+        if ($toolCall->authority_fingerprint === null || ! hash_equals($toolCall->authority_fingerprint, $this->authority->fingerprint($actor))) {
+            $this->retire($toolCall, AiToolCallStatus::Invalidated, 'authority_changed');
+            Log::warning('identity.ai_authorization_denied', ['tool_call_id' => $toolCall->id, 'actor_id' => $actor->getKey(), 'reason' => 'authority_changed']);
+
+            throw new DomainException('Your access has changed since this action was proposed, so it was cancelled. Ask again if it is still needed.');
+        }
     }
 
     /**

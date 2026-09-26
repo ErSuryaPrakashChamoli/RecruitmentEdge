@@ -10,6 +10,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Actions\ApprovalAuthority;
 use App\Services\AI\Contracts\LLMProviderInterface;
 use Database\Seeders\RolePermissionSeeder;
 
@@ -28,6 +29,10 @@ beforeEach(function (): void {
         'risk_level' => 'write',
         'status' => 'pending',
         'requires_confirmation' => true,
+        // Phase 8.4: recorded like a real proposal (requester, approval window, authority).
+        'requested_by' => $this->approver->id,
+        'expires_at' => now()->addMinutes(30),
+        'authority_fingerprint' => app(ApprovalAuthority::class)->fingerprint($this->approver),
     ]);
 });
 
@@ -64,7 +69,7 @@ test('if the AI provider is unreachable after an approval, the decision stands a
     Pest\Laravel\actingAs($this->approver);
 
     Livewire\Livewire::test(AiCopilot::class)
-        ->set('conversationId', $this->toolCall->message->conversation_id)
+        ->call('switchConversation', $this->toolCall->message->conversation_id)
         ->call('approveToolCall', $this->toolCall->id)
         ->assertSee('Your decision was recorded');
 

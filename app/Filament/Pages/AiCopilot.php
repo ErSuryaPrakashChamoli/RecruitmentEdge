@@ -68,6 +68,8 @@ class AiCopilot extends Page
 
     protected static ?string $title = 'AI Recruitment Copilot';
 
+    // Phase 8.4: locked — only the page's own (owner-checked) methods may switch conversations.
+    #[Locked]
     public ?int $conversationId = null;
 
     public string $question = '';
@@ -157,8 +159,9 @@ class AiCopilot extends Page
                 'tool_calls' => $message->toolCalls->map(fn (AiToolCall $call) => [
                     'id' => $call->id,
                     'tool_name' => $call->tool_name,
-                    'status' => $call->status->value,
-                    'status_label' => $call->status->label(),
+                    // Phase 8.4: an action past its approval window shows as expired straight away.
+                    'status' => $call->status === AiToolCallStatus::Pending && $call->isExpired() ? AiToolCallStatus::Expired->value : $call->status->value,
+                    'status_label' => $call->status === AiToolCallStatus::Pending && $call->isExpired() ? AiToolCallStatus::Expired->label() : $call->status->label(),
                     'risk_level' => $call->risk_level->label(),
                     'requires_confirmation' => $call->requires_confirmation,
                     'arguments' => $call->arguments,
@@ -376,10 +379,16 @@ class AiCopilot extends Page
         return app(AiReferenceResolver::class);
     }
 
+    /**
+     * Phase 8.4: the call must belong to a conversation the signed-in user owns — a tampered
+     * conversation or tool-call id can never reach someone else's pending action.
+     */
     private function toolCallInCurrentConversation(int $toolCallId): ?AiToolCall
     {
         return AiToolCall::query()
-            ->whereHas('message', fn (Builder $message) => $message->where('conversation_id', $this->conversationId))
+            ->whereHas('message', fn (Builder $message) => $message
+                ->where('conversation_id', $this->conversationId)
+                ->whereHas('conversation', fn (Builder $conversation) => $conversation->where('user_id', $this->user()->id)))
             ->find($toolCallId);
     }
 

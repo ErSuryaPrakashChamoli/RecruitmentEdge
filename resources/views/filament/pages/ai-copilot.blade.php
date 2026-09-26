@@ -57,7 +57,7 @@
                                         <span @class([
                                             'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                                             'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' => $call['status'] === 'executed',
-                                            'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400' => in_array($call['status'], ['failed', 'rejected']),
+                                            'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400' => in_array($call['status'], ['failed', 'rejected', 'expired', 'invalidated']),
                                             'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400' => $call['status'] === 'pending',
                                         ])>{{ $call['status_label'] }} · {{ $call['risk_level'] }}</span>
                                     </div>

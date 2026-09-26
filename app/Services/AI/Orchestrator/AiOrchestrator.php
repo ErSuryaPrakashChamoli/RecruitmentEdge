@@ -9,6 +9,7 @@ use App\Models\AiMessage;
 use App\Models\AiToolCall;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Actions\ApprovalAuthority;
 use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\ToolRegistry;
@@ -38,6 +39,7 @@ class AiOrchestrator
         private readonly ConversationContextBuilder $contextBuilder,
         private readonly ActionExecutor $executor,
         private readonly KnowledgeBaseFallback $knowledgeBaseFallback,
+        private readonly ApprovalAuthority $approvalAuthority,
     ) {}
 
     public static function rateLimitKey(User $user): string
@@ -165,6 +167,7 @@ class AiOrchestrator
                     'risk_level' => 'read',
                     'status' => AiToolCallStatus::Failed,
                     'requires_confirmation' => false,
+                    'requested_by' => $user->id,
                 ]);
 
                 $toolCallRow->result()->create([
@@ -193,6 +196,10 @@ class AiOrchestrator
                 'risk_level' => $tool->riskLevel(),
                 'status' => AiToolCallStatus::Pending,
                 'requires_confirmation' => $requiresConfirmation,
+                // Phase 8.4: who asked, until when it may be approved, and with what authority.
+                'requested_by' => $user->id,
+                'expires_at' => $requiresConfirmation ? now()->addMinutes((int) config('ai.actions.pending_ttl_minutes', 30)) : null,
+                'authority_fingerprint' => $requiresConfirmation ? $this->approvalAuthority->fingerprint($user) : null,
             ]);
 
             if ($requiresConfirmation) {
