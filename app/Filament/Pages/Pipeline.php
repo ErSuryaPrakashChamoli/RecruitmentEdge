@@ -414,7 +414,7 @@ class Pipeline extends Page
             if ($pipelineStageId !== null) {
                 $service->moveToStage($application, RequisitionPipelineStage::query()->findOrFail($pipelineStageId), auth()->user()?->employee);
             } else {
-                $service->transitionTo($application, $column['dragStage'], auth()->user()?->employee);
+                $service->advance($application, $column['dragStage'], auth()->user()?->employee);
             }
         } catch (DomainException $e) {
             Notification::make()->title('Stage could not be updated')->body($e->getMessage())->danger()->send();

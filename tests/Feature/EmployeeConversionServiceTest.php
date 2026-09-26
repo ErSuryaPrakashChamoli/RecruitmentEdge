@@ -12,7 +12,7 @@ beforeEach(function (): void {
 test('converting a joined candidate creates an employee linked back to the candidate', function (): void {
     $candidate = Candidate::factory()->create(['full_name' => 'Rahul Sharma']);
     $joining = CandidateJoining::factory()->create(['status' => JoiningStatus::Joined]);
-    $joining->candidateApplication->update(['candidate_id' => $candidate->id]);
+    lifecycleFixture(fn () => $joining->candidateApplication->update(['candidate_id' => $candidate->id]));
 
     $employee = $this->service->convert($joining->fresh(['candidateApplication']));
 

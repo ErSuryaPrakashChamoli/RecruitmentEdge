@@ -34,14 +34,16 @@ class ApplicationsRelationManager extends RelationManager
                             ? RecruitmentRequisitionResource::applicationTargetQuery($query)
                             : $query,
                     )
-                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : null)
+                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : 'Use "Move to requisition" on the application to change it.')
                     ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
                     ->searchable()
                     ->preload(),
                 Select::make('recruiter_id')
                     ->relationship('recruiter', 'first_name')
                     ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName())
                     ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
                     ->searchable()
                     ->preload(),
                 Select::make('priority')

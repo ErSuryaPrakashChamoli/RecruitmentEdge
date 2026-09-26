@@ -31,7 +31,8 @@ class CandidateApplicationForm
                             ->default(now())
                             ->required(),
                         CandidatePicker::make()
-                            ->required(),
+                            ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create'),
                         Select::make('requisition_id')
                             ->relationship(
                                 'requisition',
@@ -40,8 +41,9 @@ class CandidateApplicationForm
                                     ? RecruitmentRequisitionResource::applicationTargetQuery($query)
                                     : $query,
                             )
-                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : null)
+                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : 'Use "Move to requisition" to change it.')
                             ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create')
                             ->searchable()
                             ->preload(),
                     ]),
@@ -53,6 +55,8 @@ class CandidateApplicationForm
                             ->relationship('recruiter', 'first_name')
                             ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName())
                             ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create')
+                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? null : 'Use "Reassign recruiter" to change it.')
                             ->searchable()
                             ->preload(),
                         Select::make('priority')

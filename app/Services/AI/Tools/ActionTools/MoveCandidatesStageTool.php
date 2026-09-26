@@ -73,7 +73,7 @@ class MoveCandidatesStageTool implements AiTool
 
         foreach ($applications as $application) {
             try {
-                $this->stageTransitions->transitionTo($application, $stage, $user->employee, $arguments['remarks'] ?? null);
+                $this->stageTransitions->advance($application, $stage, $user->employee, $arguments['remarks'] ?? null);
                 $moved[] = $application->id;
             } catch (DomainException $e) {
                 $failed[] = ['application_id' => $application->id, 'reason' => $e->getMessage()];

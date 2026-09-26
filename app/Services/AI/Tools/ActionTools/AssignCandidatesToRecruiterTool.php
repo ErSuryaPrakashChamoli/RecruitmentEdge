@@ -10,6 +10,8 @@ use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\ApplicationAssignmentService;
+use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -74,10 +76,15 @@ class AssignCandidatesToRecruiterTool implements AiTool
         }
 
         $updated = 0;
+        $service = app(ApplicationAssignmentService::class);
 
         foreach ($applications as $application) {
-            $application->forceFill(['recruiter_id' => $recruiter->id])->save();
-            $updated++;
+            try {
+                $service->reassignRecruiter($application, $recruiter, $user, 'Assigned through the Copilot');
+                $updated++;
+            } catch (DomainException) {
+                // Not allowed for this application (e.g. outside the user's reassign scope) — counted as not updated.
+            }
         }
 
         return ToolResult::ok(

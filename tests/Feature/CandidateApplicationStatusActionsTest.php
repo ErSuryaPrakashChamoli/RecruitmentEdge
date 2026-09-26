@@ -37,12 +37,12 @@ test('the Raise Offer action links to the offer form for an active application',
 });
 
 test('the Raise Offer action is hidden once an offer is accepted or the application is inactive', function (): void {
-    $this->application->forceFill(['current_stage' => CandidateStage::OfferAccepted])->save();
+    lifecycleFixture(fn () => $this->application->forceFill(['current_stage' => CandidateStage::OfferAccepted])->save());
 
     Livewire::test(ListCandidateApplications::class)
         ->assertActionHidden(TestAction::make('raiseOffer')->table($this->application));
 
-    $this->application->forceFill(['current_stage' => CandidateStage::Selected, 'status' => ApplicationStatus::Rejected])->save();
+    lifecycleFixture(fn () => $this->application->forceFill(['current_stage' => CandidateStage::Selected, 'status' => ApplicationStatus::Rejected])->save());
 
     Livewire::test(ListCandidateApplications::class)
         ->assertActionHidden(TestAction::make('raiseOffer')->table($this->application));

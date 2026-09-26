@@ -65,7 +65,7 @@ test('a user with offers.release can release an offer from the table', function 
 
 test('a service rule violation while releasing shows a notification instead of an error page', function (): void {
     actingAsOfferUser($this->recruiter, 'manager');
-    $this->application->forceFill(['status' => ApplicationStatus::Rejected])->save();
+    lifecycleFixture(fn () => $this->application->forceFill(['status' => ApplicationStatus::Rejected])->save());
 
     Livewire::test(ListOffers::class)
         ->callAction(TestAction::make('releaseOffer')->table($this->offer))

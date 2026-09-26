@@ -140,7 +140,7 @@ test('an online application sends the candidate an acknowledgement and alerts th
     app(CommunicationTemplateService::class)->create(['key' => 'application_received', 'name' => 'Received', 'channel' => 'email', 'subject' => 'Thanks', 'body' => 'We received {{application.reference}}', 'status' => TemplateStatus::Active]);
     $recruiter = User::factory()->create(['employee_id' => Employee::factory()->create()->id]);
     $application = eventApplication();
-    $application->forceFill(['recruiter_id' => $recruiter->employee_id])->save();
+    lifecycleFixture(fn () => $application->forceFill(['recruiter_id' => $recruiter->employee_id])->save());
 
     CandidateAppliedOnline::dispatch($application->fresh());
 

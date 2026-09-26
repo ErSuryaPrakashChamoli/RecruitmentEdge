@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\PipelineTemplateService;
 use Database\Factories\CandidateApplicationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -35,7 +36,23 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class CandidateApplication extends Model
 {
     /** @use HasFactory<CandidateApplicationFactory> */
-    use HasFactory, SoftDeletes;
+    use GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+
+    /**
+     * Phase 8.3: stage and status change only through StageTransitionService; the requisition,
+     * candidate and recruiter only through ApplicationAssignmentService.
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['current_stage', 'pipeline_stage_id', 'status', 'rejection_reason_id', 'dropout_reason_id', 'requisition_id', 'candidate_id', 'recruiter_id'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'StageTransitionService / ApplicationAssignmentService';
+    }
 
     /**
      * A new application on a requisition with a configured pipeline starts on the configured

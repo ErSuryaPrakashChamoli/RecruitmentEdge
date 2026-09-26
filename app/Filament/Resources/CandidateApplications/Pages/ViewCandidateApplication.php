@@ -58,6 +58,8 @@ class ViewCandidateApplication extends ViewRecord
             CandidateApplicationsTable::dropoutAction(),
             CandidateApplicationsTable::holdAction(),
             CandidateApplicationsTable::reactivateAction(),
+            CandidateApplicationsTable::moveToRequisitionAction(),
+            CandidateApplicationsTable::reassignRecruiterAction(),
             $this->talentSignalAction(),
             EditAction::make(),
         ];

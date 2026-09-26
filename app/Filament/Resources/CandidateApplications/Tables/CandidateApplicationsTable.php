@@ -6,11 +6,16 @@ use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
 use App\Filament\Exports\CandidateApplicationExporter;
+use App\Filament\Resources\Employees\EmployeeResource;
 use App\Filament\Resources\Offers\OfferResource;
+use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\CandidateApplication;
+use App\Models\Employee;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\RecruitmentRequisition;
 use App\Models\RequisitionPipelineStage;
+use App\Services\ApplicationAssignmentService;
 use App\Services\StageTransitionService;
 use DomainException;
 use Filament\Actions\Action;
@@ -104,6 +109,8 @@ class CandidateApplicationsTable
                 self::dropoutAction(),
                 self::holdAction(),
                 self::reactivateAction(),
+                self::moveToRequisitionAction(),
+                self::reassignRecruiterAction(),
                 EditAction::make(),
             ])
             ->toolbarActions([
@@ -209,9 +216,74 @@ class CandidateApplicationsTable
         }
 
         self::performTransition(
-            fn (StageTransitionService $service) => $service->transitionTo($record, CandidateStage::from($data['stage']), $actor, $remarks),
+            fn (StageTransitionService $service) => $service->advance($record, CandidateStage::from($data['stage']), $actor, $remarks),
             'Stage updated',
         );
+    }
+
+    /**
+     * Phase 8.3: moving an application to another requisition is explicit and reasoned — the edit
+     * form no longer changes the requisition (ApplicationAssignmentService enforces the rules).
+     */
+    public static function moveToRequisitionAction(): Action
+    {
+        return Action::make('moveToRequisition')
+            ->label('Move to requisition')
+            ->icon('heroicon-o-arrows-right-left')
+            ->color('gray')
+            ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
+                && (bool) auth()->user()?->can('move', $record))
+            ->schema(fn (CandidateApplication $record): array => [
+                Select::make('requisition_id')
+                    ->label('Destination requisition')
+                    ->options(fn (): array => RecruitmentRequisitionResource::applicationTargetQuery()
+                        ->whereKeyNot($record->requisition_id)
+                        ->orderBy('code')
+                        ->pluck('code', 'id')
+                        ->all())
+                    ->searchable()
+                    ->required(),
+                Textarea::make('reason')->required()->rows(2)->maxLength(255),
+            ])
+            ->modalDescription('The application keeps its stage and history; open interviews, offers and a joining must be resolved first. The move is audited.')
+            ->action(fn (CandidateApplication $record, array $data) => self::performAssignment(
+                fn (ApplicationAssignmentService $service) => $service->moveToRequisition($record, RecruitmentRequisition::query()->findOrFail($data['requisition_id']), auth()->user(), $data['reason']),
+                'Application moved',
+            ));
+    }
+
+    public static function reassignRecruiterAction(): Action
+    {
+        return Action::make('reassignRecruiter')
+            ->label('Reassign recruiter')
+            ->icon('heroicon-o-user-group')
+            ->color('gray')
+            ->visible(fn (CandidateApplication $record): bool => (bool) auth()->user()?->can('reassign', $record))
+            ->schema([
+                Select::make('recruiter_id')
+                    ->label('New recruiter')
+                    ->options(fn (): array => EmployeeResource::getEloquentQuery()->orderBy('first_name')->get()->mapWithKeys(fn (Employee $employee) => [$employee->id => $employee->fullName()])->all())
+                    ->searchable()
+                    ->required(),
+                Textarea::make('reason')->rows(2)->maxLength(255),
+            ])
+            ->action(fn (CandidateApplication $record, array $data) => self::performAssignment(
+                fn (ApplicationAssignmentService $service) => $service->reassignRecruiter($record, Employee::query()->findOrFail($data['recruiter_id']), auth()->user(), $data['reason'] ?? null),
+                'Recruiter reassigned',
+            ));
+    }
+
+    public static function performAssignment(callable $change, string $successTitle): void
+    {
+        try {
+            $change(app(ApplicationAssignmentService::class));
+        } catch (DomainException $e) {
+            Notification::make()->title('Application could not be updated')->body($e->getMessage())->danger()->persistent()->send();
+
+            throw new Halt;
+        }
+
+        Notification::make()->title($successTitle)->success()->send();
     }
 
     public static function rejectAction(): Action

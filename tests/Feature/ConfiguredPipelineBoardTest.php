@@ -70,7 +70,7 @@ test('cards appear under their configured stage column', function (): void {
     $requisition = boardRequisition([$screen, $tech], $this->manager);
     $stages = $requisition->pipelineStages()->get()->keyBy('code');
     $application = CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'recruiter_id' => $this->manager->id, 'current_stage' => CandidateStage::Screened]);
-    $application->forceFill(['pipeline_stage_id' => $stages[$tech->code]->id])->save();
+    lifecycleFixture(fn () => $application->forceFill(['pipeline_stage_id' => $stages[$tech->code]->id])->save());
 
     $page = Livewire::test(Pipeline::class)->set('requisitionId', $requisition->id)->instance();
     [$first, $second] = $page->getColumns();

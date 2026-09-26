@@ -68,7 +68,7 @@ class MoveStageAction implements AutomationAction
         }
 
         try {
-            $this->transitions->transitionTo($application, $stage, null, 'Automation: '.$execution->rule?->name);
+            $this->transitions->advance($application, $stage, null, 'Automation: '.$execution->rule?->name);
         } catch (DomainException $e) {
             return ActionOutcome::failed('Stage move not allowed: '.$e->getMessage());
         }

@@ -11,6 +11,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RequisitionPipelineStage;
+use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +57,33 @@ class StageTransitionService
         $pipelineStage = $this->pipelineStageFor($application, $stage);
 
         return $this->writeMove($application, $stage, $pipelineStage, $actor, $remarks, false);
+    }
+
+    /**
+     * Phase 8.3: a user-, Copilot- or automation-initiated move to a canonical stage. On a
+     * requisition with a configured pipeline the move goes through moveToStage(), so the
+     * pipeline's rules (allowed transitions, non-skippable and terminal stages, required remarks)
+     * apply exactly as on the configured board; a legacy application without a pipeline keeps the
+     * canonical forward-only rule. transitionTo() stays reserved for domain services recording a
+     * fact that already happened (an interview scheduled, an offer released, a joining).
+     */
+    public function advance(CandidateApplication $application, CandidateStage $stage, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
+    {
+        if ($application->current_stage === $stage) {
+            throw new DomainException("The application is already at {$stage->label()}.");
+        }
+
+        if ($this->currentPipeline($application)->isEmpty()) {
+            return $this->transitionTo($application, $stage, $actor, $remarks);
+        }
+
+        $target = $this->pipelineStageFor($application, $stage);
+
+        if ($target === null) {
+            throw new DomainException("This requisition's pipeline has no stage for {$stage->label()}.");
+        }
+
+        return $this->moveToStage($application, $target, $actor, $remarks);
     }
 
     /**
@@ -279,7 +307,7 @@ class StageTransitionService
         $previousPipelineStageId = $application->pipeline_stage_id;
         $newPipelineStageId = $pipelineStage?->id ?? $previousPipelineStageId;
 
-        DB::transaction(function () use ($application, $stage, $previousStage, $previousPipelineStageId, $newPipelineStageId, $actor, $remarks, $override): void {
+        DB::transaction(fn () => LifecycleGuard::allow(function () use ($application, $stage, $previousStage, $previousPipelineStageId, $newPipelineStageId, $actor, $remarks, $override): void {
             $application->forceFill([
                 'current_stage' => $stage,
                 'pipeline_stage_id' => $newPipelineStageId,
@@ -304,7 +332,7 @@ class StageTransitionService
                     ['current_stage' => $stage->value, 'pipeline_stage_id' => $newPipelineStageId, 'reason' => $remarks],
                 );
             }
-        });
+        }));
 
         $application->unsetRelation('pipelineStage');
 
@@ -323,7 +351,7 @@ class StageTransitionService
     {
         $previousStatus = $application->status;
 
-        DB::transaction(function () use ($application, $status, $attributes, $actor, $remarks): void {
+        DB::transaction(fn () => LifecycleGuard::allow(function () use ($application, $status, $attributes, $actor, $remarks): void {
             $application->forceFill([
                 ...$attributes,
                 'status' => $status,
@@ -338,7 +366,7 @@ class StageTransitionService
                 'changed_by' => $actor?->id,
                 'remarks' => $remarks,
             ]);
-        });
+        }));
 
         CandidateStageChanged::dispatch(
             $application, $application->current_stage, $application->current_stage, $previousStatus, $status,
