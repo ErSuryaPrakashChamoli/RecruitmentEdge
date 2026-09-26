@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Enums\IncentivePayoutType;
 use Database\Factories\RecruiterIncentiveCalculationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,13 +19,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * period. `amount` is the originally calculated figure and is never edited in place once the
  * calculation leaves Calculated/PendingVerification — corrections after that point are
  * RecruiterIncentiveAdjustment rows; see effectiveAmount().
+ *
+ * `beneficiary_type` (Phase 4.1) says who the money is for: the application's recruiter, or — for
+ * ReferralJoining rules — the referring employee (`employee_referral_id` then links the referral).
+ * Recruiter-facing views (scorecards, team totals, statements) use scopeForRecruiters().
  */
 #[Fillable([
     'incentive_rule_id',
     'incentive_slab_id',
     'employee_id',
+    'beneficiary_type',
     'candidate_id',
     'candidate_application_id',
+    'employee_referral_id',
     'period_start',
     'period_end',
     'achievement',
@@ -38,10 +47,18 @@ class RecruiterIncentiveCalculation extends Model
     /** @use HasFactory<RecruiterIncentiveCalculationFactory> */
     use HasFactory;
 
+    /**
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'beneficiary_type' => 'recruiter',
+    ];
+
     protected function casts(): array
     {
         return [
             'status' => IncentiveCalculationStatus::class,
+            'beneficiary_type' => IncentiveBeneficiary::class,
             'period_start' => 'date',
             'period_end' => 'date',
             'retention_due_at' => 'date',
@@ -136,5 +153,33 @@ class RecruiterIncentiveCalculation extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(RecruiterIncentivePayment::class);
+    }
+
+    /**
+     * @return BelongsTo<EmployeeReferral, $this>
+     */
+    public function employeeReferral(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeReferral::class);
+    }
+
+    /**
+     * @param  Builder<RecruiterIncentiveCalculation>  $query
+     */
+    #[Scope]
+    protected function forBeneficiary(Builder $query, IncentiveBeneficiary $beneficiary): void
+    {
+        $query->where('beneficiary_type', $beneficiary);
+    }
+
+    /**
+     * Recruiter incentives only — excludes employee referral bonuses.
+     *
+     * @param  Builder<RecruiterIncentiveCalculation>  $query
+     */
+    #[Scope]
+    protected function forRecruiters(Builder $query): void
+    {
+        $query->where('beneficiary_type', IncentiveBeneficiary::Recruiter);
     }
 }

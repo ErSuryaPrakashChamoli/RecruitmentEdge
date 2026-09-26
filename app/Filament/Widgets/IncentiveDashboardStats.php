@@ -60,6 +60,7 @@ class IncentiveDashboardStats extends StatsOverviewWidget
     private function currentMonthCalculations(?Collection $employeeIds): Collection
     {
         return RecruiterIncentiveCalculation::query()
+            ->forRecruiters()
             ->whereDate('period_start', now()->startOfMonth())
             ->when($employeeIds !== null, fn ($query) => $query->whereIn('employee_id', $employeeIds))
             ->get();

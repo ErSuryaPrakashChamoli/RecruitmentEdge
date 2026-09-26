@@ -18,7 +18,7 @@
 </head>
 <body>
     <h1>{{ config('app.name') }}</h1>
-    <p class="subtitle">Incentive Statement &mdash; {{ $periodStart->format('F Y') }}</p>
+    <p class="subtitle">{{ ($beneficiary ?? \App\Enums\IncentiveBeneficiary::Recruiter) === \App\Enums\IncentiveBeneficiary::EmployeeReferrer ? 'Referral Bonus Statement' : 'Incentive Statement' }} &mdash; {{ $periodStart->format('F Y') }}</p>
 
     <table>
         <tr><th style="width: 25%">Recruiter</th><td>{{ $recruiter->fullName() }}</td></tr>

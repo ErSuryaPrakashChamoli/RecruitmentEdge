@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
@@ -42,12 +43,15 @@ class IncentiveStatementService
     /**
      * @return array{recruiter: Employee, periodStart: CarbonImmutable, periodEnd: CarbonImmutable, calculations: Collection<int, RecruiterIncentiveCalculation>, effectiveAmounts: array<int, float>, totalsByStatus: array<string, array{label: string, count: int, amount: float}>, earnedTotal: float, payments: Collection<int, RecruiterIncentivePayment>, paidTotal: float}
      */
-    public function periodStatement(Employee $recruiter, CarbonInterface $month): array
+    public function periodStatement(Employee $recruiter, CarbonInterface $month, IncentiveBeneficiary $beneficiary = IncentiveBeneficiary::Recruiter): array
     {
         $periodStart = CarbonImmutable::parse($month)->startOfMonth();
         $periodEnd = $periodStart->endOfMonth();
 
+        // A recruiter statement never includes referral bonuses the same person earned as a
+        // referrer, and a referral-bonus statement never includes recruiter incentives (Phase 4.1).
         $calculations = RecruiterIncentiveCalculation::query()
+            ->forBeneficiary($beneficiary)
             ->where('employee_id', $recruiter->id)
             ->whereDate('period_start', '>=', $periodStart)
             ->whereDate('period_start', '<=', $periodEnd)
@@ -102,12 +106,12 @@ class IncentiveStatementService
         return 'incentive-statement-'.str($code)->slug().'-'.$month->format('Y-m').'.pdf';
     }
 
-    public function streamPeriodStatement(Employee $recruiter, CarbonInterface $month): StreamedResponse
+    public function streamPeriodStatement(Employee $recruiter, CarbonInterface $month, IncentiveBeneficiary $beneficiary = IncentiveBeneficiary::Recruiter): StreamedResponse
     {
         return $this->exporter->streamPdf(
             $this->filename($recruiter, $month),
             'pdf.incentive-statement-period',
-            $this->periodStatement($recruiter, $month),
+            [...$this->periodStatement($recruiter, $month, $beneficiary), 'beneficiary' => $beneficiary],
         );
     }
 
