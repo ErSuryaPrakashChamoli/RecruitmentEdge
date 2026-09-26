@@ -285,8 +285,20 @@ class AiCopilot extends Page
     {
         $stillPending = $toolCall->message->toolCalls()->where('status', AiToolCallStatus::Pending)->exists();
 
-        if (! $stillPending) {
+        if ($stillPending) {
+            return;
+        }
+
+        // Phase 8.3: the decision is already committed. If the provider is unreachable for the
+        // follow-up answer, say so plainly instead of an error page that looks like the action
+        // failed (and invites approving it again).
+        try {
             app(AiOrchestrator::class)->continueTurn($this->conversation(), $this->user());
+        } catch (AiRateLimitExceededException $e) {
+            $this->addSystemError($e->getMessage());
+        } catch (\Throwable $e) {
+            report($e);
+            $this->addSystemError('Your decision was recorded, but the AI service is temporarily unavailable to continue the conversation.');
         }
     }
 

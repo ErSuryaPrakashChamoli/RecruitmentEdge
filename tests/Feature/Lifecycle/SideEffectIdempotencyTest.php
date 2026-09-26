@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Pages\AiCopilot;
 use App\Jobs\RunAutomationExecutionJob;
 use App\Models\AiActionLog;
 use App\Models\AiConversation;
@@ -9,6 +10,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Contracts\LLMProviderInterface;
 use Database\Seeders\RolePermissionSeeder;
 
 beforeEach(function (): void {
@@ -52,4 +54,20 @@ test('a call already approved cannot then be rejected by a stale request', funct
 
 test('the automation job\'s uniqueness lock expires so a lost job cannot block retries', function (): void {
     expect((new RunAutomationExecutionJob(1))->uniqueFor)->toBe(3600);
+});
+
+test('if the AI provider is unreachable after an approval, the decision stands and the user is told plainly', function (): void {
+    $this->mock(LLMProviderInterface::class, function ($mock): void {
+        $mock->shouldReceive('isConfigured')->andReturn(true);
+        $mock->shouldReceive('complete')->andThrow(new RuntimeException('connection refused'));
+    });
+    Pest\Laravel\actingAs($this->approver);
+
+    Livewire\Livewire::test(AiCopilot::class)
+        ->set('conversationId', $this->toolCall->message->conversation_id)
+        ->call('approveToolCall', $this->toolCall->id)
+        ->assertSee('Your decision was recorded');
+
+    expect($this->toolCall->fresh()->status->value)->toBe('executed')
+        ->and(AuditLog::query()->where('action', 'application_reassigned')->count())->toBe(1);
 });

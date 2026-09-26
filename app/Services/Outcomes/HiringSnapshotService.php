@@ -47,6 +47,12 @@ class HiringSnapshotService
         $startPoint = (string) RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
         $start = RecruitmentAnalyticsService::timeToHireStart($application, $startPoint);
         $timeToHire = $start !== null ? (int) $start->copy()->startOfDay()->diffInDays($joinedOn->copy()->startOfDay()) : null;
+
+        // Phase 8.3: a start date after the joining date is bad source data — time to hire is
+        // unknown, never negative (and never a failed capture).
+        if ($timeToHire !== null && $timeToHire < 0) {
+            [$start, $timeToHire] = [null, null];
+        }
         $required = collect($requisition?->skills ?? [])->map(fn ($skill) => IntelligenceText::skillKey((string) $skill));
         $skills = collect($candidate->skills ?? [])->map(fn ($skill) => IntelligenceText::skillKey((string) $skill))->unique()->values();
 

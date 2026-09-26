@@ -56,6 +56,7 @@ class HiringMemoryService
         $startPoint = (string) RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
         $start = $joining?->actual_doj !== null ? RecruitmentAnalyticsService::timeToHireStart($application, $startPoint) : null;
         $days = $start !== null ? (int) $start->copy()->startOfDay()->diffInDays($joining->actual_doj->copy()->startOfDay()) : null;
+        $days = $days !== null && $days >= 0 ? $days : null;
 
         $facts = [
             ...$this->requisitionFacts($application->requisition),

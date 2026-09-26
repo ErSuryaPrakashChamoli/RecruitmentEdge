@@ -21,6 +21,7 @@ use App\Services\Intelligence\TalentSignalService;
 use App\Services\InterviewSchedulingService;
 use App\Services\InterviewService;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DateTimePicker;
@@ -58,10 +59,14 @@ class ViewCandidateApplication extends ViewRecord
             CandidateApplicationsTable::dropoutAction(),
             CandidateApplicationsTable::holdAction(),
             CandidateApplicationsTable::reactivateAction(),
-            CandidateApplicationsTable::moveToRequisitionAction(),
-            CandidateApplicationsTable::reassignRecruiterAction(),
             $this->talentSignalAction(),
             EditAction::make(),
+            // Phase 8.3: moving an application and reassigning its recruiter are explicit operations,
+            // grouped so the header keeps its width.
+            ActionGroup::make([
+                CandidateApplicationsTable::moveToRequisitionAction(),
+                CandidateApplicationsTable::reassignRecruiterAction(),
+            ])->label('Reassign')->icon('heroicon-o-arrows-right-left')->button()->color('gray'),
         ];
     }
 
