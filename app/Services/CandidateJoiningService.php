@@ -197,6 +197,20 @@ class CandidateJoiningService
         return $joining;
     }
 
+    /**
+     * Phase 8.3 cascade: the candidate dropped out of the application while the joining was still
+     * pending — the joining records the same dropout (same reason) without re-closing the
+     * application. Only StageTransitionService's closure cascade calls this.
+     */
+    public function recordApplicationDropout(CandidateJoining $joining, RecruitmentRejectionReason $reason): CandidateJoining
+    {
+        $this->guardActive($joining);
+
+        LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save());
+
+        return $joining;
+    }
+
     private function guardActive(CandidateJoining $joining): void
     {
         if (in_array($joining->status, [JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout, JoiningStatus::Cancelled], true)) {

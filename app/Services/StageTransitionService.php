@@ -11,6 +11,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RequisitionPipelineStage;
+use App\Services\Lifecycle\ApplicationClosureCascade;
 use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
 use Illuminate\Support\Collection;
@@ -267,7 +268,14 @@ class StageTransitionService
             }
         }
 
-        return $this->writeStatus($application, $status, [$reasonColumn => $reason->id], $actor, $remarks ?? $status->label().': '.$reason->name);
+        // Phase 8.3: the closure and its cascade (open interviews, offers, joining) are one fact.
+        return DB::transaction(function () use ($application, $status, $reasonColumn, $reason, $actor, $remarks): CandidateApplication {
+            $this->writeStatus($application, $status, [$reasonColumn => $reason->id], $actor, $remarks ?? $status->label().': '.$reason->name);
+
+            app(ApplicationClosureCascade::class)->close($application, $status, $reason, $actor);
+
+            return $application;
+        });
     }
 
     private function guardConfiguredMove(CandidateApplication $application, ?RequisitionPipelineStage $current, RequisitionPipelineStage $target, ?string $remarks): void
