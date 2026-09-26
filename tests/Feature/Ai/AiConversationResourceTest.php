@@ -25,7 +25,7 @@ beforeEach(function (): void {
     $call->result()->create(['output' => ['summary' => 'Found 3 application(s) stuck for 14+ days.'], 'success' => true]);
 });
 
-test('an ai.manage user can list conversations and review one\'s messages, tool calls, and results', function (): void {
+test('an ai.conversations.view user can list conversations and review one\'s messages, tool calls, and results', function (): void {
     $admin = User::factory()->create();
     $admin->assignRole('chro');
 
@@ -43,7 +43,7 @@ test('an ai.manage user can list conversations and review one\'s messages, tool 
         ->assertSee('Found 3 application(s) stuck for 14+ days.');
 });
 
-test('users without ai.manage cannot open the conversation review screen, even for their own conversation', function (): void {
+test('users without ai.conversations.view cannot open the conversation review screen, even for their own conversation', function (): void {
     $this->owner->assignRole('recruiter');
 
     actingAs($this->owner)->get('/admin/ai-conversations')->assertForbidden();

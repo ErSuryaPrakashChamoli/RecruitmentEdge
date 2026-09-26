@@ -7,6 +7,8 @@ use App\Filament\Resources\AiConversations\Pages\ViewAiConversation;
 use App\Filament\Resources\AiConversations\Schemas\AiConversationInfolist;
 use App\Filament\Resources\AiConversations\Tables\AiConversationsTable;
 use App\Models\AiConversation;
+use App\Models\User;
+use App\Services\AI\Privacy\AiConversationVisibility;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -39,9 +41,14 @@ class AiConversationResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
+        $query = parent::getEloquentQuery()
             ->with('user')
             ->withCount('messages');
+        $viewer = auth()->user();
+
+        return $viewer instanceof User
+            ? app(AiConversationVisibility::class)->scope($query, $viewer)
+            : $query->whereRaw('1 = 0');
     }
 
     public static function table(Table $table): Table

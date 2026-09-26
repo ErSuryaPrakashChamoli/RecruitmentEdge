@@ -83,6 +83,7 @@ class RolePermissionSeeder extends Seeder
         'intelligence.risks.manage',
         'intelligence.memory.view',
         'intelligence.memory.manage',
+        'ai.conversations.view',
     ];
 
     /**
@@ -102,6 +103,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_5_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_6_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_7_ROLE_PERMISSIONS['vp_hr'],
+            ...self::PHASE_8_1_ROLE_PERMISSIONS['vp_hr'],
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
@@ -234,6 +236,16 @@ class RolePermissionSeeder extends Seeder
         'recruiter' => [
             'intelligence.view', 'intelligence.rediscover',
         ],
+    ];
+
+    /**
+     * Phase 8.1: reviewing other users' AI conversations and AI action logs is its own permission,
+     * separate from ai.manage and audit.view, and hierarchy-scoped. chro holds it through '*'.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const array PHASE_8_1_ROLE_PERMISSIONS = [
+        'vp_hr' => ['ai.conversations.view'],
     ];
 
     public function run(): void
