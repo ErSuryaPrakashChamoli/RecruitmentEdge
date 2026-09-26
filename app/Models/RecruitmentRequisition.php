@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CandidateStage;
 use App\Enums\EmploymentType;
+use App\Enums\JoiningStatus;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Models\Concerns\GuardsLifecycleAttributes;
@@ -216,8 +217,9 @@ class RecruitmentRequisition extends Model
     }
 
     /**
-     * Stages that count an opening as filled: Joined or any later stage (Documents Completed,
-     * Onboarding Completed), derived from the canonical CandidateStage order.
+     * Pipeline stages at or beyond Joined (Documents Completed, Onboarding Completed), derived from
+     * the canonical CandidateStage order. Phase 8.3: no longer the definition of a filled opening
+     * (see filledOpeningsCount) — kept for stage-based exclusions such as Talent Rediscovery.
      *
      * @return array<int, string>
      */
@@ -230,10 +232,6 @@ class RecruitmentRequisition extends Model
             ->all();
     }
 
-    /**
-     * Uses a preloaded `filled_openings_count` (see scopeWithFilledOpeningsCount) when present so
-     * list tables don't run one count query per row.
-     */
     /**
      * Requisitions a user may see: those where someone in their hierarchy is a reporting, hiring,
      * assistant or line manager, VP HR, creator or assigned recruiter (all, with
@@ -261,13 +259,19 @@ class RecruitmentRequisition extends Model
         });
     }
 
+    /**
+     * Filled openings (Phase 8.3 definition): applications whose joining record is marked Joined.
+     * The joining record is the completed-hire anchor — an application sitting at the Joined
+     * pipeline stage without one does not count. Uses a preloaded `filled_openings_count` (see
+     * scopeWithFilledOpeningsCount) when present so list tables don't run one query per row.
+     */
     public function filledOpeningsCount(): int
     {
         if (array_key_exists('filled_openings_count', $this->attributes)) {
             return (int) $this->attributes['filled_openings_count'];
         }
 
-        return $this->applications()->whereIn('current_stage', self::filledStageValues())->count();
+        return $this->applications()->whereHas('joining', fn (Builder $joining) => $joining->where('status', JoiningStatus::Joined->value))->count();
     }
 
     /**
@@ -277,7 +281,7 @@ class RecruitmentRequisition extends Model
     protected function withFilledOpeningsCount(Builder $query): void
     {
         $query->withCount([
-            'applications as filled_openings_count' => fn (Builder $applications) => $applications->whereIn('current_stage', self::filledStageValues()),
+            'applications as filled_openings_count' => fn (Builder $applications) => $applications->whereHas('joining', fn (Builder $joining) => $joining->where('status', JoiningStatus::Joined->value)),
         ]);
     }
 

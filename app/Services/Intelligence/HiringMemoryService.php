@@ -4,7 +4,7 @@ namespace App\Services\Intelligence;
 
 use App\Enums\ApplicationStatus;
 use App\Enums\AutomationExecutionStatus;
-use App\Enums\CandidateStage;
+use App\Enums\JoiningStatus;
 use App\Enums\MemoryType;
 use App\Enums\OfferStatus;
 use App\Models\AuditLog;
@@ -17,8 +17,10 @@ use App\Models\Offer;
 use App\Models\OutcomeInsight;
 use App\Models\RecruiterAction;
 use App\Models\RecruitmentRequisition;
+use App\Models\RecruitmentSetting;
 use App\Models\User;
 use App\Services\Intelligence\Data\EvidenceItem;
+use App\Services\RecruitmentAnalyticsService;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -48,11 +50,12 @@ class HiringMemoryService
     {
         $application->loadMissing(['candidate.source', 'requisition.designation', 'requisition.department', 'requisition.location', 'recruiter', 'interviews']);
         $candidate = $application->candidate;
-        // Phase 8.2: the joining record is the source of truth for when a hire happened.
-        $joinedAt = $joining?->actual_doj
-            ?? $application->stageHistory()->where('new_stage', CandidateStage::Joined)->latest('created_at')->value('created_at')
-            ?? now();
-        $days = $application->application_date !== null ? (int) $application->application_date->diffInDays($joinedAt) : null;
+        // Phase 8.3: time to hire uses the joining record (actual joining date) and the configured
+        // start point — the same definition as the Outcome Loop. Without a joining it is unknown,
+        // never inferred from the pipeline stage.
+        $startPoint = (string) RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
+        $start = $joining?->actual_doj !== null ? RecruitmentAnalyticsService::timeToHireStart($application, $startPoint) : null;
+        $days = $start !== null ? (int) $start->copy()->startOfDay()->diffInDays($joining->actual_doj->copy()->startOfDay()) : null;
 
         $facts = [
             ...$this->requisitionFacts($application->requisition),
@@ -66,6 +69,7 @@ class HiringMemoryService
             'origin_channel' => $application->origin_channel,
             'recruiter_id' => $application->recruiter_id,
             'days_to_hire' => $days,
+            'time_to_hire_start_point' => $days !== null ? $startPoint : null,
             'interview_rounds' => $application->interviews->count(),
             'stage_days' => $this->stageDurations($application),
         ];
@@ -142,7 +146,7 @@ class HiringMemoryService
     {
         $requisition->loadMissing(['designation', 'department', 'location']);
         $applicationIds = $requisition->applications()->pluck('id');
-        $hires = $requisition->applications()->whereIn('current_stage', RecruitmentRequisition::filledStageValues())->with('candidate.source')->get();
+        $hires = $requisition->applications()->whereHas('joining', fn ($joining) => $joining->where('status', JoiningStatus::Joined->value))->with('candidate.source')->get();
         $offers = Offer::query()->whereIn('candidate_application_id', $applicationIds)->pluck('status');
 
         $facts = [

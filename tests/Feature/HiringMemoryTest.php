@@ -33,7 +33,8 @@ test('a hire is captured with its facts when the candidate joins, once', functio
     $application->candidate->update(['skills' => ['PHP', 'SQL'], 'source_id' => CandidateSource::factory()->create(['name' => 'LinkedIn'])->id, 'email' => 'secret@example.com']);
 
     app(StageTransitionService::class)->transitionTo($application->fresh(), CandidateStage::Joined);
-    app(HiringMemoryService::class)->captureHire($application->fresh());
+    $joining = CandidateJoining::factory()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Joined, 'actual_doj' => now()]);
+    app(HiringMemoryService::class)->captureHire($application->fresh(), $joining);
 
     $memory = HiringMemoryRecord::query()->sole();
 
@@ -41,6 +42,7 @@ test('a hire is captured with its facts when the candidate joins, once', functio
         ->and($memory->facts['skills'])->toBe(['PHP', 'SQL'])
         ->and($memory->facts['source'])->toBe('LinkedIn')
         ->and($memory->facts['days_to_hire'])->toBe(30)
+        ->and($memory->facts['time_to_hire_start_point'])->toBe('candidate_applied')
         ->and(json_encode($memory->facts))->not->toContain('secret@example.com')
         ->and($memory->evidence()->count())->toBeGreaterThan(0);
 });

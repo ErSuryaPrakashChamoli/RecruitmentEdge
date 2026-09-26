@@ -41,6 +41,7 @@ class RecruitmentRequisitionsTable
                     ->sortable(),
                 TextColumn::make('filled_openings_count')
                     ->label('Filled')
+                    ->tooltip('Filled openings: applications whose joining record is marked Joined (the pipeline stage alone does not count).')
                     ->state(fn (RecruitmentRequisition $record): string => "{$record->filledOpeningsCount()} / {$record->openings}")
                     ->badge()
                     ->color(fn (RecruitmentRequisition $record): string => $record->filledOpeningsCount() >= $record->openings ? 'success' : 'gray'),

@@ -1,12 +1,14 @@
 <?php
 
 use App\Enums\CandidateStage;
+use App\Enums\JoiningStatus;
 use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\EditRecruitmentRequisition;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\ListRecruitmentRequisitions;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Filament\Resources\RecruitmentRequisitions\RelationManagers\ApplicationsRelationManager;
 use App\Models\CandidateApplication;
+use App\Models\CandidateJoining;
 use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
@@ -118,21 +120,22 @@ test('lifecycle actions are available on the edit page header', function (): voi
     expect($requisition->refresh()->status)->toBe(RequisitionStatus::Open);
 });
 
-test('filled openings count joined and later stages, not earlier ones', function (): void {
+test('filled openings count applications with a joining record marked Joined — never the pipeline stage alone (Phase 8.3)', function (): void {
     $requisition = RecruitmentRequisition::factory()->create(['openings' => 5]);
 
-    foreach ([CandidateStage::OfferAccepted, CandidateStage::JoiningConfirmed, CandidateStage::Joined, CandidateStage::DocumentsCompleted, CandidateStage::OnboardingCompleted] as $stage) {
-        CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'current_stage' => $stage]);
+    foreach ([JoiningStatus::Joined, JoiningStatus::Joined, JoiningStatus::Confirmed, JoiningStatus::NoShow, JoiningStatus::Cancelled] as $status) {
+        CandidateJoining::factory()->create(['status' => $status, 'candidate_application_id' => CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'current_stage' => CandidateStage::Joined])->id]);
     }
+    CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'current_stage' => CandidateStage::OnboardingCompleted]);
 
-    expect($requisition->filledOpeningsCount())->toBe(3)
-        ->and($requisition->remainingOpenings())->toBe(2)
-        ->and(RecruitmentRequisition::query()->withFilledOpeningsCount()->find($requisition->id)->filledOpeningsCount())->toBe(3);
+    expect($requisition->filledOpeningsCount())->toBe(2)
+        ->and($requisition->remainingOpenings())->toBe(3)
+        ->and(RecruitmentRequisition::query()->withFilledOpeningsCount()->find($requisition->id)->filledOpeningsCount())->toBe(2);
 });
 
 test('the table and edit page show requested vs filled positions', function (): void {
     $requisition = RecruitmentRequisition::factory()->create(['openings' => 4]);
-    CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'current_stage' => CandidateStage::Joined]);
+    CandidateJoining::factory()->create(['status' => JoiningStatus::Joined, 'candidate_application_id' => CandidateApplication::factory()->create(['requisition_id' => $requisition->id, 'current_stage' => CandidateStage::Joined])->id]);
 
     actingAs($this->chro);
 
