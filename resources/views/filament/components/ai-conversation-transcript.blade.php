@@ -2,10 +2,17 @@
     /** @var \App\Models\AiConversation $conversation */
     $conversation = $getRecord();
     $messages = $conversation->messages()->with(['toolCalls.result', 'toolCalls.approver'])->get();
-    $pretty = fn ($value) => json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    // Phase 8.1: reference codes are resolved to names for the reviewer's own hierarchy only.
+    $viewer = auth()->user();
+    $resolver = app(\App\Services\AI\Privacy\AiReferenceResolver::class);
+    $pretty = fn ($value) => json_encode(is_array($value) ? $resolver->resolveStructure($value, $viewer) : $value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 @endphp
 
 <div class="flex flex-col gap-4">
+    @if ($conversation->isLegacy())
+        <p class="text-xs text-gray-500 dark:text-gray-400" role="status">Recorded before the AI privacy boundary (Phase 8.1) — kept unchanged as a read-only historical record.</p>
+    @endif
+
     @forelse ($messages as $message)
         <div
             wire:key="ai-transcript-message-{{ $message->id }}"
@@ -33,7 +40,7 @@
                 @else
                     {{-- AI/user text is never trusted as raw HTML (prompt-injection defence). --}}
                     <div class="prose prose-sm dark:prose-invert mt-2 max-w-none">
-                        {!! \Illuminate\Support\Str::markdown($message->content, ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
+                        {!! \Illuminate\Support\Str::markdown($resolver->resolve($message->content, $viewer, markdown: true), ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
                     </div>
                 @endif
             @endif

@@ -24,11 +24,30 @@ class AiConversation extends Model
     /** @use HasFactory<AiConversationFactory> */
     use HasFactory;
 
+    /**
+     * The AI privacy boundary new conversations are created under (Phase 8.1). Conversations
+     * without one predate it: they remain viewable, but are read-only and never rewritten.
+     */
+    public const int PRIVACY_VERSION = 1;
+
+    protected static function booted(): void
+    {
+        static::creating(function (AiConversation $conversation): void {
+            $conversation->privacy_version ??= self::PRIVACY_VERSION;
+        });
+    }
+
+    public function isLegacy(): bool
+    {
+        return $this->privacy_version === null;
+    }
+
     protected function casts(): array
     {
         return [
             'status' => AiConversationStatus::class,
             'last_message_at' => 'datetime',
+            'privacy_version' => 'integer',
         ];
     }
 

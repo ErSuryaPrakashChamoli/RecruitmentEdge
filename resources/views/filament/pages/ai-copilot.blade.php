@@ -65,6 +65,15 @@
                                     @if ($call['status'] === 'pending')
                                         <p class="mt-1 text-gray-600 dark:text-gray-400">This action needs your approval before it runs.</p>
 
+                                        @if ($call['preview'] !== [])
+                                            {{-- Resolved for you only; the AI never receives these names or addresses. --}}
+                                            <ul class="mt-1 list-disc ps-4 text-gray-700 dark:text-gray-300" data-approval-preview>
+                                                @foreach ($call['preview'] as $line)
+                                                    <li>{{ $line }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+
                                         @if ($this->canApproveActions())
                                             <div class="mt-2 flex gap-2">
                                                 <button
@@ -117,6 +126,11 @@
                 </div>
             @endif
 
+            @if ($this->isLegacyConversation())
+                <div class="border-t border-gray-200 p-3 text-sm text-gray-600 dark:border-white/10 dark:text-gray-400" role="status">
+                    {{ \App\Services\AI\Orchestrator\AiOrchestrator::LEGACY_CONVERSATION_MESSAGE }}
+                </div>
+            @else
             <form wire:submit="ask" class="flex items-end gap-2 border-t border-gray-200 p-3 dark:border-white/10">
                 <textarea
                     wire:model="question"
@@ -132,6 +146,10 @@
                     class="fi-btn rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
                 >Send</button>
             </form>
+            <p class="px-3 pb-3 text-xs text-gray-500 dark:text-gray-400">
+                The AI works with reference codes (e.g. CAND-2026-000123); names are shown here only for records you can see.
+            </p>
+            @endif
         </div>
     </div>
 </x-filament-panels::page>
