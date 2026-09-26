@@ -133,15 +133,27 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
 
         try {
             $response = $this->request()->post('/responses', $payload);
-            $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
-            $text = $this->extractOutputText($response->json() ?? []);
-
-            return $text !== null ? (json_decode($text, true) ?? []) : [];
         } catch (Throwable $e) {
             Log::error('AI structured() call failed', ['exception' => $e->getMessage()]);
 
-            return [];
+            throw new AiProviderUnavailableException('The OpenAI request failed: '.$e->getMessage(), 0, $e);
         }
+
+        // An HTTP error or unparseable output is a failed call, not an empty answer — see
+        // GeminiProvider::structured().
+        if ($response->failed()) {
+            throw new AiProviderUnavailableException("OpenAI returned HTTP {$response->status()}.");
+        }
+
+        $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
+        $text = $this->extractOutputText($response->json() ?? []);
+        $decoded = $text !== null ? json_decode($text, true) : null;
+
+        if (! is_array($decoded)) {
+            throw new AiProviderUnavailableException('OpenAI returned no valid JSON for a structured request.');
+        }
+
+        return $decoded;
     }
 
     /**

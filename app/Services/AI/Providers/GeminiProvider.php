@@ -124,15 +124,27 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
 
         try {
             $response = $this->request()->post("/models/{$model}:generateContent", $payload);
-            $this->lastUsage = $this->usageFromMetadata($response->json('usageMetadata') ?? []);
-            $text = $this->extractText($response->json() ?? []);
-
-            return $text !== null ? (json_decode($text, true) ?? []) : [];
         } catch (Throwable $e) {
             Log::error('Gemini structured() call failed', ['exception' => $e->getMessage()]);
 
-            return [];
+            throw new AiProviderUnavailableException('The Gemini request failed: '.$e->getMessage(), 0, $e);
         }
+
+        // An HTTP error (e.g. 503 overloaded) or unparseable output is a failed call, not an empty
+        // answer — throwing lets AiGateway log it as an error and callers retry or report it.
+        if ($response->failed()) {
+            throw new AiProviderUnavailableException("Gemini returned HTTP {$response->status()}.");
+        }
+
+        $this->lastUsage = $this->usageFromMetadata($response->json('usageMetadata') ?? []);
+        $text = $this->extractText($response->json() ?? []);
+        $decoded = $text !== null ? json_decode($text, true) : null;
+
+        if (! is_array($decoded)) {
+            throw new AiProviderUnavailableException('Gemini returned no valid JSON for a structured request.');
+        }
+
+        return $decoded;
     }
 
     /**
