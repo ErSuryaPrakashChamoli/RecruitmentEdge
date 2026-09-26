@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
+use App\Enums\MeetingProvider;
 use App\Models\Concerns\Auditable;
 use Database\Factories\InterviewFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -22,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'mode',
     'location',
     'meeting_link',
+    'meeting_provider',
+    'external_meeting_id',
     'status',
     'result',
     'rejection_reason_id',
@@ -42,6 +45,7 @@ class Interview extends Model
             'status' => InterviewStatus::class,
             'result' => InterviewResult::class,
             'scheduled_at' => 'datetime',
+            'meeting_provider' => MeetingProvider::class,
         ];
     }
 
@@ -75,6 +79,14 @@ class Interview extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * @return HasMany<InterviewCalendarEvent, $this>
+     */
+    public function calendarEvents(): HasMany
+    {
+        return $this->hasMany(InterviewCalendarEvent::class);
     }
 
     /**

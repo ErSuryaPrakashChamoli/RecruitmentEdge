@@ -7,7 +7,6 @@ use App\Enums\InterviewMode;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
-use App\Services\AI\Calendar\Contracts\CalendarProviderInterface;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
@@ -18,18 +17,16 @@ use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
- * EXTERNAL risk: scheduling an interview commits interviewer time and (once a real
- * CalendarProviderInterface implementation exists) may send external calendar invites. Creation
- * goes through InterviewService::schedule() — the same path as every Filament surface, so the
- * stage sync and notifications match — then best-effort syncs to CalendarProviderInterface, which
- * is a no-op NullCalendarProvider until a real calendar credential is configured.
+ * EXTERNAL risk: scheduling an interview commits interviewer time and may send external calendar
+ * invites and candidate messages. Creation goes through InterviewService::schedule() — the same
+ * path as every Filament surface — whose InterviewScheduled event drives calendar sync and
+ * candidate communications (Phase 5), so the AI path never calls a provider directly.
  */
 class ScheduleInterviewTool implements AiTool
 {
     use ScopesToHierarchy;
 
     public function __construct(
-        private readonly CalendarProviderInterface $calendar,
         private readonly InterviewService $interviews,
     ) {}
 
@@ -117,13 +114,6 @@ class ScheduleInterviewTool implements AiTool
         }
 
         $roundLabel = $interview->round_name ?? "Round {$interview->round_number}";
-
-        $this->calendar->createEvent(
-            title: "Interview: {$application->candidate?->full_name} - {$roundLabel}",
-            start: $scheduledAt,
-            end: $scheduledAt->copy()->addHour(),
-            attendeeEmails: array_filter([$interviewer->email]),
-        );
 
         return ToolResult::ok(
             data: ['entity_type' => 'Interview', 'entity_ids' => [$interview->id]],

@@ -19,8 +19,13 @@ class RecruitmentCostForm
                 Select::make('cost_type')
                     ->options(collect(RecruitmentCostType::cases())->mapWithKeys(fn (RecruitmentCostType $t) => [$t->value => $t->label()]))
                     ->required(),
+                Select::make('campaign_id')
+                    ->label('Recruitment campaign')
+                    ->relationship('recruitmentCampaign', 'name')
+                    ->searchable()
+                    ->preload(),
                 TextInput::make('campaign')
-                    ->label('Campaign (optional)'),
+                    ->label('Campaign note (optional)'),
                 TextInput::make('amount')
                     ->numeric()
                     ->required(),

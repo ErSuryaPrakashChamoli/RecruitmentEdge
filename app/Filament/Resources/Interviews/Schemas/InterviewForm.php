@@ -6,6 +6,7 @@ use App\Enums\ApplicationStatus;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewRoundName;
 use App\Enums\InterviewRoundNumber;
+use App\Enums\MeetingProvider;
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Models\CandidateApplication;
 use App\Models\Interview;
@@ -69,6 +70,11 @@ class InterviewForm
                 ->label('Meeting Link')
                 ->url()
                 ->maxLength(500),
+            Select::make('meeting_provider')
+                ->label('Create video meeting with')
+                ->options(MeetingProvider::options())
+                ->placeholder('No automatic meeting')
+                ->helperText('Google Meet / Teams need the interviewer\'s connected calendar; Zoom needs the Zoom integration. Leave the link empty to have one created.'),
             Textarea::make('remarks')
                 ->columnSpanFull(),
         ];

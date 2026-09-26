@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * none (org-wide overhead) — nothing is enforced at the DB level since org-wide costs are
  * legitimate too.
  */
-#[Fillable(['requisition_id', 'department_id', 'source_id', 'location_id', 'cost_type', 'campaign', 'amount', 'status', 'incurred_on', 'remarks', 'created_by'])]
+#[Fillable(['requisition_id', 'department_id', 'source_id', 'location_id', 'cost_type', 'campaign', 'campaign_id', 'amount', 'status', 'incurred_on', 'remarks', 'created_by'])]
 class RecruitmentCost extends Model
 {
     use Auditable;
@@ -49,6 +49,16 @@ class RecruitmentCost extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * The Phase 5 campaign this cost belongs to (the free-text `campaign` column predates it).
+     *
+     * @return BelongsTo<RecruitmentCampaign, $this>
+     */
+    public function recruitmentCampaign(): BelongsTo
+    {
+        return $this->belongsTo(RecruitmentCampaign::class, 'campaign_id');
     }
 
     /**
