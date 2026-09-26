@@ -6,8 +6,10 @@ use App\Enums\AiRiskLevel;
 use App\Enums\InterviewMode;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
+use App\Models\Interviewer;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\InterviewService;
@@ -24,7 +26,7 @@ use Throwable;
  */
 class ScheduleInterviewTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(
         private readonly InterviewService $interviews,
@@ -87,10 +89,17 @@ class ScheduleInterviewTool implements AiTool
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $interviewer = Employee::query()->find($arguments['interviewer_employee_id'] ?? null);
+        // Same rule as the interview form: an interviewer is someone on the active interviewer
+        // list — or, for the caller's own team, anyone in their hierarchy. An id the model makes
+        // up for anyone else is rejected without revealing whether that employee exists.
+        $interviewer = Employee::query()
+            ->where(fn (Builder $q) => $q
+                ->whereIn('id', Interviewer::query()->where('is_active', true)->select('employee_id'))
+                ->when($visibleIds !== null, fn (Builder $scoped) => $scoped->orWhereIn('id', $visibleIds), fn (Builder $all) => $all->orWhereNotNull('id')))
+            ->find($arguments['interviewer_employee_id'] ?? null);
 
         if ($interviewer === null) {
-            return ToolResult::fail('Interviewer not found.');
+            return ToolResult::fail('Interviewer not found, or not available to you.');
         }
 
         try {
@@ -117,7 +126,7 @@ class ScheduleInterviewTool implements AiTool
 
         return ToolResult::ok(
             data: ['entity_type' => 'Interview', 'entity_ids' => [$interview->id]],
-            summary: "Scheduled {$roundLabel} for {$application->candidate?->full_name} on {$scheduledAt->toDayDateTimeString()}.",
+            summary: "Scheduled {$roundLabel} for {$this->projector()->candidateRef($application->candidate)} on {$scheduledAt->toDayDateTimeString()}.",
             type: 'action_result',
         );
     }

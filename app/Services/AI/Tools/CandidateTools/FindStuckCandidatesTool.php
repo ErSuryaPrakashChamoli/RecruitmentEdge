@@ -7,6 +7,7 @@ use App\Enums\ApplicationStatus;
 use App\Models\CandidateApplication;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class FindStuckCandidatesTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -62,16 +63,17 @@ class FindStuckCandidatesTool implements AiTool
             ->where('status', ApplicationStatus::Active)
             ->where('last_activity_at', '<=', $threshold)
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
-            ->with(['candidate:id,full_name', 'requisition.designation', 'recruiter:id,first_name,last_name'])
+            ->with(['candidate', 'recruiter'])
             ->orderBy('last_activity_at')
             ->limit($limit)
             ->get();
 
         $rows = $applications->map(fn (CandidateApplication $app) => [
             'application_id' => $app->id,
-            'candidate' => $app->candidate?->full_name,
+            'application_ref' => $app->application_code,
+            'candidate_ref' => $this->projector()->candidateRef($app->candidate),
             'stage' => $app->current_stage->label(),
-            'recruiter' => $app->recruiter?->fullName(),
+            'recruiter_ref' => $this->projector()->employeeRef($app->recruiter),
             'days_inactive' => (int) $app->last_activity_at->diffInDays(now()),
         ]);
 

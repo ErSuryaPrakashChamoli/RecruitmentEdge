@@ -7,6 +7,7 @@ use App\Enums\FollowupStatus;
 use App\Models\RecruitmentFollowup;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -17,7 +18,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class ListOverdueFollowupsTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -60,21 +61,12 @@ class ListOverdueFollowupsTool implements AiTool
         $total = (clone $query)->count();
 
         $followups = $query
-            ->with(['candidateApplication.candidate:id,full_name', 'recruiter:id,first_name,last_name'])
+            ->with(['candidateApplication.candidate', 'recruiter'])
             ->orderBy('followup_date')
             ->limit($limit)
             ->get();
 
-        $rows = $followups->map(fn (RecruitmentFollowup $followup) => [
-            'followup_id' => $followup->id,
-            'application_id' => $followup->candidate_application_id,
-            'candidate' => $followup->candidateApplication?->candidate?->full_name,
-            'type' => $followup->followup_type->label(),
-            'due_at' => $followup->followup_date->toIso8601String(),
-            'days_overdue' => (int) $followup->followup_date->diffInDays(now()),
-            'recruiter' => $followup->recruiter?->fullName(),
-            'remarks' => $followup->remarks,
-        ]);
+        $rows = $followups->map(fn (RecruitmentFollowup $followup) => $this->projector()->followup($followup));
 
         return ToolResult::ok(
             data: ['overdue_followups' => $rows->toArray(), 'total_overdue' => $total],

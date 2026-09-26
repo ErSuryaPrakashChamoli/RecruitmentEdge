@@ -7,6 +7,7 @@ use App\Enums\OfferStatus;
 use App\Models\Offer;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Carbon\CarbonImmutable;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 
 class SearchOffersTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -23,7 +24,7 @@ class SearchOffersTool implements AiTool
 
     public function description(): string
     {
-        return 'List individual offers by status and/or offer date range, with candidate, CTC, expiry and expected joining date — scoped to what the current user may see. Use analyze_offers for aggregate rates.';
+        return 'List individual offers by status and/or offer date range, with offer/application/candidate references, status, expiry and expected joining date (compensation figures are never included) — scoped to what the current user may see. Use analyze_offers for aggregate rates.';
     }
 
     public function inputSchema(): array
@@ -65,23 +66,12 @@ class SearchOffersTool implements AiTool
             ->when($status !== null, fn (Builder $q) => $q->where('status', $status))
             ->when(filled($arguments['start_date'] ?? null), fn (Builder $q) => $q->whereDate('offer_date', '>=', CarbonImmutable::parse($arguments['start_date'])->toDateString()))
             ->when(filled($arguments['end_date'] ?? null), fn (Builder $q) => $q->whereDate('offer_date', '<=', CarbonImmutable::parse($arguments['end_date'])->toDateString()))
-            ->with(['candidateApplication.candidate:id,full_name', 'designation:id,name'])
+            ->with(['candidateApplication.candidate', 'designation:id,name'])
             ->latest('offer_date')
             ->limit($limit)
             ->get();
 
-        $rows = $offers->map(fn (Offer $offer) => [
-            'offer_id' => $offer->id,
-            'offer_code' => $offer->offer_code,
-            'application_id' => $offer->candidate_application_id,
-            'candidate' => $offer->candidateApplication?->candidate?->full_name,
-            'designation' => $offer->designation?->name,
-            'offered_ctc' => $offer->offered_ctc,
-            'status' => $offer->status->label(),
-            'offer_date' => $offer->offer_date?->toDateString(),
-            'offer_expiry' => $offer->offer_expiry?->toDateString(),
-            'expected_joining_date' => $offer->expected_joining_date?->toDateString(),
-        ]);
+        $rows = $offers->map(fn (Offer $offer) => $this->projector()->offer($offer));
 
         return ToolResult::ok(
             data: ['offers' => $rows->toArray()],

@@ -9,6 +9,7 @@ use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\Concerns\CallsLanguageModel;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -20,7 +21,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class SummarizeInterviewFeedbackTool implements AiTool
 {
-    use CallsLanguageModel, ScopesToHierarchy;
+    use CallsLanguageModel, ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly AiGateway $gateway) {}
 
@@ -56,25 +57,18 @@ class SummarizeInterviewFeedbackTool implements AiTool
     public function handle(array $arguments, User $user): ToolResult
     {
         $application = $this->scopeRecruiterOwnedTo(CandidateApplication::query(), $user)
-            ->with(['candidate:id,full_name', 'interviews.feedback.interviewer:id,first_name,last_name'])
+            ->with(['candidate', 'interviews.feedback.interviewer'])
             ->find($arguments['application_id'] ?? null);
 
         if ($application === null) {
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $rounds = $application->interviews->sortBy('round_number')->map(fn ($interview) => [
-            'round_number' => $interview->round_number,
-            'round_name' => $interview->round_name,
-            'status' => $interview->status->label(),
-            'result' => $interview->result?->label(),
-            'feedback' => $interview->feedback->map(fn ($f) => [
-                'interviewer' => $f->interviewer?->fullName(),
-                'score' => $f->score,
-                'recommendation' => $f->recommendation?->label(),
-                'feedback' => $f->feedback,
-            ]),
-        ])->values()->toArray();
+        // Phase 8.1: the feedback text reaches the provider only inside this summarisation prompt,
+        // truncated and scrubbed, with interviewers pseudonymised. The tool result returns the
+        // narrative, scores and recommendations — never the raw text.
+        $candidateRef = $this->projector()->candidateRef($application->candidate);
+        $rounds = $this->projector()->feedbackForSummary($application->interviews);
 
         $narrative = $rounds === [] ? null : $this->generateText($this->gateway, [
             LlmMessage::system('You summarize interview feedback for a hiring decision: consensus, strengths, concerns, and disagreements between interviewers, in under 150 words. Use only the feedback provided and do not make the hiring decision yourself.'),
@@ -82,7 +76,12 @@ class SummarizeInterviewFeedbackTool implements AiTool
         ], 'summarization', $user);
 
         return ToolResult::ok(
-            data: ['candidate' => $application->candidate?->full_name, 'rounds' => $rounds, 'narrative' => $narrative],
+            data: [
+                'candidate_ref' => $candidateRef,
+                'application_ref' => $application->application_code,
+                'rounds' => array_map(fn (array $round) => [...$round, 'feedback' => array_map(fn (array $f) => array_diff_key($f, ['feedback_excerpt' => true]), $round['feedback'])], $rounds),
+                'narrative' => $narrative,
+            ],
             summary: $narrative ?? 'Gathered feedback for '.count($rounds).' interview round(s).',
             type: 'timeline',
         );

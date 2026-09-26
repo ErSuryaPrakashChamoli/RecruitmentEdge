@@ -7,6 +7,7 @@ use App\Models\Candidate;
 use App\Models\TalentPool;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -16,7 +17,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class ListTalentPoolsTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -62,8 +63,8 @@ class ListTalentPoolsTool implements AiTool
             $members = $this->scopeCandidatesVisibleTo(Candidate::query(), $user)
                 ->whereIn('id', $pool->activeMemberships()->select('candidate_id'))
                 ->limit(100)
-                ->get(['id', 'full_name', 'current_designation', 'current_city', 'total_experience', 'skills'])
-                ->map(fn (Candidate $candidate) => $candidate->only(['id', 'full_name', 'current_designation', 'current_city', 'total_experience', 'skills']))
+                ->get()
+                ->map(fn (Candidate $candidate) => $this->projector()->candidateListItem($candidate))
                 ->values();
 
             return ToolResult::ok(

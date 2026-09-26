@@ -9,6 +9,7 @@ use App\Models\AiToolCall;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Exceptions\AiRateLimitExceededException;
+use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\AI\Tools\ToolExecutionContext;
 use App\Services\AI\Tools\ToolRegistry;
@@ -23,6 +24,11 @@ use Throwable;
  * reach run() via approve(), which is gated on ai.actions.execute, the tool's own permission, the
  * ai.features.actions_enabled flag, and a Pending status check — all re-evaluated at approval time,
  * since a permission or flag can change between the proposal and the click (spec section 26).
+ *
+ * Phase 8.1: this is also the tool-output privacy boundary. Every result is passed through
+ * AiPayloadSanitizer before it is persisted, appended to the conversation (and so replayed to the
+ * provider on later turns) or returned — persistence is part of the privacy boundary, so nothing
+ * stored here holds more than the provider may see.
  */
 class ActionExecutor
 {
@@ -30,6 +36,7 @@ class ActionExecutor
         private readonly ToolRegistry $registry,
         private readonly ConfirmationGate $gate,
         private readonly ToolExecutionContext $toolContext,
+        private readonly AiPayloadSanitizer $sanitizer,
     ) {}
 
     /**
@@ -100,7 +107,7 @@ class ActionExecutor
             'approved_at' => now(),
         ])->save();
 
-        $summary = $reason ?? 'The user declined to approve this action.';
+        $summary = $reason !== null ? $this->sanitizer->sanitizeText($reason)['text'] : 'The user declined to approve this action.';
         $output = ['success' => false, 'error' => $summary];
 
         $toolCall->result()->create([
@@ -142,9 +149,11 @@ class ActionExecutor
                 fn (): ToolResult => $tool->handle($toolCall->arguments ?? [], $user),
             );
         } catch (Throwable $e) {
-            Log::error('AI tool execution failed', ['tool' => $tool->name(), 'exception' => $e->getMessage()]);
+            Log::error('AI tool execution failed', ['tool' => $tool->name(), 'exception' => $e::class, 'message' => $this->sanitizer->sanitizeText($e->getMessage())['text']]);
             $result = ToolResult::fail('Something went wrong while running this tool. The recruitment data itself was not affected.');
         }
+
+        $result = $this->sanitized($result);
 
         $toolCall->result()->create([
             'output' => $result->toArray(),
@@ -173,6 +182,23 @@ class ActionExecutor
         ]);
 
         return $result;
+    }
+
+    /**
+     * The provider-safe form of a tool result: prohibited keys removed, registered personal values
+     * and PII patterns scrubbed from data, summary and error alike.
+     */
+    private function sanitized(ToolResult $result): ToolResult
+    {
+        $payload = $this->sanitizer->sanitize($result->toArray())['payload'];
+
+        return new ToolResult(
+            success: $result->success,
+            data: is_array($payload['data'] ?? null) ? $payload['data'] : [],
+            summary: $payload['summary'] ?? null,
+            type: $result->type,
+            error: $payload['error'] ?? null,
+        );
     }
 
     /**

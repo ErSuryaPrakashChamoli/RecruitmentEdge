@@ -6,6 +6,7 @@ use App\Enums\AiRiskLevel;
 use App\Models\Candidate;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\CandidateDuplicateDetector;
@@ -18,7 +19,7 @@ use App\Services\DuplicateCandidateMatch;
  */
 class FindDuplicateCandidatesTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly CandidateDuplicateDetector $detector) {}
 
@@ -69,7 +70,7 @@ class FindDuplicateCandidatesTool implements AiTool
             ->filter(fn (DuplicateCandidateMatch $match) => $visibleMatchIds->contains($match->candidate->id))
             ->map(fn (DuplicateCandidateMatch $match) => [
                 'candidate_id' => $match->candidate->id,
-                'name' => $match->candidate->full_name,
+                'candidate_ref' => $this->projector()->candidateRef($match->candidate),
                 'match_type' => $match->type->value,
                 'confidence' => $match->confidence,
                 'matching_fields' => $match->matchingFields,
@@ -77,11 +78,13 @@ class FindDuplicateCandidatesTool implements AiTool
             ])
             ->values();
 
+        $candidateRef = $this->projector()->candidateRef($candidate);
+
         return ToolResult::ok(
-            data: ['duplicates' => $rows->toArray()],
+            data: ['candidate_ref' => $candidateRef, 'duplicates' => $rows->toArray()],
             summary: $rows->isEmpty()
-                ? "No likely duplicates found for {$candidate->full_name}."
-                : "Found {$rows->count()} likely duplicate(s) for {$candidate->full_name}.",
+                ? "No likely duplicates found for {$candidateRef}."
+                : "Found {$rows->count()} likely duplicate(s) for {$candidateRef}.",
             type: 'candidate_list',
         );
     }

@@ -7,6 +7,7 @@ use App\Enums\ApplicationStatus;
 use App\Models\CandidateApplication;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\NextBestAction\NextBestAction;
@@ -21,7 +22,7 @@ use App\Services\NextBestAction\NextBestActionService;
  */
 class RecommendNextStepTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly NextBestActionService $nextBestActions) {}
 
@@ -77,7 +78,8 @@ class RecommendNextStepTool implements AiTool
         return ToolResult::ok(
             data: [
                 'application_id' => $application->id,
-                'candidate' => $application->candidate?->full_name,
+                'application_ref' => $application->application_code,
+                'candidate_ref' => $candidateRef = $this->projector()->candidateRef($application->candidate),
                 'stage' => $application->current_stage->label(),
                 'status' => $application->status->label(),
                 'days_since_last_activity' => $application->last_activity_at !== null ? (int) $application->last_activity_at->diffInDays(now()) : null,
@@ -85,7 +87,7 @@ class RecommendNextStepTool implements AiTool
                 'other_signals' => array_slice($signals, 1),
                 'advisory' => true,
             ],
-            summary: "Next step for {$application->candidate?->full_name}: {$primary['action']}",
+            summary: "Next step for {$candidateRef}: {$primary['action']}",
             type: 'recommendation',
         );
     }

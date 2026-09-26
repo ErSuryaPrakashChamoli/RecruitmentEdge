@@ -7,13 +7,14 @@ use App\Models\Employee;
 use App\Models\RecruitmentDailyActivity;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
 
 class FindInactiveRecruitersTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -58,9 +59,9 @@ class FindInactiveRecruitersTool implements AiTool
             ->whereNotIn('id', $activeRecruiterIds)
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('id', $visibleIds))
             ->where('status', 'active')
-            ->get(['id', 'first_name', 'last_name', 'department_id']);
+            ->get();
 
-        $rows = $recruiters->map(fn (Employee $e) => ['employee_id' => $e->id, 'name' => $e->fullName()]);
+        $rows = $recruiters->map(fn (Employee $e) => ['employee_id' => $e->id, 'employee_ref' => $this->projector()->employeeRef($e)]);
 
         return ToolResult::ok(
             data: ['inactive_recruiters' => $rows->toArray(), 'days' => $days],

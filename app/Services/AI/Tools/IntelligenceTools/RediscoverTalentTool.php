@@ -6,6 +6,7 @@ use App\Enums\AiRiskLevel;
 use App\Models\RediscoveryResult;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\Intelligence\TalentRediscoveryService;
 
@@ -15,7 +16,7 @@ use App\Services\Intelligence\TalentRediscoveryService;
  */
 class RediscoverTalentTool implements AiTool
 {
-    use ResolvesIntelligenceScope;
+    use ProjectsForAi, ResolvesIntelligenceScope;
 
     public function __construct(private readonly TalentRediscoveryService $rediscovery) {}
 
@@ -58,9 +59,9 @@ class RediscoverTalentTool implements AiTool
             data: [
                 'requisition' => $requisition->code,
                 'scanned' => $run->candidates_scanned,
-                'suggestions' => $run->results()->with('candidate:id,candidate_code')->limit(10)->get()->map(fn (RediscoveryResult $r) => [
+                'suggestions' => $run->results()->with('candidate')->limit(10)->get()->map(fn (RediscoveryResult $r) => [
                     'rank' => $r->rank,
-                    'candidate' => $r->candidate?->candidate_code,
+                    'candidate' => $this->projector()->candidateRef($r->candidate),
                     'band' => $r->band->label(),
                     'why' => $r->summary['reasons'] ?? [],
                     'do_not_contact' => $r->do_not_contact,

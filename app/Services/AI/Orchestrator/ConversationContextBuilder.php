@@ -9,6 +9,7 @@ use App\Models\Candidate;
 use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use App\Services\AI\DTO\LlmMessage;
+use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Rag\VectorSearch;
 use Carbon\CarbonImmutable;
 
@@ -22,7 +23,10 @@ class ConversationContextBuilder
 {
     private const int HISTORY_LIMIT = 20;
 
-    public function __construct(private readonly VectorSearch $vectorSearch) {}
+    public function __construct(
+        private readonly VectorSearch $vectorSearch,
+        private readonly AiPayloadSanitizer $sanitizer,
+    ) {}
 
     /**
      * @return array<int, LlmMessage>
@@ -65,13 +69,20 @@ class ConversationContextBuilder
             ->all();
     }
 
+    /**
+     * Phase 8.1: history is re-sanitized on every replay. Rows written before the privacy boundary
+     * existed (or by any path that missed it) can never be re-sent to the provider as stored —
+     * tool output loses prohibited keys, and all text loses registered names and PII patterns.
+     */
     private function toLlmMessage(AiMessage $message): LlmMessage
     {
+        $content = (string) $message->content;
+
         return match ($message->role) {
-            AiMessageRole::Tool => LlmMessage::tool((string) $message->tool_call_id, (string) $message->content, $message->tool_name),
-            AiMessageRole::Assistant => LlmMessage::assistant($message->content, $this->toolCallsFor($message)),
-            AiMessageRole::User => LlmMessage::user((string) $message->content),
-            AiMessageRole::System => LlmMessage::system((string) $message->content),
+            AiMessageRole::Tool => LlmMessage::tool((string) $message->tool_call_id, $this->sanitizer->sanitizeJson($content)['text'], $message->tool_name),
+            AiMessageRole::Assistant => LlmMessage::assistant($message->content !== null ? $this->sanitizer->sanitizeText($content)['text'] : null, $this->toolCallsFor($message)),
+            AiMessageRole::User => LlmMessage::user($this->sanitizer->sanitizeText($content)['text']),
+            AiMessageRole::System => LlmMessage::system($this->sanitizer->sanitizeText($content)['text']),
         };
     }
 
@@ -89,7 +100,7 @@ class ConversationContextBuilder
         return $calls->map(fn ($call) => [
             'id' => $call->provider_call_id,
             'name' => $call->tool_name,
-            'arguments' => $call->arguments ?? [],
+            'arguments' => $this->sanitizer->sanitizeStrings($call->arguments ?? [])['payload'],
             'metadata' => $call->provider_metadata,
         ])->all();
     }

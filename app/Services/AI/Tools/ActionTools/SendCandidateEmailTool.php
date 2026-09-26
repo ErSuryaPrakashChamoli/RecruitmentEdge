@@ -9,6 +9,7 @@ use App\Enums\CommunicationTrigger;
 use App\Models\Candidate;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\Communication\CommunicationService;
@@ -22,7 +23,7 @@ use DomainException;
  */
 class SendCandidateEmailTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly CommunicationService $communications) {}
 
@@ -33,7 +34,7 @@ class SendCandidateEmailTool implements AiTool
 
     public function description(): string
     {
-        return 'Send an email to a candidate. Use draft_candidate_email first to prepare the content, then call this with the final subject/body. Always requires human approval.';
+        return 'Send an email to a candidate by candidate_id. The application looks up and uses the address on file — you never need or receive it. Use draft_candidate_email first; {{candidate.first_name}} / {{candidate.name}} placeholders are filled in at send time. Always requires human approval.';
     }
 
     public function inputSchema(): array
@@ -71,8 +72,10 @@ class SendCandidateEmailTool implements AiTool
             return ToolResult::fail('Both a subject and a body are required to send an email.');
         }
 
+        $candidateRef = $this->projector()->candidateRef($candidate);
+
         if (blank($candidate->email)) {
-            return ToolResult::fail("{$candidate->full_name} has no email address on file.");
+            return ToolResult::fail("{$candidateRef} has no email address on file.");
         }
 
         // Phase 5: goes through the Communication Center like every other candidate message —
@@ -91,12 +94,12 @@ class SendCandidateEmailTool implements AiTool
         }
 
         if ($communication->status === CommunicationStatus::Blocked) {
-            return ToolResult::fail("Email to {$candidate->full_name} was not sent: {$communication->blocked_reason}");
+            return ToolResult::fail("Email to {$candidateRef} was not sent: {$communication->blocked_reason}");
         }
 
         return ToolResult::ok(
             data: ['entity_type' => 'Candidate', 'entity_ids' => [$candidate->id], 'communication' => $communication->public_id],
-            summary: "Queued an email to {$candidate->full_name} ({$candidate->email}).",
+            summary: "Queued an email to {$candidateRef} (address on file).",
             type: 'action_result',
         );
     }

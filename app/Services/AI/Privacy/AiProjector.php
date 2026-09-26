@@ -224,7 +224,7 @@ class AiProjector
         $this->candidateRef($offer->candidateApplication?->candidate);
 
         return [
-            'id' => $offer->id,
+            'offer_id' => $offer->id,
             'offer_ref' => AiReference::offer($offer),
             'application_id' => $offer->candidate_application_id,
             'application_ref' => AiReference::application($offer->candidateApplication),

@@ -7,6 +7,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class AssignCandidatesToRecruiterTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -80,8 +81,8 @@ class AssignCandidatesToRecruiterTool implements AiTool
         }
 
         return ToolResult::ok(
-            data: ['entity_type' => 'CandidateApplication', 'entity_ids' => $applications->pluck('id')->all(), 'assigned_to' => $recruiter->fullName()],
-            summary: "Assigned {$updated} of ".count($ids)." candidate application(s) to {$recruiter->fullName()}.",
+            data: ['entity_type' => 'CandidateApplication', 'entity_ids' => $applications->pluck('id')->all(), 'assigned_to' => $recruiterRef = $this->projector()->employeeRef($recruiter)],
+            summary: "Assigned {$updated} of ".count($ids)." candidate application(s) to {$recruiterRef}.",
             type: 'action_result',
         );
     }

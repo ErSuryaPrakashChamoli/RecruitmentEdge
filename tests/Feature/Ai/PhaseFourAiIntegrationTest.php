@@ -53,11 +53,12 @@ test('get_requisition_pipeline exposes the configured pipeline as structured sta
         ->and($screened)->toMatchArray(['milestone' => 'screened', 'type' => 'screening', 'active' => 1]);
 });
 
-test('get_candidate_timeline returns the unified timeline including recorded events', function (): void {
+test('get_candidate_timeline returns the unified timeline including recorded events, without their private text', function (): void {
     $application = CandidateApplication::factory()->create(['recruiter_id' => $this->manager->id]);
     app(CandidateTimelineService::class)->record($application->candidate_id, TimelineEventType::Note, 'Prefers remote', related: ['application' => $application]);
 
     $result = app(GetCandidateTimelineTool::class)->handle(['application_id' => $application->id], $this->user);
 
-    expect(collect($result->data['timeline'])->pluck('title')->all())->toContain('Prefers remote');
+    expect(collect($result->data['timeline'])->pluck('type')->all())->toContain(TimelineEventType::Note->value)
+        ->and(json_encode($result->data))->not->toContain('Prefers remote');
 });

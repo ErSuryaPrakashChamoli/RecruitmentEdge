@@ -7,6 +7,7 @@ use App\Models\HiringRisk;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Contracts\AiTool;
 
 /**
@@ -14,7 +15,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class ListHiringRisksTool implements AiTool
 {
-    use ResolvesIntelligenceScope;
+    use ProjectsForAi, ResolvesIntelligenceScope;
 
     public function name(): string
     {
@@ -55,22 +56,13 @@ class ListHiringRisksTool implements AiTool
             ->whereIn('requisition_id', RecruitmentRequisition::query()->visibleTo($user)->select('id'))
             ->when(filled($arguments['requisition_id'] ?? null), fn ($q) => $q->where('requisition_id', $arguments['requisition_id']))
             ->whereIn('severity', array_slice($severities, 0, $min === false ? 4 : $min + 1))
-            ->with('evidence')
+            ->with(['evidence', 'candidateApplication.candidate', 'requisition', 'subject'])
             ->latest('last_seen_at')
             ->limit(25)
             ->get();
 
         return ToolResult::ok(
-            data: ['risks' => $risks->map(fn (HiringRisk $r) => [
-                'id' => $r->id,
-                'type' => $r->type->label(),
-                'severity' => $r->severity->value,
-                'title' => $r->title,
-                'description' => $r->description,
-                'recommended_action' => $r->recommended_action,
-                'evidence' => $r->evidence->take(5)->map(fn ($e) => trim($e->label.': '.$e->value))->all(),
-                'first_detected' => $r->first_detected_at->toDateString(),
-            ])->all()],
+            data: ['risks' => $risks->map(fn (HiringRisk $r) => $this->projector()->hiringRisk($r))->all()],
             summary: "{$risks->count()} open risk(s).",
             type: 'hiring_risks',
         );
