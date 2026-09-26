@@ -14,6 +14,10 @@ return [
     // STATUS_OBSERVED_* case. Retention is observed going forward only — never backfilled.
     'status_observation_days' => [30, 90, 180],
 
+    // A status observed more than this many days after its checkpoint is recorded with low
+    // confidence (the status may have changed in between).
+    'status_observation_grace_days' => 7,
+
     // Sample-size bands. Fewer than insufficient_below comparable outcomes is "insufficient
     // history" (the same threshold as Role DNA, RoleDnaBuilder::MIN_HISTORY) and never produces
     // a learning suggestion; from stronger_from up it is a "stronger historical basis".

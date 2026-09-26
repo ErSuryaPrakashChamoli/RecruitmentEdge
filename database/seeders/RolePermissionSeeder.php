@@ -84,6 +84,10 @@ class RolePermissionSeeder extends Seeder
         'intelligence.memory.view',
         'intelligence.memory.manage',
         'ai.conversations.view',
+        'outcomes.view',
+        'outcomes.manage',
+        'employees.separation.view',
+        'employees.separation.manage',
     ];
 
     /**
@@ -104,6 +108,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_6_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_7_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_1_ROLE_PERMISSIONS['vp_hr'],
+            ...self::PHASE_8_2_ROLE_PERMISSIONS['vp_hr'],
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
@@ -115,6 +120,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_5_ROLE_PERMISSIONS['manager'],
             ...self::PHASE_6_ROLE_PERMISSIONS['manager'],
             ...self::PHASE_7_ROLE_PERMISSIONS['manager'],
+            ...self::PHASE_8_2_ROLE_PERMISSIONS['manager'],
         ],
         'assistant_manager' => [
             'requisitions.viewAny',
@@ -126,6 +132,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_5_ROLE_PERMISSIONS['assistant_manager'],
             ...self::PHASE_6_ROLE_PERMISSIONS['assistant_manager'],
             ...self::PHASE_7_ROLE_PERMISSIONS['assistant_manager'],
+            ...self::PHASE_8_2_ROLE_PERMISSIONS['assistant_manager'],
         ],
         'recruiter' => [
             'requisitions.viewAny',
@@ -246,6 +253,19 @@ class RolePermissionSeeder extends Seeder
      */
     public const array PHASE_8_1_ROLE_PERMISSIONS = [
         'vp_hr' => ['ai.conversations.view'],
+    ];
+
+    /**
+     * Phase 8.2 Outcome Loop: viewing outcome analytics (hierarchy-scoped), correcting outcomes and
+     * reviewing learning, and the minimal separation record. Separation data is not given to
+     * recruiters. chro holds everything through '*'.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const array PHASE_8_2_ROLE_PERMISSIONS = [
+        'vp_hr' => ['outcomes.view', 'outcomes.manage', 'employees.separation.view', 'employees.separation.manage'],
+        'manager' => ['outcomes.view', 'employees.separation.view'],
+        'assistant_manager' => ['outcomes.view'],
     ];
 
     public function run(): void

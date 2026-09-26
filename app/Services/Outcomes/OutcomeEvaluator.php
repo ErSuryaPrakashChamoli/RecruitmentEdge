@@ -39,7 +39,54 @@ class OutcomeEvaluator
         $snapshots = $this->snapshotsWithoutProcessOutcomes();
         $counts['process_outcomes'] = $dryRun ? $snapshots->count() : $this->each($snapshots, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->process($snapshot));
 
+        $counts['status_observations'] = 0;
+
+        foreach ($this->observationTypes() as $type) {
+            $due = $this->dueStatusObservations($type);
+            $counts['status_observations'] += $dryRun ? $due->count() : $this->each($due, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->calculator->statusObservation($snapshot, $type));
+        }
+
+        // Separation records can arrive after a status was observed: re-check those employees.
+        $separated = HiringOutcomeSnapshot::query()->whereHas('employee.separation');
+        $counts['separation_rechecks'] = $dryRun ? $separated->count() : $this->each($separated, $batch, fn (HiringOutcomeSnapshot $snapshot) => $this->observeAll($snapshot));
+
         return $counts;
+    }
+
+    /**
+     * Re-evaluates every due checkpoint for one employee (e.g. right after a separation is saved).
+     */
+    public function evaluateEmployee(int $employeeId): void
+    {
+        HiringOutcomeSnapshot::query()->where('employee_id', $employeeId)->get()->each(fn (HiringOutcomeSnapshot $snapshot) => $this->observeAll($snapshot));
+    }
+
+    /**
+     * @return Builder<HiringOutcomeSnapshot>
+     */
+    public function dueStatusObservations(OutcomeType $type): Builder
+    {
+        return HiringOutcomeSnapshot::query()
+            ->where('joined_on', '<=', now()->subDays($type->windowDays())->toDateString())
+            ->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcomes')
+                ->whereColumn('hiring_outcomes.hiring_outcome_snapshot_id', 'hiring_outcome_snapshots.id')
+                ->where('hiring_outcomes.outcome_type', $type->value)
+                ->where('hiring_outcomes.is_current', true));
+    }
+
+    /**
+     * @return array<int, OutcomeType>
+     */
+    private function observationTypes(): array
+    {
+        return collect(config('outcomes.status_observation_days', []))->map(fn (int $days) => OutcomeType::forWindow($days))->filter()->values()->all();
+    }
+
+    private function observeAll(HiringOutcomeSnapshot $snapshot): void
+    {
+        foreach ($this->observationTypes() as $type) {
+            $this->calculator->statusObservation($snapshot, $type);
+        }
     }
 
     /**

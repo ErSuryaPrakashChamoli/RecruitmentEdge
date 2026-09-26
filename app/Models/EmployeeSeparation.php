@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\SeparationReason;
 use App\Models\Concerns\Auditable;
+use App\Services\Outcomes\OutcomeEvaluator;
 use Database\Factories\EmployeeSeparationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,6 +20,30 @@ class EmployeeSeparation extends Model
 {
     /** @use HasFactory<EmployeeSeparationFactory> */
     use Auditable, HasFactory;
+
+    /**
+     * Notes can hold personal detail: they stay out of serialization and therefore out of the
+     * audit log and any AI payload. They are shown only on the separation screen.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['notes'];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $separation): void {
+            $separation->created_by ??= auth()->id();
+            $separation->updated_by ??= auth()->id();
+        });
+
+        static::updating(function (self $separation): void {
+            $separation->updated_by = auth()->id() ?? $separation->updated_by;
+        });
+
+        // A separation is the authoritative source for attrition: re-check this employee's
+        // status-observation checkpoints straight away (the daily evaluation would also catch it).
+        static::saved(fn (self $separation) => app(OutcomeEvaluator::class)->evaluateEmployee($separation->employee_id));
+    }
 
     protected function casts(): array
     {

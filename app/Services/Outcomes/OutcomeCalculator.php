@@ -2,6 +2,7 @@
 
 namespace App\Services\Outcomes;
 
+use App\Enums\EmployeeStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OutcomeCaptureMode;
 use App\Enums\OutcomeConfidence;
@@ -12,6 +13,7 @@ use App\Models\HiringOutcome;
 use App\Models\HiringOutcomeSnapshot;
 use App\Models\Offer;
 use App\Models\OfferStatusHistory;
+use Carbon\CarbonInterface;
 
 /**
  * Outcome Loop™ (Phase 8.2): deterministic outcome rules — application code, never AI. Each rule
@@ -121,5 +123,93 @@ class OutcomeCalculator
                 'details' => ['stage_days' => $stages],
             ], $mode),
         ];
+    }
+
+    /**
+     * A status observation at a checkpoint after joining (30 / 90 / 180 days) — going forward only.
+     *
+     * 1. A separation record on or before the checkpoint is authoritative: the first checkpoint it
+     *    precedes is SeparatedBeforeCheckpoint (high confidence); later checkpoints are NotObserved
+     *    (the employee never reached them).
+     * 2. Otherwise the employee status is observed once, on the day the check runs: Active or
+     *    Inactive (medium confidence; low if the check ran late). Inactive is not treated as an exit.
+     *    An observation is never re-observed later — only separation evidence can revise it.
+     * 3. A checkpoint that passed before the snapshot was taken (a backfilled hire), or a hire with
+     *    no employee record, is NotObserved — never inferred.
+     */
+    public function statusObservation(HiringOutcomeSnapshot $snapshot, OutcomeType $type, ?CarbonInterface $today = null): ?HiringOutcome
+    {
+        $window = $type->windowDays();
+        $today = ($today ?? now())->copy()->startOfDay();
+
+        if ($window === null) {
+            return null;
+        }
+
+        $checkpoint = $snapshot->joined_on->copy()->addDays($window)->startOfDay();
+
+        if ($checkpoint->gt($today)) {
+            return null;
+        }
+
+        $snapshot->loadMissing('employee.separation');
+        $employee = $snapshot->employee;
+        $separation = $employee?->separation;
+        $key = "snapshot:{$snapshot->id}:{$type->value}";
+        $base = [
+            'hiring_outcome_snapshot_id' => $snapshot->id,
+            'candidate_application_id' => $snapshot->candidate_application_id,
+            'requisition_id' => $snapshot->requisition_id,
+            'candidate_joining_id' => $snapshot->candidate_joining_id,
+            'employee_id' => $employee?->id,
+            'observation_start' => $snapshot->joined_on,
+            'observation_end' => $checkpoint,
+        ];
+
+        if ($separation !== null && $separation->separation_date->copy()->startOfDay()->lte($checkpoint)) {
+            $previous = collect(config('outcomes.status_observation_days', []))->filter(fn (int $days) => $days < $window)->max();
+            $previousCheckpoint = $previous !== null ? $snapshot->joined_on->copy()->addDays($previous)->startOfDay() : null;
+            $separatedInThisWindow = $previousCheckpoint === null || $separation->separation_date->copy()->startOfDay()->gt($previousCheckpoint);
+
+            return $this->outcomes->record($type, $key, [
+                ...$base,
+                'result' => $separatedInThisWindow ? OutcomeResult::SeparatedBeforeCheckpoint : OutcomeResult::NotObserved,
+                'confidence' => OutcomeConfidence::High,
+                'source' => $separation,
+                'observed_at' => now(),
+                'details' => [
+                    'checkpoint' => $checkpoint->toDateString(),
+                    'separation_date' => $separation->separation_date->toDateString(),
+                    'separation_reason' => $separation->separation_reason->value,
+                    'reason' => $separatedInThisWindow ? 'separation_record' : 'separated_before_earlier_checkpoint',
+                ],
+            ]);
+        }
+
+        if ($existing = HiringOutcome::query()->where('dedupe_key', $key)->current()->first()) {
+            return $existing;
+        }
+
+        if ($employee === null || $snapshot->captured_at->copy()->startOfDay()->gt($checkpoint)) {
+            return $this->outcomes->record($type, $key, [
+                ...$base,
+                'result' => OutcomeResult::NotObserved,
+                'confidence' => OutcomeConfidence::Low,
+                'source' => $snapshot,
+                'observed_at' => now(),
+                'details' => ['checkpoint' => $checkpoint->toDateString(), 'reason' => $employee === null ? 'no_employee_record' : 'checkpoint_before_observation_started'],
+            ]);
+        }
+
+        $daysLate = (int) $checkpoint->diffInDays($today);
+
+        return $this->outcomes->record($type, $key, [
+            ...$base,
+            'result' => $employee->status === EmployeeStatus::Active ? OutcomeResult::Active : OutcomeResult::Inactive,
+            'confidence' => $daysLate > (int) config('outcomes.status_observation_grace_days', 7) ? OutcomeConfidence::Low : OutcomeConfidence::Medium,
+            'source' => $employee,
+            'observed_at' => now(),
+            'details' => ['checkpoint' => $checkpoint->toDateString(), 'observed_on' => $today->toDateString(), 'days_after_checkpoint' => $daysLate, 'method' => 'employee_status_observation'],
+        ]);
     }
 }
