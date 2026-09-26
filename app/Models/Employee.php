@@ -140,4 +140,14 @@ class Employee extends Model
             ->withPivot('depth')
             ->wherePivot('depth', '>', 0);
     }
+
+    /**
+     * Referrals this employee has submitted (Phase 4).
+     *
+     * @return HasMany<EmployeeReferral, $this>
+     */
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(EmployeeReferral::class, 'referrer_id');
+    }
 }

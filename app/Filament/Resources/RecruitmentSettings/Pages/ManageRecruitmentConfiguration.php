@@ -97,6 +97,9 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
                                 ->maxValue(50)
                                 ->suffix('interviews')
                                 ->required(),
+                            self::integerInput('self_scheduling_min_lead_hours', 'Self-scheduling minimum notice', 'hours', 0, 168)
+                                ->helperText('Candidates cannot book a slot starting sooner than this.'),
+                            self::daysInput('self_scheduling_invitation_days', 'Self-scheduling link validity', 'How long a candidate\'s scheduling invitation link stays valid.'),
                         ]),
                     Section::make('Joining')
                         ->columns(['md' => 2])

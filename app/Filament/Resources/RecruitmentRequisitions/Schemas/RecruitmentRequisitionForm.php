@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentRequisitions\Schemas;
 use App\Enums\EmploymentType;
 use App\Enums\Priority;
 use App\Models\Employee;
+use App\Models\RecruitmentPipelineTemplate;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -126,6 +127,17 @@ class RecruitmentRequisitionForm
                         DatePicker::make('opening_date')
                             ->default(now()),
                         DatePicker::make('closing_date'),
+                    ]),
+                Section::make('Hiring Pipeline')
+                    ->description('The stages this requisition\'s candidates move through. The template is copied onto the requisition, so later template changes never alter it.')
+                    ->visibleOn('create')
+                    ->schema([
+                        Select::make('pipeline_template_id')
+                            ->label('Pipeline template')
+                            ->options(fn (): array => RecruitmentPipelineTemplate::activeOptions())
+                            ->default(fn (): ?int => RecruitmentPipelineTemplate::query()->where('is_default', true)->value('id'))
+                            ->placeholder('Default pipeline')
+                            ->searchable(),
                     ]),
                 Textarea::make('remarks')
                     ->columnSpanFull(),

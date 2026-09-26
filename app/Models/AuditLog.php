@@ -16,9 +16,12 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * recruitment_requisition_approvals) don't also use Auditable, to avoid two audit trails
  * disagreeing with each other.
  *
+ * `user_id` is always a staff User; any other authenticated actor (a candidate on the portal)
+ * is recorded in the polymorphic `actor` instead.
+ *
  * `old_values` holds the previous values and `changes` the new values of the same keys.
  */
-#[Fillable(['user_id', 'auditable_type', 'auditable_id', 'action', 'changes', 'old_values', 'ip_address'])]
+#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'changes', 'old_values', 'ip_address'])]
 class AuditLog extends Model
 {
     public const ?string UPDATED_AT = null;
@@ -37,8 +40,14 @@ class AuditLog extends Model
      */
     public static function record(Model $subject, string $action, ?array $oldValues, ?array $newValues): self
     {
+        // The default guard is whichever guard authenticated the request (the candidate portal
+        // switches it to `candidate`), so only a staff User may fill user_id.
+        $actor = auth()->user();
+
         return self::query()->create([
-            'user_id' => auth()->id(),
+            'user_id' => $actor instanceof User ? $actor->getKey() : null,
+            'actor_type' => $actor instanceof Model && ! $actor instanceof User ? $actor->getMorphClass() : null,
+            'actor_id' => $actor instanceof Model && ! $actor instanceof User ? $actor->getKey() : null,
             'auditable_type' => $subject::class,
             'auditable_id' => $subject->getKey(),
             'action' => $action,
@@ -85,6 +94,14 @@ class AuditLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * A non-staff actor (e.g. a CandidatePortalAccount); staff are on user().
+     */
+    public function actor(): MorphTo
+    {
+        return $this->morphTo();
     }
 
     public function auditable(): MorphTo

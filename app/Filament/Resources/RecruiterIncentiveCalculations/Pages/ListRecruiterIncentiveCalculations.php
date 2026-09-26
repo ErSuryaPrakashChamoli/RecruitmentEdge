@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveTriggerEvent;
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Models\Employee;
+use App\Models\EmployeeReferral;
 use App\Models\User;
 use App\Services\IncentiveStatementService;
 use App\Services\RecruiterIncentiveCalculator;
@@ -46,6 +48,10 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                         IncentiveTriggerEvent::Joining => $application->joining
                             ? $calculator->calculateForJoining($application->joining)
                             : collect(),
+                        IncentiveTriggerEvent::ReferralJoining => EmployeeReferral::query()
+                            ->where('candidate_application_id', $application->id)
+                            ->get()
+                            ->flatMap(fn (EmployeeReferral $referral) => $calculator->calculateForReferralJoining($referral)),
                     };
 
                     Notification::make()
@@ -86,6 +92,11 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                     ->options(fn (): array => app(IncentiveStatementService::class)->monthOptions())
                     ->default(now()->format('Y-m'))
                     ->required(),
+                Select::make('beneficiary_type')
+                    ->label('Statement')
+                    ->options(IncentiveBeneficiary::options())
+                    ->default(IncentiveBeneficiary::Recruiter->value)
+                    ->required(),
             ])
             ->action(function (array $data): mixed {
                 /** @var User $user */
@@ -103,7 +114,7 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                     throw new Halt;
                 }
 
-                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']));
+                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']), IncentiveBeneficiary::from($data['beneficiary_type'] ?? IncentiveBeneficiary::Recruiter->value));
             });
     }
 }

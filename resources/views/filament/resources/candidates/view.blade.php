@@ -35,4 +35,8 @@
     <div class="mt-6">
         {{ $this->content }}
     </div>
+
+    <x-filament::section heading="Candidate Timeline" description="Every event across all applications, talent pools, referrals and the candidate portal — most recent first" class="mt-6" collapsible>
+        <x-recruitment.timeline :events="$this->getTimeline()" />
+    </x-filament::section>
 </x-filament-panels::page>

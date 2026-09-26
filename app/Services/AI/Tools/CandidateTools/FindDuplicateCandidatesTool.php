@@ -9,6 +9,7 @@ use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\CandidateDuplicateDetector;
+use App\Services\DuplicateCandidateMatch;
 
 /**
  * Both the subject candidate and every reported match are restricted to the caller's hierarchy
@@ -58,18 +59,21 @@ class FindDuplicateCandidatesTool implements AiTool
             return ToolResult::fail('Candidate not found, or not visible to you.');
         }
 
-        $matches = $this->detector->findMatches($candidate);
+        $matches = $this->detector->detect($candidate->only(['full_name', 'mobile', 'alternate_mobile', 'email']), $candidate->id);
 
         $visibleMatchIds = $this->scopeCandidatesVisibleTo(Candidate::query(), $user)
-            ->whereKey($matches->map(fn (array $match) => $match['candidate']->id)->unique()->values())
+            ->whereKey($matches->map(fn (DuplicateCandidateMatch $match) => $match->candidate->id)->values())
             ->pluck('id');
 
         $rows = $matches
-            ->filter(fn (array $match) => $visibleMatchIds->contains($match['candidate']->id))
-            ->map(fn (array $match) => [
-                'candidate_id' => $match['candidate']->id,
-                'name' => $match['candidate']->full_name,
-                'match_type' => $match['type']->value,
+            ->filter(fn (DuplicateCandidateMatch $match) => $visibleMatchIds->contains($match->candidate->id))
+            ->map(fn (DuplicateCandidateMatch $match) => [
+                'candidate_id' => $match->candidate->id,
+                'name' => $match->candidate->full_name,
+                'match_type' => $match->type->value,
+                'confidence' => $match->confidence,
+                'matching_fields' => $match->matchingFields,
+                'reason' => $match->reason,
             ])
             ->values();
 

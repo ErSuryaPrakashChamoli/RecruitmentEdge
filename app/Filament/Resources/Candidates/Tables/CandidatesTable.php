@@ -2,7 +2,13 @@
 
 namespace App\Filament\Resources\Candidates\Tables;
 
+use App\Enums\TalentPoolMemberSource;
 use App\Filament\Exports\CandidateExporter;
+use App\Filament\Resources\Candidates\RelationManagers\TalentPoolsRelationManager;
+use App\Filament\Resources\Interviews\Tables\InterviewsTable;
+use App\Models\TalentPool;
+use App\Services\TalentPoolService;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -10,10 +16,14 @@ use Filament\Actions\ExportAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 
 class CandidatesTable
 {
@@ -71,6 +81,7 @@ class CandidatesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    self::addToTalentPoolBulkAction(),
                     DeleteBulkAction::make(),
                     ForceDeleteBulkAction::make(),
                     RestoreBulkAction::make(),
@@ -79,5 +90,41 @@ class CandidatesTable
             ->emptyStateHeading('No candidates found')
             ->emptyStateDescription('Try changing your filters, or add a new candidate.')
             ->emptyStateIcon('heroicon-o-identification');
+    }
+
+    /**
+     * Bulk-add the selected candidates to a talent pool (Phase 4). Rows are already hierarchy
+     * scoped by CandidateResource::getEloquentQuery(); the pool is re-checked against the policy.
+     */
+    public static function addToTalentPoolBulkAction(): BulkAction
+    {
+        return BulkAction::make('addToTalentPool')
+            ->label('Add to talent pool')
+            ->icon('heroicon-o-rectangle-group')
+            ->visible(fn (): bool => (bool) auth()->user()?->can('viewAny', TalentPool::class))
+            ->schema([
+                Select::make('talent_pool_id')
+                    ->label('Talent pool')
+                    ->options(fn (): array => TalentPoolsRelationManager::poolsUserCanAddTo())
+                    ->searchable()
+                    ->required(),
+                Textarea::make('reason')->maxLength(1000),
+            ])
+            ->action(function (Collection $records, array $data): void {
+                $pool = TalentPool::query()->visibleTo(auth()->user())->findOrFail($data['talent_pool_id']);
+
+                abort_unless((bool) auth()->user()?->can('addMembers', $pool), 403);
+
+                $result = InterviewsTable::guarded('Candidates could not be added', fn () => app(TalentPoolService::class)->addCandidates(
+                    $pool, $records->modelKeys(), auth()->user()?->employee, TalentPoolMemberSource::Bulk, $data['reason'] ?? null,
+                ));
+
+                Notification::make()
+                    ->title("{$result['added']} candidate(s) added to {$pool->name}")
+                    ->body($result['skipped'] > 0 ? "{$result['skipped']} already in the pool." : null)
+                    ->success()
+                    ->send();
+            })
+            ->deselectRecordsAfterCompletion();
     }
 }

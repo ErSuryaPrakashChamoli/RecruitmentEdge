@@ -10,6 +10,7 @@ use App\Filament\Resources\Offers\OfferResource;
 use App\Models\CandidateApplication;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\RequisitionPipelineStage;
 use App\Services\StageTransitionService;
 use DomainException;
 use Filament\Actions\Action;
@@ -22,7 +23,10 @@ use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -131,6 +135,11 @@ class CandidateApplicationsTable
                 && (bool) auth()->user()?->can('create', Offer::class));
     }
 
+    /**
+     * Applications on a configured pipeline pick from that pipeline's allowed next stages
+     * (StageTransitionService::moveToStage() enforces the rules; users with pipeline.override may
+     * override them with a reason). Legacy applications keep the canonical stage list.
+     */
     public static function advanceStageAction(): Action
     {
         return Action::make('advanceStage')
@@ -138,26 +147,71 @@ class CandidateApplicationsTable
             ->icon('heroicon-o-arrow-right-circle')
             ->visible(fn (CandidateApplication $record): bool => $record->status === ApplicationStatus::Active
                 && (bool) auth()->user()?->can('transitionStage', $record))
-            ->schema(fn (CandidateApplication $record) => [
-                Select::make('stage')
-                    ->label('New Stage')
-                    ->options(collect(CandidateStage::cases())
-                        ->filter(fn (CandidateStage $s) => $s->order() >= $record->current_stage->order())
-                        ->mapWithKeys(fn (CandidateStage $s) => [$s->value => $s->label()])
-                        ->all())
-                    ->default($record->current_stage->value)
-                    ->required(),
-                Textarea::make('remarks'),
-            ])
-            ->action(fn (CandidateApplication $record, array $data) => self::performTransition(
-                fn (StageTransitionService $service) => $service->transitionTo(
-                    $record,
-                    CandidateStage::from($data['stage']),
-                    auth()->user()?->employee,
-                    $data['remarks'] ?? null,
-                ),
+            ->schema(fn (CandidateApplication $record): array => $record->pipeline_stage_id !== null
+                ? self::pipelineStageFields($record)
+                : [
+                    Select::make('stage')
+                        ->label('New Stage')
+                        ->options(collect(CandidateStage::cases())
+                            ->filter(fn (CandidateStage $s) => $s->order() >= $record->current_stage->order())
+                            ->mapWithKeys(fn (CandidateStage $s) => [$s->value => $s->label()])
+                            ->all())
+                        ->default($record->current_stage->value)
+                        ->required(),
+                    Textarea::make('remarks'),
+                ])
+            ->action(fn (CandidateApplication $record, array $data) => self::performStageMove($record, $data));
+    }
+
+    /**
+     * @return array<int, Component>
+     */
+    public static function pipelineStageFields(CandidateApplication $record): array
+    {
+        $transitions = app(StageTransitionService::class);
+        $canOverride = (bool) auth()->user()?->can('pipeline.override');
+
+        return [
+            Toggle::make('override')
+                ->label('Override pipeline rules')
+                ->helperText('Move to any later stage, bypassing transition rules. A reason is required and the override is audited.')
+                ->visible($canOverride)
+                ->live(),
+            Select::make('pipeline_stage_id')
+                ->label('New Stage')
+                ->options(fn (Get $get): array => ($get('override') ? $transitions->overridableStages($record) : $transitions->allowedNextStages($record))
+                    ->mapWithKeys(fn (RequisitionPipelineStage $stage) => [$stage->id => $stage->name])
+                    ->all())
+                ->helperText(fn (): string => 'Currently: '.($record->pipelineStage?->name ?? $record->current_stage->label()))
+                ->required(),
+            Textarea::make('remarks')
+                ->required(fn (Get $get): bool => (bool) $get('override')),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public static function performStageMove(CandidateApplication $record, array $data): void
+    {
+        $actor = auth()->user()?->employee;
+        $remarks = $data['remarks'] ?? null;
+
+        if (filled($data['pipeline_stage_id'] ?? null)) {
+            $target = RequisitionPipelineStage::query()->findOrFail($data['pipeline_stage_id']);
+
+            self::performTransition(
+                fn (StageTransitionService $service) => $service->moveToStage($record, $target, $actor, $remarks, (bool) ($data['override'] ?? false)),
                 'Stage updated',
-            ));
+            );
+
+            return;
+        }
+
+        self::performTransition(
+            fn (StageTransitionService $service) => $service->transitionTo($record, CandidateStage::from($data['stage']), $actor, $remarks),
+            'Stage updated',
+        );
     }
 
     public static function rejectAction(): Action

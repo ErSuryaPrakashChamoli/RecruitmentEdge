@@ -8,11 +8,14 @@ use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\CandidateTimelineService;
 use Illuminate\Database\Eloquent\Builder;
 
 class GetCandidateTimelineTool implements AiTool
 {
     use ScopesToHierarchy;
+
+    public function __construct(private readonly CandidateTimelineService $timeline) {}
 
     public function name(): string
     {
@@ -21,7 +24,7 @@ class GetCandidateTimelineTool implements AiTool
 
     public function description(): string
     {
-        return "A candidate application's full stage-change history in order, from CandidateStageHistory — the authoritative journey log.";
+        return "A candidate application's unified timeline in order: stage changes, interviews, feedback, offers, calls/messages, follow-ups, notes, portal activity and referrals (CandidateTimelineService).";
     }
 
     public function inputSchema(): array
@@ -49,24 +52,24 @@ class GetCandidateTimelineTool implements AiTool
 
         $application = CandidateApplication::query()
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
-            ->with(['candidate:id,full_name', 'stageHistory.changedBy:id,first_name,last_name'])
+            ->with('candidate:id,full_name')
             ->find($arguments['application_id'] ?? null);
 
         if ($application === null) {
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $timeline = $application->stageHistory->sortBy('created_at')->map(fn ($h) => [
-            'from' => $h->previous_stage?->label(),
-            'to' => $h->new_stage->label(),
-            'changed_by' => $h->changedBy?->fullName(),
-            'remarks' => $h->remarks,
-            'at' => $h->created_at->toIso8601String(),
+        $timeline = $this->timeline->forApplication($application)->sortBy('at')->map(fn (array $entry) => [
+            'type' => $entry['type'],
+            'title' => $entry['title'],
+            'by' => $entry['subtitle'],
+            'details' => $entry['meta'],
+            'at' => $entry['at']->toIso8601String(),
         ]);
 
         return ToolResult::ok(
             data: ['candidate' => $application->candidate?->full_name, 'timeline' => $timeline->values()->toArray()],
-            summary: 'Loaded '.$timeline->count()." stage change(s) for {$application->candidate?->full_name}.",
+            summary: 'Loaded '.$timeline->count()." timeline event(s) for {$application->candidate?->full_name}.",
             type: 'timeline',
         );
     }
