@@ -1,9 +1,11 @@
 # Backlog
 
-Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26).
-None of these block production. Items are not scheduled into a phase yet.
+Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
+updated at Phase 8.1 (AI data boundary). None of these block production. Items are not scheduled
+into a phase yet unless stated.
 
-Status values: **Open** (not started), **Expected behavior** (not a defect — no change planned).
+Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
+(not a defect — no change planned).
 
 ---
 
@@ -46,7 +48,10 @@ Status values: **Open** (not started), **Expected behavior** (not a defect — n
 
 ### P7-BACKLOG-006 — Pre-Phase-7 Copilot tools send candidate names to the LLM
 
-- **Status:** Open (privacy hardening, pre-existing design)
+- **Status:** **Closed in Phase 8.1** (`docs/phase-8-1-ai-data-boundary.md`).
+- **Evidence:** every one of the 48 registered tools now builds records through `AiProjector` (codes, no names/contacts/pay/remarks) and is covered by `tests/Feature/Ai/Privacy/ToolPayloadContractTest.php`, which asserts on the actual provider-bound payloads, the tools' raw results and AI persistence, with a completeness check for new tools. The audit found the problem was wider than recorded (`get_candidate`, `summarize_candidate` and `get_requisition` sent whole records; the email tools sent addresses; `search_offers` sent CTC) — all fixed.
+- **Correction to the Phase 7 record:** the Phase 7 freeze stated the EDGE Intelligence Copilot tools were codes-only. `list_hiring_risks` actually forwarded stored risk titles that name the candidate or interviewer; Phase 8.1 projects the title from the risk type and a reference instead.
+- **Original description (historical):**
 - **Today:** Several Copilot tools written before Phase 7 (e.g. `GetCandidateTool`, `SearchCandidatesTool`, `CompareCandidatesTool`, `FindStuckCandidatesTool`, `SearchOffersTool`) return candidate names in their results, which the Copilot sends to the configured AI provider. The EDGE Intelligence tools were fixed at the freeze to use candidate codes only (regression-tested).
 - **Improvement:** Decide org-wide policy for Copilot: pseudonymise names/contacts in tool results (codes in, names rendered client-side), or document the provider's data-processing terms as acceptable. Needs a product decision; not changed during the freeze.
 
@@ -71,5 +76,47 @@ Status values: **Open** (not started), **Expected behavior** (not a defect — n
 
 ### TD-003 — Provider error bodies are logged
 
-- **Status:** Open (low, pre-existing)
+- **Status:** **Closed in Phase 8.1.** Provider and tool failure logs now carry the HTTP status, the provider's error code and the exception class only (`GeminiProvider`, `OpenAiProvider`, `AiGateway`, `CallsLanguageModel`, `ActionExecutor`); regression-tested in `AiJobsAndLoggingPrivacyTest`.
+- **Original description (historical):**
 - `GeminiProvider` / `OpenAiProvider` log the provider's error response body on failed `complete()` / `embed()` / web-search calls. Provider error bodies do not echo the API key (auth is a header), but they can echo request fragments. Consider logging status and error code only.
+
+## AI data boundary (Phase 8.1)
+
+### P81-BACKLOG-001 — Names typed by users are sent as typed
+
+- **Status:** Open (accepted limitation)
+- A name the user types into the Copilot ("How is Rahul doing?") is user-supplied and goes to the provider as written; names cannot be recognised by pattern. Mitigations: search tools resolve names server-side and return codes, the model is instructed to use codes, the UI hint asks users to refer to codes, and any person a tool touched in the request is scrubbed from all text by `AiSensitiveValues`.
+
+### P81-BACKLOG-002 — Stored AI history from before Phase 8.1
+
+- **Status:** Open (needs a separate, explicit approval)
+- Legacy conversations are kept unchanged and read-only; they are never replayed to a provider. Their stored tool output can still contain personal data at rest. `php artisan ai:redact-history --dry-run` reports how much (dry run only — no redaction mode exists). Redaction, retention or deletion needs its own approval and audit plan.
+
+### P81-BACKLOG-003 — Knowledge base: per-document access and retention
+
+- **Status:** Open
+- Retrieval is organisation-wide (anyone with `ai.query`), documents need a no-personal-data declaration, and chunks are pattern-scrubbed — but names inside documents cannot be removed automatically, there is no per-document access control, and deleted/unpublished documents keep their chunks at rest. Knowledge articles (authored in the app) are scrubbed but have no declaration step.
+
+### P81-BACKLOG-004 — `ai:test-provider` calls providers directly
+
+- **Status:** Accepted exception
+- The diagnostic command sends fixed, hard-coded prompts to a named provider to test its credentials, so it bypasses `AiGateway` (and its guard) by design. It never sends application data; the architecture test allows exactly this class.
+
+### P81-BACKLOG-005 — `find_inactive_recruiters` lists non-recruiters
+
+- **Status:** Open (correctness, found in the Phase 8.1 audit)
+- It returns every active employee in the hierarchy without logged activity, including managers. Restrict it to real recruiters (e.g. `PerformanceEngine::activeRecruitersQuery`).
+
+### P81-BACKLOG-006 — Recruiter performance through the Copilot
+
+- **Status:** Open (policy decision)
+- `get_recruiter_performance`, `compare_recruiters` and `generate_dashboard_insights` send employee performance metrics (identified by employee code) on explicit request to users with `performance.view`, hierarchy-checked and read-only. Nothing is retained for model learning. Decide whether these metrics should reach an external provider at all.
+
+## Recorded from the Phase 8 discovery (not addressed in 8.1)
+
+These were found by the Phase 8 discovery audit, are outside the AI data boundary, and are kept here so they are not lost. None was changed in Phase 8.1.
+
+- **Lifecycle integrity:** stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check or event; rejection/dropout not closing open offers, joinings or interviews.
+- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited; force-delete cascades without audit or in-use guard; no hierarchy cycle guard; no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
+- **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule; admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
+- **Multi-tenancy:** the product is single-organisation; the reporting hierarchy is the access boundary. Nothing in Phase 8.1 makes it multi-tenant.
