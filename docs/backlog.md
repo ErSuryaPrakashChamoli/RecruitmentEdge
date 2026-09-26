@@ -1,7 +1,7 @@
 # Backlog
 
 Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
-updated at Phase 8.1 (AI data boundary). None of these block production. Items are not scheduled
+updated at Phase 8.1 (AI data boundary) and Phase 8.2 (Outcome Loop). None of these block production. Items are not scheduled
 into a phase yet unless stated.
 
 Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
@@ -25,6 +25,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 - **Effect:** Conservative — may occasionally remove a legitimate item (e.g. a skill containing the word "native", such as "React Native"). It cannot catch paraphrased proxies that avoid the listed words.
 - **Mitigations already in place:** the system prompt forbids protected characteristics; every AI suggestion is stored *unconfirmed* and changes nothing until a person confirms it; deterministic scoring never uses protected attributes.
 - **Improvement:** A stronger, auditable protected-attribute safety layer — curated term list with an allow-list for known false positives, per-rejection reason codes in the audit, and a reviewer queue for borderline items.
+- **Phase 8.2:** the pattern now also catches "younger" / "youth…" (it only matched "young"), and it also screens AI explanations of outcome insights, next to a causal-wording filter (`CAUSAL_PATTERN`). Still keyword-based.
 
 ### P7-BACKLOG-003 — SLA health beyond 200 active candidates
 
@@ -112,11 +113,65 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 - **Status:** Open (policy decision)
 - `get_recruiter_performance`, `compare_recruiters` and `generate_dashboard_insights` send employee performance metrics (identified by employee code) on explicit request to users with `performance.view`, hierarchy-checked and read-only. Nothing is retained for model learning. Decide whether these metrics should reach an external provider at all.
 
+## Outcome Loop (Phase 8.2)
+
+Unavailable post-hire data is a **product limitation, not a defect**: the application does not record it, so the Outcome Loop reports it as not observed and never estimates it.
+
+### P82-BACKLOG-001 — Post-hire data not recorded
+
+- **Status:** Expected behavior (product limitation)
+- Performance, attendance, probation outcome and promotion / role-change history are not recorded anywhere in the application, so they are listed as "not observed" on the dashboard (`OutcomeType::UNAVAILABLE`) and never inferred. Adding them needs an HRMS data source and a decision on scope — not a fix in the Outcome Loop.
+
+### P82-BACKLOG-002 — No retention before Phase 8.2
+
+- **Status:** Expected behavior (product limitation)
+- Employee status has no reliable history (the audit log is a generic diff and "inactive" is not an exit), so 30 / 90 / 180-day status is observed going forward only. Backfilled hires show their passed checkpoints as "not observed". Do not reconstruct retention from the audit log.
+
+### P82-BACKLOG-003 — Status observation is medium confidence
+
+- **Status:** Expected behavior
+- A checkpoint records the employee status seen on the day it is checked (low confidence if more than 7 days late); "observed inactive" is not confirmed as an exit. Only a separation record gives a high-confidence exit. Labels say "N-day status observed", never "retained".
+
+### P82-BACKLOG-004 — Learning needs 90-day history
+
+- **Status:** Expected behavior
+- Role DNA learning insights appear only once at least 3 hires of a designation have an observed 90-day status after go-live (about three months at the earliest). Do not lower the threshold or seed history (same rule as P7-BACKLOG-004).
+
+### P82-BACKLOG-005 — Skill labels in insights are rebuilt from keys
+
+- **Status:** Open (low)
+- Snapshots store normalised skill keys (`skill:node-js`), so insight text shows a rebuilt label ("Node Js"). Store the most common spelling alongside the key, or resolve it from the requisition skills.
+
+### P82-BACKLOG-006 — First evaluation after a large backfill
+
+- **Status:** Open (low)
+- The first `outcomes:evaluate` after backfilling thousands of hires records every passed checkpoint once (measured: 6,571 observations in 31 s, ~3 queries each). Daily passes are small. If needed, batch inserts for "not observed" checkpoints.
+
+### P82-BACKLOG-007 — Insight AI explanation: no retry
+
+- **Status:** Open (low)
+- Like P7-BACKLOG-005: a provider failure marks the explanation failed at once instead of using the job's retry. The deterministic insight is never affected.
+
+### P82-BACKLOG-008 — Talent Signal does not go stale when an insight is accepted
+
+- **Status:** Open (low)
+- Accepted outcome patterns appear in the Talent Signal context on its next refresh; accepting an insight does not mark existing signals stale. The band is unaffected either way (context only).
+
+### P82-BACKLOG-009 — Insights are organisation-wide
+
+- **Status:** Expected behavior (design)
+- Outcome insights are aggregate counts across the organisation, reviewed by `outcomes.review` (VP HR, CHRO); source patterns are not split by designation. Managers see outcomes through the hierarchy-scoped dashboard only.
+
+### P82-BACKLOG-010 — Separation record is minimal
+
+- **Status:** Expected behavior (scope)
+- Last working day, structured reason and notes only — no offboarding workflow, exit interview, rehire eligibility or clearance. A full HRMS offboarding module is out of scope.
+
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
 These were found by the Phase 8 discovery audit, are outside the AI data boundary, and are kept here so they are not lost. None was changed in Phase 8.1.
 
-- **Lifecycle integrity:** stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check or event; rejection/dropout not closing open offers, joinings or interviews.
+- **Lifecycle integrity:** stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check (Phase 8.2 added the `EmployeeConvertedFromCandidate` event; the permission check is still open); rejection/dropout not closing open offers, joinings or interviews.
 - **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited; force-delete cascades without audit or in-use guard; no hierarchy cycle guard; no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
 - **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule; admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
 - **Multi-tenancy:** the product is single-organisation; the reporting hierarchy is the access boundary. Nothing in Phase 8.1 makes it multi-tenant.

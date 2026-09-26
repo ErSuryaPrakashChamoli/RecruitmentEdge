@@ -35,6 +35,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/HierarchyService.php,app/Observers/EmployeeObserver.php,app/Models/Employee.php | .ai/rules/models.md |
 | app/Services/OfferLetterRenderer.php,app/Services/WordToPdfConverter.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/** | .ai/rules/offer-letter-templates.md |
 | app/Services/OfferService.php,app/Filament/Resources/Offers/**,app/Models/OfferStatusHistory.php | .ai/rules/offers-models.md |
+| app/Services/Outcomes/**, app/Services/Outcomes/OutcomeLearningService.php | .ai/rules/outcomes.md |
 | app/Services/AiAssistantService.php,app/Filament/Pages/AiCopilot.php | .ai/rules/pages.md |
 | app/Services/OfferLetterRenderer.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/**,app/Filament/Resources/Offers/**,resources/views/pdf/offer-letter*.blade.php | .ai/rules/pdf.md |
 | app/Filament/Resources/RecruitmentRequisitions/**,app/Filament/Resources/Candidates/**,app/Filament/Resources/CandidateApplications/**,app/Policies/RecruitmentRequisitionPolicy.php,app/Policies/CandidatePolicy.php | .ai/rules/policies-policies.md |
