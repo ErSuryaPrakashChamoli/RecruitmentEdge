@@ -3,6 +3,8 @@ paths:
   - app/Services/RecruitmentAnalyticsService.php
   - app/Services/InterviewService.php
   - app/Services/RecruitmentSlaService.php
+  - app/Services/OfferService.php
+  - app/Services/StageTransitionService.php
 ---
 
 # App Services
@@ -17,3 +19,9 @@ InterviewService dispatches InterviewScheduled/Rescheduled/Cancelled (ShouldDisp
 
 ## Carbon 3 diffIn* is signed — compute durations as earlier->diffInX(later)
 With Carbon 3, now()->diffInDays($past) is NEGATIVE. openBreaches() used that form and never detected a setting-based SLA breach until Phase 6 fixed it ($reachedAt->diffInDays(now())). Always call diffIn* on the earlier date with the later date as argument, and cover the breach path with a test.
+
+## Offers: one eligibility rule, released terms only via revisions
+OfferService::offerBlocker()/eligibleApplications() is the only offer-eligibility rule (active, Selected or later, no other open offer) — reuse it in any new offer entry point. From Released onward Offer::TERMS are immutable; a change is requestRevision() (reason) then releaseRevision() by an offers.release holder; the original release is kept as revision 1 (offer_revisions). Offer audit redacts compensation (auditRedactedAttributes). Accepting creates the joining inside OfferService's transaction (CandidateJoiningService::createForAcceptedOffer) — there is no CreateJoiningRecordForAcceptedOffer listener any more; OfferAccepted is ShouldDispatchAfterCommit like every App\Events class.
+
+## User-initiated stage moves use advance(); closures cascade
+UI/Copilot/automation canonical moves must call StageTransitionService::advance() (routes through the configured pipeline's rules); transitionTo() is only for domain services recording facts (interview scheduled, offer released, joining). reject()/dropout() run ApplicationClosureCascade in the same transaction: open interviews cancelled (InterviewCancelled with a cause — no candidate message), open offers withdrawn, pending joining Cancelled (rejection) or Dropout. Cascade services must never move the application again (no recursion). Changing requisition/candidate/recruiter goes through ApplicationAssignmentService.

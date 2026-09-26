@@ -10,7 +10,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/** | .ai/rules/app-filament.md |
 | app/Models/*.php | .ai/rules/app-models.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
-| app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php | .ai/rules/app-services.md |
+| app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php | .ai/rules/app-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
 | app/Services/Communication/** | .ai/rules/communication.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
@@ -23,7 +23,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Pages/*.php, app/Filament/Pages/Profile.php | .ai/rules/filament-pages.md |
 | app/Filament/Pages/Dashboard.php,app/Filament/Widgets/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/filament.md |
 | app/Services/AI/Gateway/*.php | .ai/rules/gateway.md |
-| composer.json | .ai/rules/general.md |
+| composer.json, docker-compose.yml | .ai/rules/general.md |
 | app/Services/AI/Tools/IntelligenceTools/** | .ai/rules/intelligence-tools.md |
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
 | app/Jobs/** | .ai/rules/jobs.md |

@@ -1,7 +1,7 @@
 # Backlog
 
 Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
-updated at Phase 8.1 (AI data boundary) and Phase 8.2 (Outcome Loop). None of these block production. Items are not scheduled
+updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop) and Phase 8.3 (Lifecycle Integrity). None of these block production. Items are not scheduled
 into a phase yet unless stated.
 
 Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
@@ -69,6 +69,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 - **Status:** Open (known, accepted)
 - Candidate visibility (`Candidate::visibleTo`) and requisition visibility (`RecruitmentRequisition::scopeVisibleTo`) are single definitions reused by resources, intelligence services, Copilot tools and evidence lookup.
 - Two older copies remain: `CostPerHireService` and the `EmployeeReferral` model. They are consistent with the canonical rules today (no security inconsistency found). Consolidate when either file is next changed.
+- **Phase 8.3 discovery correction:** there are more copies than recorded — also inline candidate/requisition scopes in `RecruitmentAnalyticsService` (`sourceAnalytics`, `communicationAnalytics`, `vacancyAgeing`), and `vacancyAgeing` is *narrower* than `visibleTo` (see P83-BACKLOG-003).
 
 ### TD-002 — Development seeder default password
 
@@ -146,6 +147,7 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 
 - **Status:** Open (low)
 - The first `outcomes:evaluate` after backfilling thousands of hires records every passed checkpoint once (measured: 6,571 observations in 31 s, ~3 queries each). Daily passes are small. If needed, batch inserts for "not observed" checkpoints.
+- **Phase 8.3:** batch transactions (savepoint per record), eager-loaded employee/separation and per-record failure isolation — measured with employees on MySQL: first pass 72.9 s / 50,854 queries → 49.7 s / 35,178; repeat 1.7 s → 1.4 s. Remaining cost is the per-record lock-and-insert that keeps recording idempotent (acceptable; revisit only with a much larger backfill).
 
 ### P82-BACKLOG-007 — Insight AI explanation: no retry
 
@@ -167,11 +169,63 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 - **Status:** Expected behavior (scope)
 - Last working day, structured reason and notes only — no offboarding workflow, exit interview, rehire eligibility or clearance. A full HRMS offboarding module is out of scope.
 
+## Lifecycle integrity (Phase 8.3)
+
+### P83-BACKLOG-001 — Separation does not revoke system access
+
+- **Status:** Open (next phase — access and identity lifecycle)
+- Recording a separation (Phase 8.2) leaves the employee's user and roles untouched, and `User::canAccessPanel` admits any user with a role. No new privilege path was added in 8.3. Needs a product decision on deactivation, role removal and timing.
+
+### P83-BACKLOG-002 — Pre-8.3 lifecycle data reported by `lifecycle:audit`
+
+- **Status:** Open (needs an approved repair plan)
+- Older data can contain states Phase 8.3 now prevents (open items on closed applications, offers before selection, Joined stage without a joining…). The audit reports them as warnings and never repairs. Any clean-up must be a separate, reviewed and audited step; historical facts must not be fabricated.
+
+### P83-BACKLOG-003 — Conflicting metric definitions outside the joining anchor
+
+- **Status:** Open (future analytics-definition phase)
+- Only filled openings and Hiring Memory time to hire moved to the joining anchor. Still differing: analytics time to hire (mean, live setting) vs Outcome Loop (median, frozen start point); several join-rate, offer-acceptance and conversion definitions; `vacancyAgeing` uses a narrower requisition visibility than `RecruitmentRequisition::visibleTo`. Unify with one metric catalogue.
+
+### P83-BACKLOG-004 — `hiring_outcomes.observed_at` is not indexed
+
+- **Status:** Open (low)
+- `EXPLAIN` of the Outcome dashboard range filter scans the whole `(outcome_type, is_current, observation_end)` index (≈13k rows on 3,000 hires — milliseconds). Add `(outcome_type, is_current, observed_at)` when analytics volume makes it matter.
+
+### P83-BACKLOG-005 — Accepted offers cannot be revised
+
+- **Status:** Requires product decision
+- Revisions apply to Released offers; an accepted offer is final (withdraw and issue a new offer). Decide whether post-acceptance changes (e.g. start date) need their own controlled path.
+
+### P83-BACKLOG-006 — Feedback has no draft state; the lock is per interview
+
+- **Status:** Expected behavior (scope)
+- Feedback is submitted directly (the product had no drafts) and locked when the interview is completed — the round's decision — not at the overall hiring decision. Corrections remain possible, versioned and audited.
+
+### P83-BACKLOG-007 — Two stage models remain
+
+- **Status:** Open (future)
+- The canonical `CandidateStage` enum and configured pipeline stages coexist; `advance()` keeps them consistent for new moves. Unifying them (and the analytics that read only the enum) is future work.
+
+### P83-BACKLOG-008 — Pipeline template re-apply writes `pipeline_stage_id` quietly
+
+- **Status:** Accepted exception
+- `PipelineTemplateService` re-maps configured stages with `saveQuietly()` when a template is re-applied — a structural re-mapping, not a hiring fact, and the only lifecycle write outside the guard.
+
+### P83-BACKLOG-009 — Remaining AI reliability items from the 8.3 discovery
+
+- **Status:** Open (future AI quality / cost phase)
+- Not in 8.3 scope: provider retries and 429 handling, a RAG query-embedding timeout failing a Copilot turn, per-step RAG re-embedding, budgets. 8.3 fixed only what touched lifecycle actions: the double-approval race and the error page after an approval when the provider is unreachable.
+
+### P83-BACKLOG-010 — Notification de-duplication while queued
+
+- **Status:** Open (low)
+- `NotificationDispatchService` de-duplicates on the `notifications` table, which a queued Filament database notification writes only when the worker runs; with both workers deployed the lag is small, but concurrent dispatches can still race (no unique key).
+
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
 These were found by the Phase 8 discovery audit, are outside the AI data boundary, and are kept here so they are not lost. None was changed in Phase 8.1.
 
-- **Lifecycle integrity:** stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check (Phase 8.2 added the `EmployeeConvertedFromCandidate` event; the permission check is still open); rejection/dropout not closing open offers, joinings or interviews.
-- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited; force-delete cascades without audit or in-use guard; no hierarchy cycle guard; no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
+- **Lifecycle integrity — addressed in Phase 8.3** (`docs/phase-8-3-lifecycle-integrity.md`): pipeline bypasses (board, Copilot move tool), interview cancel/no-show direct writes, feedback service/policy/audit, offer edits and selection gate, conversion permission, reject/dropout cascades. Original text: stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check (Phase 8.2 added the `EmployeeConvertedFromCandidate` event; the permission check is still open); rejection/dropout not closing open offers, joinings or interviews.
+- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited; force-delete cascades without audit or in-use guard; no hierarchy cycle guard (addressed in Phase 8.3); no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
 - **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule; admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
 - **Multi-tenancy:** the product is single-organisation; the reporting hierarchy is the access boundary. Nothing in Phase 8.1 makes it multi-tenant.
