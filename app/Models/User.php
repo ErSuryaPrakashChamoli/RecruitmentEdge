@@ -31,18 +31,19 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
     }
 
     /**
-     * Phase 8.4: the access state changes only through StaffAccessService.
+     * Phase 8.4: the access state changes only through StaffAccessService, and the employee link
+     * (which decides whose team the login sees) only through IdentityProvisioningService.
      *
      * @return array<int, string>
      */
     public function lifecycleAttributes(): array
     {
-        return ['access_status'];
+        return ['access_status', 'employee_id'];
     }
 
     public function lifecycleOwner(): string
     {
-        return 'StaffAccessService';
+        return 'StaffAccessService / IdentityProvisioningService';
     }
 
     /**

@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
  * Section 41's cross-cutting audit trail. Written via record() — by the Auditable trait for
- * ordinary models, and explicitly by the Roles resource pages for role permission changes (Spatie's
- * Role model can't use the trait, and its permissions live in a pivot that model events don't
+ * ordinary models, and explicitly by the Phase 8.4 identity services for access, role and
+ * role-permission changes (role and permission assignments live in pivots that model events don't
  * see). Models that already have their own dedicated immutable history table
  * (candidate_stage_histories, offer_status_histories, recruiter_incentive_approvals,
  * recruitment_requisition_approvals) don't also use Auditable, to avoid two audit trails

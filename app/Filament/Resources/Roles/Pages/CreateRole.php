@@ -2,33 +2,35 @@
 
 namespace App\Filament\Resources\Roles\Pages;
 
-use App\Filament\Resources\Roles\Concerns\AuditsRolePermissions;
 use App\Filament\Resources\Roles\RoleResource;
-use App\Models\Role;
+use App\Models\User;
+use App\Services\Identity\RoleAssignmentService;
+use DomainException;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 
 class CreateRole extends CreateRecord
 {
-    use AuditsRolePermissions;
-
     protected static string $resource = RoleResource::class;
 
     /**
+     * Phase 8.4: created and audited by RoleAssignmentService.
+     *
      * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
      */
-    protected function mutateFormDataBeforeCreate(array $data): array
+    protected function handleRecordCreation(array $data): Model
     {
-        $data['guard_name'] = 'web';
+        $actor = auth()->user();
+        abort_unless($actor instanceof User, 403);
 
-        return $data;
-    }
+        try {
+            return app(RoleAssignmentService::class)->createRole((string) $data['name'], $data['permissions'] ?? [], $actor);
+        } catch (DomainException $e) {
+            Notification::make()->title('Role could not be created')->body($e->getMessage())->danger()->persistent()->send();
 
-    protected function afterCreate(): void
-    {
-        /** @var Role $role */
-        $role = $this->getRecord();
-
-        $this->auditRolePermissions($role, 'created', null, []);
+            throw new Halt;
+        }
     }
 }
