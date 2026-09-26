@@ -19,3 +19,4 @@ Schedule::command('recruitment:automation:dispatch')->everyFifteenMinutes()->wit
 Schedule::command('recruitment:automation:process')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('recruitment:automation:cleanup')->dailyAt('02:00');
 Schedule::command('intelligence:refresh')->hourly()->withoutOverlapping();
+Schedule::command('outcomes:evaluate')->dailyAt('03:00')->withoutOverlapping();

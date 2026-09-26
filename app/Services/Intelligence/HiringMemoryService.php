@@ -261,7 +261,7 @@ class HiringMemoryService
      *
      * @return array<string, float>
      */
-    private function stageDurations(CandidateApplication $application): array
+    public function stageDurations(CandidateApplication $application): array
     {
         $history = $application->stageHistory()->orderBy('created_at')->get(['new_stage', 'created_at']);
 

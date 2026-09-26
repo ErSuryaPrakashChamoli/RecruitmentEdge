@@ -204,6 +204,19 @@ class RecruitmentAnalyticsService
      * requisition_opened/candidate_sourced/candidate_applied, default candidate_applied) to actual
      * joining, for joins within the range (Section 35).
      */
+    /**
+     * The start of the time-to-hire measurement for one application, per the configured
+     * `time_to_hire_start_point` — the single definition shared by analytics and the Outcome Loop.
+     */
+    public static function timeToHireStart(CandidateApplication $application, string $startPoint): CarbonInterface
+    {
+        return match ($startPoint) {
+            'requisition_opened' => $application->requisition->opening_date ?? $application->requisition->created_at,
+            'candidate_sourced' => $application->candidate->created_at,
+            default => $application->application_date,
+        };
+    }
+
     public function averageTimeToHireDays(CarbonInterface $start, CarbonInterface $end, ?User $user = null): ?float
     {
         $startPoint = RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
@@ -223,17 +236,7 @@ class RecruitmentAnalyticsService
             return null;
         }
 
-        $days = $joinings->map(function (CandidateJoining $joining) use ($startPoint) {
-            $application = $joining->candidateApplication;
-
-            $startDate = match ($startPoint) {
-                'requisition_opened' => $application->requisition->opening_date ?? $application->requisition->created_at,
-                'candidate_sourced' => $application->candidate->created_at,
-                default => $application->application_date,
-            };
-
-            return $startDate->diffInDays($joining->actual_doj);
-        });
+        $days = $joinings->map(fn (CandidateJoining $joining) => self::timeToHireStart($joining->candidateApplication, $startPoint)->diffInDays($joining->actual_doj));
 
         return round($days->avg(), 1);
     }
