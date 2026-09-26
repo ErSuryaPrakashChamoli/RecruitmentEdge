@@ -2,10 +2,12 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Auth\StaffAppAuthentication;
 use App\Filament\Pages\Auth\StaffLogin;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
 use App\Http\Middleware\EnforceStaffAccess;
+use App\Http\Middleware\EnsureStaffMfa;
 use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -45,6 +47,10 @@ class AdminPanelProvider extends PanelProvider
             ->login(StaffLogin::class)
             ->passwordReset()
             ->emailChangeVerification()
+            // Phase 8.4: authenticator-app MFA with recovery codes, required per person (roles and
+            // permissions in config/identity.php) by EnsureStaffMfa.
+            ->multiFactorAuthentication([StaffAppAuthentication::make()->recoverable()->regenerableRecoveryCodes()], isRequired: true)
+            ->multiFactorAuthenticationRequiredMiddlewareName(EnsureStaffMfa::class)
             ->profile(Profile::class, isSimple: false)
             ->databaseNotifications()
             ->databaseNotificationsPolling('30s')

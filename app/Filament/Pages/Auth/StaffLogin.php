@@ -7,6 +7,7 @@ use App\Models\User;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\Pages\Login;
 use Illuminate\Auth\Events\Lockout;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
@@ -14,7 +15,7 @@ use Illuminate\Validation\ValidationException;
  * Phase 8.4: Filament's sign-in page (per-IP throttling, timing-safe failures, MFA challenge,
  * access-state check through canAccessPanel) plus a per-account lockout: after too many failed
  * password or MFA attempts against one address from any number of IPs, that account is locked for
- * a while. The lockout is audited.
+ * a while. The lockout and failed MFA challenges are audited.
  */
 class StaffLogin extends Login
 {
@@ -39,10 +40,17 @@ class StaffLogin extends Login
             ]);
         }
 
+        $challengedUserId = $this->challengedUserId();
+
         try {
             $response = parent::authenticate();
         } catch (ValidationException $e) {
             RateLimiter::hit($key, self::LOCKOUT_SECONDS);
+
+            // A wrong MFA code fails the challenge form rather than firing Laravel's Failed event.
+            if ($challengedUserId !== null && ($user = User::query()->find($challengedUserId)) !== null) {
+                AuditLog::record($user, 'mfa_challenge_failed', null, null);
+            }
 
             throw $e;
         }
@@ -52,5 +60,18 @@ class StaffLogin extends Login
         }
 
         return $response;
+    }
+
+    private function challengedUserId(): mixed
+    {
+        if (blank($this->userUndertakingMultiFactorAuthentication)) {
+            return null;
+        }
+
+        try {
+            return decrypt($this->userUndertakingMultiFactorAuthentication);
+        } catch (DecryptException) {
+            return null;
+        }
     }
 }

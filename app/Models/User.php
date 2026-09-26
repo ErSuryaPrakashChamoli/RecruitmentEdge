@@ -7,8 +7,13 @@ use App\Enums\AccessState;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\Identity\CredentialService;
+use App\Services\Identity\MfaService;
 use App\Services\Identity\StaffAccessService;
 use Database\Factories\UserFactory;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthentication;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthenticationRecovery;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
@@ -19,17 +24,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Log;
+use SensitiveParameter;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password', 'employee_id', 'theme'])]
 #[Hidden(['password', 'remember_token', 'session_epoch'])]
-class User extends Authenticatable implements FilamentUser, HasAvatar
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasAvatar
 {
     /** @use HasFactory<UserFactory> */
     use Auditable, GuardsLifecycleAttributes, HasFactory, Notifiable;
 
     use HasRoles {
         hasPermissionTo as private roleGrantsPermission;
+    }
+    use InteractsWithAppAuthentication {
+        saveAppAuthenticationSecret as private storeAppAuthenticationSecret;
+    }
+    use InteractsWithAppAuthenticationRecovery {
+        saveAppAuthenticationRecoveryCodes as private storeAppAuthenticationRecoveryCodes;
     }
 
     /**
@@ -58,6 +70,34 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
                 Log::info('identity.password_changed', ['user_id' => $user->getKey()]);
             }
         });
+    }
+
+    /**
+     * Phase 8.4: MFA enrolment and removal are audited (never the secret), and someone whose role
+     * requires MFA cannot remove it themselves (MfaService).
+     */
+    public function saveAppAuthenticationSecret(#[SensitiveParameter] ?string $secret): void
+    {
+        $enabled = filled($secret);
+
+        app(MfaService::class)->secretChanged($this, $enabled);
+
+        $this->mfa_enabled_at = $enabled ? now() : null;
+        $this->storeAppAuthenticationSecret($secret);
+    }
+
+    /**
+     * @param  ?array<string>  $codes
+     */
+    public function saveAppAuthenticationRecoveryCodes(#[SensitiveParameter] ?array $codes): void
+    {
+        $regenerating = filled($this->getAppAuthenticationSecret()) && filled($this->getAppAuthenticationRecoveryCodes()) && filled($codes);
+
+        $this->storeAppAuthenticationRecoveryCodes($codes);
+
+        if ($regenerating) {
+            app(MfaService::class)->recoveryCodesRegenerated($this);
+        }
     }
 
     /**
@@ -107,6 +147,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
             'access_changed_at' => 'datetime',
             'revoked_roles' => 'array',
             'last_login_at' => 'datetime',
+            'mfa_enabled_at' => 'datetime',
         ];
     }
 }
