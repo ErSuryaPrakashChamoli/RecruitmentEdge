@@ -31,6 +31,7 @@
         <env name="GEMINI_API_KEY" value=""/>
         <env name="OPENAI_API_KEY" value=""/>
         <env name="AI_WEB_SEARCH_ENABLED" value="false"/>
+        <env name="AI_PRIVACY_EGRESS_MODE" value="block"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
