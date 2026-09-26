@@ -21,6 +21,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'is_published',
     'status',
     'error',
+    'privacy_declared_at',
+    'privacy_declared_by',
 ])]
 class AiDocument extends Model
 {
@@ -32,7 +34,18 @@ class AiDocument extends Model
         return [
             'is_published' => 'boolean',
             'status' => AiDocumentStatus::class,
+            'privacy_declared_at' => 'datetime',
+            'pii_redactions' => 'integer',
         ];
+    }
+
+    /**
+     * Phase 8.1: only documents an administrator has declared free of personal data are
+     * retrievable by the AI.
+     */
+    public function isPrivacyDeclared(): bool
+    {
+        return $this->privacy_declared_at !== null;
     }
 
     protected static function booted(): void

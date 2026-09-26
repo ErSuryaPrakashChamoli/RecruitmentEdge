@@ -38,6 +38,21 @@ class IntelligenceAiService
     public const string SUMMARY_CATEGORY = 'summarization';
 
     /**
+     * Phase 8.1: the only Hiring Memory facts a summary prompt may carry — an explicit allowlist
+     * per memory type, so a fact key added later can never reach the provider by default. Codes of
+     * individual applications/offers, recruiter ids and free-text remarks are never included.
+     */
+    public const array SUMMARY_REQUISITION_FACTS = ['requisition_code', 'designation', 'department', 'location', 'required_skills', 'experience_range', 'outcome'];
+
+    public const array SUMMARY_FACTS = [
+        'hire' => ['skills', 'total_experience', 'relevant_experience', 'qualification', 'source', 'referral', 'origin_channel', 'days_to_hire', 'interview_rounds', 'stage_days'],
+        'rejection' => ['stage', 'stage_label', 'reason', 'reason_category', 'days_in_process'],
+        'offer_outcome' => ['days_after_release'],
+        'joining_outcome' => ['expected_doj', 'reason'],
+        'requisition_outcome' => ['days_open', 'openings', 'hires', 'hires_by_source', 'applications', 'offers_released', 'offers_accepted', 'slowest_stage', 'automation_runs', 'automation_actions'],
+    ];
+
+    /**
      * Terms that must never appear in an AI suggestion about a role: protected characteristics and
      * common proxies for them.
      */
@@ -179,7 +194,8 @@ class IntelligenceAiService
 
     public function summarizeMemory(HiringMemoryRecord $record, ?User $actor = null): void
     {
-        $facts = collect($record->facts)->except(['recruiter_id', 'application_code', 'offer_code', 'remarks'])->all();
+        $allowed = [...self::SUMMARY_REQUISITION_FACTS, ...(self::SUMMARY_FACTS[$record->memory_type->value] ?? [])];
+        $facts = collect($record->facts)->only($allowed)->all();
 
         try {
             $response = $this->gateway->generate([

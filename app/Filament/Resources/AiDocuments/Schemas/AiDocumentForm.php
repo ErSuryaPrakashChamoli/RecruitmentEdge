@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\AiDocuments\Schemas;
 
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -38,6 +39,11 @@ class AiDocumentForm
                     ->default(true)
                     ->helperText('Only published, indexed documents are searchable by the Copilot.')
                     ->required(),
+                Checkbox::make('privacy_declaration')
+                    ->label('This document contains no candidate or employee personal data (names, contact details, pay, IDs or private notes).')
+                    ->helperText('Knowledge-base content is sent to the AI provider. Contact details and IDs are also removed automatically, but names cannot be — never upload CVs, candidate lists or HR records.')
+                    ->accepted()
+                    ->dehydrated(false),
             ]);
     }
 }

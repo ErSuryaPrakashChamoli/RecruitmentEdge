@@ -66,6 +66,7 @@ class VectorSearch
         $publishedDocumentIds = AiDocument::query()
             ->where('is_published', true)
             ->where('status', AiDocumentStatus::Indexed)
+            ->whereNotNull('privacy_declared_at')
             ->pluck('id');
 
         $publishedArticleIds = AiKnowledgeArticle::query()

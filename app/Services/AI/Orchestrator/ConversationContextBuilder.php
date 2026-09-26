@@ -201,7 +201,9 @@ class ConversationContextBuilder
         }
 
         $blocks = $hits->map(function (array $hit) {
-            return "<retrieved_document source=\"{$hit['source_type']}#{$hit['source_id']}\">\n{$hit['content']}\n</retrieved_document>";
+            $content = $this->sanitizer->sanitizeText((string) $hit['content'])['text'];
+
+            return "<retrieved_document source=\"{$hit['source_type']}#{$hit['source_id']}\">\n{$content}\n</retrieved_document>";
         })->implode("\n\n");
 
         return "The following internal knowledge base excerpts may be relevant to the user's question. "

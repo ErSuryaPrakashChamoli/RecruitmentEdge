@@ -125,7 +125,7 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         try {
             $response = $this->request()->post("/models/{$model}:generateContent", $payload);
         } catch (Throwable $e) {
-            Log::error('Gemini structured() call failed', ['exception' => $e->getMessage()]);
+            Log::error('Gemini structured() call failed', ['exception' => $e::class]);
 
             throw new AiProviderUnavailableException('The Gemini request failed: '.$e->getMessage(), 0, $e);
         }
@@ -175,7 +175,7 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         ]);
 
         if ($response->failed()) {
-            Log::error('Gemini embed() call failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('Gemini embed() call failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new AiProviderUnavailableException('The Gemini embedding service returned an error.');
         }
@@ -202,7 +202,7 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         ]);
 
         if ($response->failed()) {
-            Log::error('Gemini web search failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('Gemini web search failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new AiProviderUnavailableException('The Gemini web search service returned an error.');
         }
@@ -386,7 +386,7 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     private function parseResponse(Response $response, string $model): LlmResponse
     {
         if ($response->failed()) {
-            Log::error('Gemini complete() call failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('Gemini complete() call failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new RuntimeException('The Gemini service returned an error response.');
         }
@@ -479,7 +479,7 @@ class GeminiProvider implements EmbeddingProviderInterface, LLMProviderInterface
                 ->values()
                 ->all();
         } catch (Throwable $e) {
-            Log::error('Gemini citation parsing failed', ['exception' => $e->getMessage()]);
+            Log::error('Gemini citation parsing failed', ['exception' => $e::class]);
 
             return [];
         }
