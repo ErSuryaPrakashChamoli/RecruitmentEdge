@@ -98,7 +98,9 @@ class HiringRisk extends Model
      */
     public function owner(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'owner_id');
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class, 'owner_id')->withTrashed();
     }
 
     /**

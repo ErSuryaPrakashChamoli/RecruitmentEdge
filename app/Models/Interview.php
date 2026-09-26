@@ -79,7 +79,9 @@ class Interview extends Model
      */
     public function interviewer(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'interviewer_id');
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class, 'interviewer_id')->withTrashed();
     }
 
     /**

@@ -43,18 +43,19 @@ class Employee extends Model
     use Auditable, GuardsLifecycleAttributes, HasFactory, SoftDeletes;
 
     /**
-     * Phase 8.4: employment state changes only through EmployeeLifecycleService.
+     * Phase 8.4: employment state changes only through EmployeeLifecycleService, and the reporting
+     * line (the access boundary) only through HierarchyIntegrityService.
      *
      * @return array<int, string>
      */
     public function lifecycleAttributes(): array
     {
-        return ['status'];
+        return ['status', 'reports_to_id'];
     }
 
     public function lifecycleOwner(): string
     {
-        return 'EmployeeLifecycleService';
+        return 'EmployeeLifecycleService / HierarchyIntegrityService';
     }
 
     protected function casts(): array

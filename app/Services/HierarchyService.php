@@ -38,12 +38,14 @@ class HierarchyService
 
     /**
      * Whether $subject is $user's own employee record or lies within their reporting hierarchy.
+     * Phase 8.4: a record with no employee (null) is visible only with hierarchy.view-all — never a
+     * TypeError that breaks the page for everyone.
      */
-    public function canView(User $user, Employee $subject): bool
+    public function canView(User $user, ?Employee $subject): bool
     {
         $visible = $this->visibleEmployeeIdsFor($user);
 
-        return $visible === null || $visible->contains($subject->id);
+        return $visible === null || ($subject !== null && $visible->contains($subject->id));
     }
 
     /**

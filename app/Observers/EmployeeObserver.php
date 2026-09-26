@@ -18,8 +18,10 @@ class EmployeeObserver
 {
     /**
      * Phase 8.3: the reporting hierarchy is the access boundary, so it must stay a tree. An employee
-     * can never report to themselves or to anyone in their own subtree — enforced here for every
-     * write path (employee form, hierarchy page, imports).
+     * can never report to themselves or to anyone in their own subtree. Phase 8.4: every write goes
+     * through HierarchyIntegrityService (reports_to_id is guarded), which checks under row locks;
+     * this remains the model-level backstop. A soft delete leaves the closure rows in place on
+     * purpose — the deleted person's history stays visible to the managers above them.
      */
     public function updating(Employee $employee): void
     {

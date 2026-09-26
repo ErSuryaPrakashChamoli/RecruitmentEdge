@@ -38,7 +38,7 @@ test('ai.manage and audit.view alone grant no access to anyone\'s conversations'
     $role = Role::findOrCreate("only-{$permission}");
     $role->givePermissionTo($permission);
     $manager = Employee::factory()->create();
-    $this->vpEmployee->update(['reports_to_id' => $manager->id]);
+    lifecycleFixture(fn () => $this->vpEmployee->update(['reports_to_id' => $manager->id]));
     $user = User::factory()->create(['employee_id' => $manager->id])->assignRole($role);
     actingAs($user);
 

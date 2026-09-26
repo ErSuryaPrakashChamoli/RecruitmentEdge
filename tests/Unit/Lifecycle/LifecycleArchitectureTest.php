@@ -44,6 +44,7 @@ test('only the authoritative lifecycle services open the lifecycle guard', funct
         'app/Services/Identity/StaffAccessService.php',
         'app/Services/Identity/EmployeeLifecycleService.php',
         'app/Services/Identity/IdentityProvisioningService.php',
+        'app/Services/Identity/HierarchyIntegrityService.php',
     ];
 
     $files = collect(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/app')))

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Employees\Schemas;
 
 use App\Enums\EmployeeStatus;
 use App\Models\Employee;
+use App\Models\User;
 use App\Services\HierarchyService;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
@@ -49,20 +50,19 @@ class EmployeeForm
                     ->relationship('location', 'name')
                     ->searchable()
                     ->preload(),
+                // Phase 8.4: a plain option list — the page hands the choice to
+                // HierarchyIntegrityService; a relationship field would write it directly.
                 Select::make('reports_to_id')
                     ->label('Reports To')
-                    ->relationship(
-                        name: 'reportsTo',
-                        titleAttribute: 'first_name',
-                        modifyQueryUsing: fn (Builder $query, ?Employee $record): Builder => $record === null
-                            ? $query
-                            : $query->whereNotIn('employees.id', app(HierarchyService::class)->descendantIdsOf($record->id)),
-                        ignoreRecord: true,
-                    )
-                    ->helperText('Nobody in this employee\'s own reporting line can be chosen.')
-                    ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName().' ('.$record->employee_code.')')
-                    ->searchable()
-                    ->preload(),
+                    ->options(fn (?Employee $record): array => self::assignableManagers(Employee::query(), $record)
+                        ->orderBy('first_name')
+                        ->limit(500)
+                        ->get()
+                        ->when($record?->reportsTo !== null, fn ($managers) => $managers->push($record->reportsTo)->unique('id'))
+                        ->mapWithKeys(fn (Employee $manager) => [$manager->id => $manager->fullName().' ('.$manager->employee_code.')'])
+                        ->all())
+                    ->helperText('Current employees in your hierarchy; nobody in this employee\'s own reporting line can be chosen.')
+                    ->searchable(),
                 DatePicker::make('date_of_joining'),
                 Select::make('status')
                     ->options(self::statusOptions())
@@ -82,6 +82,25 @@ class EmployeeForm
                     ->disk('public')
                     ->directory('employee-photos'),
             ]);
+    }
+
+    /**
+     * Phase 8.4: current employees inside the editor's hierarchy, never someone in this employee's
+     * own reporting line (HierarchyIntegrityService re-checks all of it on save).
+     *
+     * @param  Builder<Employee>  $query
+     * @return Builder<Employee>
+     */
+    private static function assignableManagers(Builder $query, ?Employee $record): Builder
+    {
+        $actor = auth()->user();
+        $visible = $actor instanceof User ? app(HierarchyService::class)->visibleEmployeeIdsFor($actor) : collect();
+
+        return $query
+            ->whereKeyNot($record?->id)
+            ->where('employees.status', EmployeeStatus::Active->value)
+            ->when($visible !== null, fn (Builder $scoped) => $scoped->whereIn('employees.id', $visible))
+            ->when($record !== null, fn (Builder $scoped) => $scoped->whereNotIn('employees.id', app(HierarchyService::class)->descendantIdsOf($record->id)));
     }
 
     /**

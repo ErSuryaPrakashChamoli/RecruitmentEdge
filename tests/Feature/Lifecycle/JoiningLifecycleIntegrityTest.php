@@ -75,7 +75,7 @@ test('an authorised converter in scope converts once, audited; outside the hiera
 
 test('the convert action is only offered to users with employees.convert', function (): void {
     $managerEmployee = Employee::factory()->reportingTo($this->vpHr)->create();
-    $this->recruiter->update(['reports_to_id' => $managerEmployee->id]);
+    lifecycleFixture(fn () => $this->recruiter->update(['reports_to_id' => $managerEmployee->id]));
     actingAs(User::factory()->create(['employee_id' => $managerEmployee->id])->assignRole('manager'));
     Livewire::test(ListCandidateJoinings::class)->assertCanSeeTableRecords([$this->joining])->assertActionHidden(TestAction::make('convertToEmployee')->table($this->joining));
 
@@ -87,11 +87,12 @@ test('the reporting hierarchy cannot form a cycle', function (): void {
     $lead = Employee::factory()->reportingTo($this->vpHr)->create();
     $member = Employee::factory()->reportingTo($lead)->create();
 
-    expect(fn () => $this->vpHr->update(['reports_to_id' => $member->id]))->toThrow(DomainException::class, 'own reporting line')
-        ->and(fn () => $lead->update(['reports_to_id' => $lead->id]))->toThrow(DomainException::class, 'own reporting line')
+    // Phase 8.4: the model-level backstop behind HierarchyIntegrityService (which checks first).
+    expect(fn () => lifecycleFixture(fn () => $this->vpHr->update(['reports_to_id' => $member->id])))->toThrow(DomainException::class, 'own reporting line')
+        ->and(fn () => lifecycleFixture(fn () => $lead->update(['reports_to_id' => $lead->id])))->toThrow(DomainException::class, 'own reporting line')
         ->and($this->vpHr->fresh()->reports_to_id)->toBeNull();
 
-    $member->update(['reports_to_id' => $this->vpHr->id]);
+    lifecycleFixture(fn () => $member->update(['reports_to_id' => $this->vpHr->id]));
 
     expect($member->fresh()->reports_to_id)->toBe($this->vpHr->id);
 });
