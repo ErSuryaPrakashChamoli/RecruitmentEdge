@@ -6,21 +6,27 @@ use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\OutcomeCategory;
 use App\Enums\OutcomeType;
+use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\HiringOutcomeSnapshot;
 use App\Models\Offer;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 
 /**
  * Outcome Loop™ (Phase 8.2): the single evaluation pass behind `outcomes:evaluate`. Events record
- * outcomes as things happen; this pass catches up on anything missed, using indexed "not yet
- * recorded" queries in chunks — it never loads every employee or candidate. Idempotent: a second
- * run records nothing new.
+ * outcomes as things happen; this pass catches up on anything missed within catch_up_days of the
+ * event (still "observed going forward"), using indexed "not yet recorded" queries in chunks — it
+ * never loads every employee or candidate. Older history is only ever reconstructed by
+ * `outcomes:backfill`, labelled as backfilled. Idempotent: a second run records nothing new.
  */
 class OutcomeEvaluator
 {
-    public function __construct(private readonly OutcomeCalculator $calculator) {}
+    public function __construct(
+        private readonly OutcomeCalculator $calculator,
+        private readonly HiringSnapshotService $snapshots,
+    ) {}
 
     /**
      * @return array<string, int> what was (or, in a dry run, would be) evaluated
@@ -30,10 +36,15 @@ class OutcomeEvaluator
         $batch = max(1, (int) config('outcomes.batch_size', 200));
         $counts = [];
 
-        $joinings = $this->pendingJoinings();
+        $since = now()->subDays(max(0, (int) config('outcomes.catch_up_days', 7)))->startOfDay();
+
+        $joinings = $this->pendingJoinings($since);
         $counts['joining_outcomes'] = $dryRun ? $joinings->count() : $this->each($joinings, $batch, fn (CandidateJoining $joining) => $this->calculator->joining($joining));
 
-        $offers = $this->pendingOffers();
+        $unsnapshotted = $this->joinedWithoutSnapshot($since);
+        $counts['snapshots'] = $dryRun ? $unsnapshotted->count() : $this->each($unsnapshotted, $batch, fn (CandidateJoining $joining) => $this->snapshots->captureForJoining($joining));
+
+        $offers = $this->pendingOffers($since);
         $counts['offers'] = $dryRun ? $offers->count() : $this->each($offers, $batch, fn (Offer $offer) => $this->calculator->offer($offer));
 
         $snapshots = $this->snapshotsWithoutProcessOutcomes();
@@ -90,12 +101,14 @@ class OutcomeEvaluator
     }
 
     /**
+     * Joinings with a final status (joined, no-show, dropout) and no joining outcome yet — joined on
+     * or changed since $since when given, within the backfill window and requisition otherwise.
+     *
      * @return Builder<CandidateJoining>
      */
-    public function pendingJoinings(): Builder
+    public function pendingJoinings(?CarbonInterface $since = null, ?CarbonInterface $until = null, ?int $requisitionId = null): Builder
     {
-        return CandidateJoining::query()
-            ->whereIn('status', [JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout])
+        return $this->joinings([JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout], $since, $until, $requisitionId)
             ->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcomes')
                 ->whereColumn('hiring_outcomes.candidate_joining_id', 'candidate_joinings.id')
                 ->where('hiring_outcomes.category', OutcomeCategory::Joining->value)
@@ -103,31 +116,65 @@ class OutcomeEvaluator
     }
 
     /**
-     * Offers with a status-history entry that has no outcome yet.
+     * Joined joinings with no hiring snapshot yet.
+     *
+     * @return Builder<CandidateJoining>
+     */
+    public function joinedWithoutSnapshot(?CarbonInterface $since = null, ?CarbonInterface $until = null, ?int $requisitionId = null): Builder
+    {
+        return $this->joinings([JoiningStatus::Joined], $since, $until, $requisitionId)
+            ->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcome_snapshots')->whereColumn('hiring_outcome_snapshots.candidate_joining_id', 'candidate_joinings.id'));
+    }
+
+    /**
+     * Offers with a status-history entry (in the window, when given) that has no outcome yet.
      *
      * @return Builder<Offer>
      */
-    public function pendingOffers(): Builder
+    public function pendingOffers(?CarbonInterface $since = null, ?CarbonInterface $until = null, ?int $requisitionId = null): Builder
     {
-        return Offer::query()->where(function (Builder $query): void {
-            foreach ([OfferStatus::Released, OfferStatus::Accepted, OfferStatus::Rejected, OfferStatus::Expired, OfferStatus::Withdrawn] as $status) {
-                $query->orWhereExists(fn (QueryBuilder $q) => $q->from('offer_status_histories')
-                    ->whereColumn('offer_status_histories.offer_id', 'offers.id')
-                    ->where('offer_status_histories.to_status', $status->value)
-                    ->whereNotExists(fn (QueryBuilder $o) => $o->from('hiring_outcomes')
-                        ->whereColumn('hiring_outcomes.offer_id', 'offers.id')
-                        ->where('hiring_outcomes.outcome_type', OutcomeType::forOfferStatus($status)->value)
-                        ->where('hiring_outcomes.is_current', true)));
-            }
-        });
+        return Offer::query()
+            ->when($requisitionId !== null, fn (Builder $query) => $query->whereIn('candidate_application_id', CandidateApplication::query()->where('requisition_id', $requisitionId)->select('id')))
+            ->where(function (Builder $query) use ($since, $until): void {
+                foreach ([OfferStatus::Released, OfferStatus::Accepted, OfferStatus::Rejected, OfferStatus::Expired, OfferStatus::Withdrawn] as $status) {
+                    $query->orWhereExists(fn (QueryBuilder $q) => $q->from('offer_status_histories')
+                        ->whereColumn('offer_status_histories.offer_id', 'offers.id')
+                        ->where('offer_status_histories.to_status', $status->value)
+                        ->when($since !== null, fn (QueryBuilder $q) => $q->where('offer_status_histories.created_at', '>=', $since))
+                        ->when($until !== null, fn (QueryBuilder $q) => $q->where('offer_status_histories.created_at', '<=', $until))
+                        ->whereNotExists(fn (QueryBuilder $o) => $o->from('hiring_outcomes')
+                            ->whereColumn('hiring_outcomes.offer_id', 'offers.id')
+                            ->where('hiring_outcomes.outcome_type', OutcomeType::forOfferStatus($status)->value)
+                            ->where('hiring_outcomes.is_current', true)));
+                }
+            });
+    }
+
+    /**
+     * A joined record is dated by its actual joining date; a no-show or dropout by its last change.
+     *
+     * @param  array<int, JoiningStatus>  $statuses
+     * @return Builder<CandidateJoining>
+     */
+    private function joinings(array $statuses, ?CarbonInterface $since, ?CarbonInterface $until, ?int $requisitionId): Builder
+    {
+        $dated = fn (Builder $query, string $operator, CarbonInterface $date) => $query->where(fn (Builder $query) => $query
+            ->where(fn (Builder $query) => $query->where('status', JoiningStatus::Joined->value)->whereNotNull('actual_doj')->whereDate('actual_doj', $operator, $date->toDateString()))
+            ->orWhere(fn (Builder $query) => $query->where(fn (Builder $query) => $query->where('status', '!=', JoiningStatus::Joined->value)->orWhereNull('actual_doj'))->where('updated_at', $operator, $date)));
+
+        return CandidateJoining::query()
+            ->whereIn('status', $statuses)
+            ->when($since !== null, fn (Builder $query) => $dated($query, '>=', $since))
+            ->when($until !== null, fn (Builder $query) => $dated($query, '<=', $until))
+            ->when($requisitionId !== null, fn (Builder $query) => $query->whereIn('candidate_application_id', CandidateApplication::query()->where('requisition_id', $requisitionId)->select('id')));
     }
 
     /**
      * @return Builder<HiringOutcomeSnapshot>
      */
-    public function snapshotsWithoutProcessOutcomes(): Builder
+    public function snapshotsWithoutProcessOutcomes(?int $requisitionId = null): Builder
     {
-        return HiringOutcomeSnapshot::query()->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcomes')
+        return HiringOutcomeSnapshot::query()->when($requisitionId !== null, fn (Builder $query) => $query->where('requisition_id', $requisitionId))->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcomes')
             ->whereColumn('hiring_outcomes.hiring_outcome_snapshot_id', 'hiring_outcome_snapshots.id')
             ->where('hiring_outcomes.outcome_type', OutcomeType::TimeToHire->value)
             ->where('hiring_outcomes.is_current', true));

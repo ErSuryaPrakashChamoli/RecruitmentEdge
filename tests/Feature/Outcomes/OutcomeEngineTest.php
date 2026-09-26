@@ -4,6 +4,7 @@ use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\OutcomeCaptureMode;
+use App\Enums\OutcomeCategory;
 use App\Enums\OutcomeConfidence;
 use App\Enums\OutcomeResult;
 use App\Enums\OutcomeState;
@@ -87,7 +88,7 @@ test('joining outcomes come from the joining record, never from the pipeline sta
     $joining = CandidateJoining::factory()->create(['status' => JoiningStatus::Joined, 'actual_doj' => now()->subDay()]);
 
     app(OutcomeEvaluator::class)->evaluate();
-    $outcome = HiringOutcome::query()->where('candidate_joining_id', $joining->id)->sole();
+    $outcome = HiringOutcome::query()->where('candidate_joining_id', $joining->id)->where('category', OutcomeCategory::Joining)->sole();
 
     expect($outcome->outcome_type)->toBe(OutcomeType::Joined)
         ->and($outcome->confidence)->toBe(OutcomeConfidence::High)

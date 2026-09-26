@@ -30,6 +30,11 @@ return [
     // status_observation_days). Learning needs at least insufficient_below hires observed there.
     'learning_checkpoint_days' => 90,
 
+    // outcomes:evaluate catches up on events missed by the listeners (a lost queue job) only if they
+    // happened within this many days — still "observed going forward". Older history is only ever
+    // reconstructed by outcomes:backfill and labelled BACKFILLED_DETERMINISTIC.
+    'catch_up_days' => 7,
+
     // Rows processed per chunk by outcomes:evaluate and outcomes:backfill.
     'batch_size' => 200,
 
