@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Lifecycle\LifecycleGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,4 +48,19 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Phase 8.3: arranges lifecycle state a test needs as a precondition (e.g. "the requisition is
+ * already closed") without going through the authoritative service. Only for fixtures — the
+ * behaviour under test must still use the real service path.
+ *
+ * @template T
+ *
+ * @param  Closure(): T  $arrange
+ * @return T
+ */
+function lifecycleFixture(Closure $arrange): mixed
+{
+    return LifecycleGuard::allow($arrange);
 }

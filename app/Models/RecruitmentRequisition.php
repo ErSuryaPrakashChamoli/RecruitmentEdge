@@ -6,6 +6,7 @@ use App\Enums\CandidateStage;
 use App\Enums\EmploymentType;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\HierarchyService;
 use Database\Factories\RecruitmentRequisitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -49,7 +50,20 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class RecruitmentRequisition extends Model
 {
     /** @use HasFactory<RecruitmentRequisitionFactory> */
-    use HasFactory, SoftDeletes;
+    use GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+
+    /**
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['status'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'RequisitionApprovalService';
+    }
 
     protected function casts(): array
     {

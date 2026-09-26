@@ -56,7 +56,7 @@ test('publishing an Open requisition\'s posting to the career site makes it live
 
 test('an unapproved requisition can never be published', function (RequisitionStatus $status): void {
     $posting = openPosting();
-    $posting->requisition->forceFill(['status' => $status])->save();
+    lifecycleFixture(fn () => $posting->requisition->forceFill(['status' => $status])->save());
 
     $this->distribution->publish($posting->fresh(), ['career_site']);
 })->throws(DomainException::class, 'Only an approved, Open requisition')->with([
@@ -112,7 +112,7 @@ test('unpublishing hides the posting and pausing then republishing restores it',
 test('postings whose requisition closed are unpublished by the daily sync', function (): void {
     $posting = openPosting();
     $this->distribution->publish($posting, ['career_site']);
-    $posting->requisition->forceFill(['status' => RequisitionStatus::Closed])->save();
+    lifecycleFixture(fn () => $posting->requisition->forceFill(['status' => RequisitionStatus::Closed])->save());
 
     $this->artisan('jobs:sync-distributions')->expectsOutputToContain('Closed 1 stale job posting(s)')->assertSuccessful();
 
