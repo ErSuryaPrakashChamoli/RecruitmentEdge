@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\OfferLetterTemplates\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\OfferLetterTemplates\Actions\OfferLetterTemplateActions;
 use App\Filament\Resources\OfferLetterTemplates\OfferLetterTemplateResource;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateOfferLetterTemplate extends CreateRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = OfferLetterTemplateResource::class;
 
     /**

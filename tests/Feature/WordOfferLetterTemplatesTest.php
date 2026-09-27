@@ -88,7 +88,7 @@ test('an admin can download the Word template file', function (): void {
         ->assertFileDownloaded('standard-offer-letter.docx');
 });
 
-test('uploading an edited Word file replaces the template file', function (): void {
+test('uploading an edited Word file replaces the template file and keeps the previous one as a version', function (): void {
     $previousPath = $this->standard->file_path;
 
     Livewire::test(EditOfferLetterTemplate::class, ['record' => $this->standard->getKey()])
@@ -98,7 +98,9 @@ test('uploading an edited Word file replaces the template file', function (): vo
     $template = $this->standard->fresh();
 
     expect($template->file_path)->not->toBe($previousPath)
-        ->and(Storage::disk('local')->exists($previousPath))->toBeFalse()
+        // Phase 8.6 (D8.6-011): the superseded file is kept — issued letters may refer to it.
+        ->and(Storage::disk('local')->exists($previousPath))->toBeTrue()
+        ->and($template->versions()->pluck('file_path')->all())->toBe([$previousPath, $template->file_path])
         ->and((new TemplateProcessor($template->absoluteFilePath()))->getVariables())->toBe(['candidate_name']);
 });
 

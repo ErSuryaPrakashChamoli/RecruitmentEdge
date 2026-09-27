@@ -12,6 +12,7 @@ use App\Models\Offer;
 use App\Models\OfferLetterTemplate;
 use App\Models\OfferRevision;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\OfferLetterIssuanceService;
 use App\Services\OfferLetterRenderer;
 use App\Services\OfferService;
 use DomainException;
@@ -272,11 +273,20 @@ class OffersTable
                 ]);
 
                 // Candidates always receive a PDF, whatever format the template is maintained in.
-                $pdf = app(OfferLetterRenderer::class)->pdf($record);
+                // Phase 8.6 (D8.6-010): once released, the stored issued letter is returned as issued;
+                // a letter regenerated from current data (never released, or released before 8.6)
+                // is labelled as such.
+                ['pdf' => $pdf, 'issued' => $issued] = app(OfferLetterIssuanceService::class)->pdfFor($record);
+
+                if ($issued === null && $record->status !== OfferStatus::Draft && $record->status !== OfferStatus::Initiated) {
+                    Notification::make()->title('Regenerated letter')->body('No issued letter is stored for this offer (released before letters were kept); this copy was generated from current data.')->warning()->send();
+                }
+
+                $name = $issued !== null ? "offer-letter-{$record->offer_code}-r{$issued->revision}.pdf" : "offer-letter-{$record->offer_code}.pdf";
 
                 return response()->streamDownload(function () use ($pdf): void {
                     echo $pdf;
-                }, "offer-letter-{$record->offer_code}.pdf", ['Content-Type' => 'application/pdf']);
+                }, $name, ['Content-Type' => 'application/pdf']);
             });
     }
 

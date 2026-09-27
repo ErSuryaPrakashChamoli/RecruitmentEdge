@@ -56,6 +56,7 @@ class OfferService
         private readonly StageTransitionService $stageTransitions,
         private readonly NotificationDispatchService $notifications,
         private readonly CandidateJoiningService $joinings,
+        private readonly OfferLetterIssuanceService $letters,
     ) {}
 
     /**
@@ -179,6 +180,8 @@ class OfferService
             }
 
             if ($to === OfferStatus::Released) {
+                // Phase 8.6 (D8.6-010): the letter is issued with the release and served from storage.
+                $this->letters->issue($offer, null, $actor?->id);
                 OfferReleased::dispatch($offer);
             }
 
@@ -300,6 +303,8 @@ class OfferService
                 'changed_by' => $actor->employee_id,
                 'remarks' => "Revision {$current->revision} released: {$current->reason}".(filled($remarks) ? " — {$remarks}" : ''),
             ]);
+
+            $this->letters->issue($offer->refresh(), $current, $actor->employee_id);
 
             AuditLog::record($offer, 'offer_revision_released', ['revision' => $current->revision - 1], [
                 'revision' => $current->revision, 'changed_terms' => $changed, 'by_user_id' => $actor->id,
