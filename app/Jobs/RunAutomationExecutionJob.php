@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\AutomationExecutionStatus;
+use App\Logging\SensitiveDataRedactor;
 use App\Models\AutomationExecution;
 use App\Services\Automation\AutomationEngine;
 use Illuminate\Bus\Queueable;
@@ -62,6 +63,6 @@ class RunAutomationExecutionJob implements ShouldBeUnique, ShouldQueue
         AutomationExecution::query()
             ->whereKey($this->executionId)
             ->whereIn('status', [AutomationExecutionStatus::Pending, AutomationExecutionStatus::Running])
-            ->update(['status' => AutomationExecutionStatus::Failed, 'failure_reason' => 'The automation worker failed: '.mb_substr((string) $exception?->getMessage(), 0, 300), 'completed_at' => now()]);
+            ->update(['status' => AutomationExecutionStatus::Failed, 'failure_reason' => 'The automation worker failed: '.mb_substr(SensitiveDataRedactor::text((string) $exception?->getMessage()), 0, 300), 'completed_at' => now()]);
     }
 }

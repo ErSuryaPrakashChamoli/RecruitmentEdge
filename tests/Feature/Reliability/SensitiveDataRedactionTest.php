@@ -1,7 +1,10 @@
 <?php
 
+use App\Enums\AutomationExecutionStatus;
+use App\Jobs\RunAutomationExecutionJob;
 use App\Logging\RedactingFailedJobProvider;
 use App\Logging\SensitiveDataRedactor;
+use App\Models\AutomationExecution;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -71,4 +74,13 @@ test('failed jobs older than the retention window are pruned daily; recent ones 
     expect(DB::table('failed_jobs')->count())->toBe(1)
         ->and(config('queue.failed.retention_hours'))->toBe(720)
         ->and($event?->command)->toContain('--hours=720');
+});
+
+test('a worker failure recorded on an automation run keeps no contact details', function (): void {
+    $execution = AutomationExecution::factory()->create(['status' => AutomationExecutionStatus::Running]);
+
+    (new RunAutomationExecutionJob($execution->id))->failed(new RuntimeException('SQLSTATE: Duplicate entry priya@example.com for key'));
+
+    expect($execution->fresh()->failure_reason)->not->toContain('priya@example.com')
+        ->and($execution->fresh()->failure_reason)->toContain('The automation worker failed');
 });

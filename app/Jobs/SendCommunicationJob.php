@@ -6,6 +6,7 @@ use App\Enums\CommunicationStatus;
 use App\Enums\TimelineSource;
 use App\Enums\TimelineVisibility;
 use App\Events\CommunicationFailed;
+use App\Logging\SensitiveDataRedactor;
 use App\Models\AuditLog;
 use App\Models\CandidateCommunication;
 use App\Services\CandidateTimelineService;
@@ -151,7 +152,7 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
         $communication = CandidateCommunication::query()->find($this->communicationId);
 
         if ($communication !== null && ! in_array($communication->status, [CommunicationStatus::Sent, CommunicationStatus::Delivered, CommunicationStatus::Read, CommunicationStatus::Failed], true)) {
-            $this->markFailed($communication, 'Retries exhausted: '.($communication->error ?? $exception?->getMessage() ?? 'unknown error'));
+            $this->markFailed($communication, 'Retries exhausted: '.($communication->error ?? SensitiveDataRedactor::text((string) ($exception?->getMessage() ?? 'unknown error'))));
         }
     }
 
