@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruitmentDailyTargets\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\RecruitmentDailyTargets\RecruitmentDailyTargetResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
@@ -12,6 +13,8 @@ use Filament\Resources\Pages\EditRecord;
  */
 class EditRecruitmentDailyTarget extends EditRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = RecruitmentDailyTargetResource::class;
 
     protected function getHeaderActions(): array

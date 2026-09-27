@@ -7,7 +7,9 @@ use App\Enums\IncentivePayoutType;
 use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
 use App\Enums\TargetMetric;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
+use App\Models\RecruitmentIncentiveRule;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
@@ -27,6 +29,8 @@ class RecruitmentIncentiveRuleForm
                     ->required()
                     ->maxLength(255),
                 Section::make('Trigger')
+                    ->disabled(fn (?RecruitmentIncentiveRule $record): bool => (bool) $record?->isUsed())
+                    ->description(fn (?RecruitmentIncentiveRule $record): ?string => $record?->isUsed() ? 'Locked: this rule has priced incentives. End it and create a new rule for new terms.' : null)
                     ->columns(2)
                     ->schema([
                         Select::make('trigger_event')
@@ -39,6 +43,8 @@ class RecruitmentIncentiveRuleForm
                             ->helperText('Leave blank to skip a retention hold. If set, the calculation stays in "Calculated" until this many days after the trigger event.'),
                     ]),
                 Section::make('Payout')
+                    ->disabled(fn (?RecruitmentIncentiveRule $record): bool => (bool) $record?->isUsed())
+                    ->description(fn (?RecruitmentIncentiveRule $record): ?string => $record?->isUsed() ? 'Locked: this rule has priced incentives. End it and create a new rule for new terms.' : null)
                     ->description('How much each occurrence of the trigger (for example, each joining) pays. Slab rates are added in the Slabs table below once the rule is saved.')
                     ->columns(2)
                     ->schema([
@@ -71,6 +77,8 @@ class RecruitmentIncentiveRuleForm
                             ->visible(fn (Get $get): bool => self::payoutType($get) === IncentivePayoutType::SlabByAchievement),
                     ]),
                 Section::make('Scope')
+                    ->disabled(fn (?RecruitmentIncentiveRule $record): bool => (bool) $record?->isUsed())
+                    ->description(fn (?RecruitmentIncentiveRule $record): ?string => $record?->isUsed() ? 'Locked: this rule has priced incentives. End it and create a new rule for new terms.' : null)
                     ->description('Leave every field blank to apply this rule to everyone.')
                     ->columns(3)
                     ->schema([
@@ -81,15 +89,15 @@ class RecruitmentIncentiveRuleForm
                             ->searchable()
                             ->preload(),
                         Select::make('department_id')
-                            ->relationship('department', 'name')
+                            ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                             ->searchable()
                             ->preload(),
                         Select::make('designation_id')
-                            ->relationship('designation', 'name')
+                            ->relationship('designation', 'name', ActiveMasterDataOptions::scope('designation_id'))
                             ->searchable()
                             ->preload(),
                         Select::make('location_id')
-                            ->relationship('location', 'name')
+                            ->relationship('location', 'name', ActiveMasterDataOptions::scope('location_id'))
                             ->helperText('Matched against the recruiter\'s own location.')
                             ->searchable()
                             ->preload(),
@@ -100,9 +108,11 @@ class RecruitmentIncentiveRuleForm
                     ->columns(2)
                     ->schema([
                         DatePicker::make('effective_from')
+                            ->disabled(fn (?RecruitmentIncentiveRule $record): bool => (bool) $record?->isUsed())
                             ->default(now())
                             ->required(),
-                        DatePicker::make('effective_to'),
+                        DatePicker::make('effective_to')
+                            ->afterOrEqual('effective_from'),
                     ]),
                 Toggle::make('is_active')
                     ->default(true)

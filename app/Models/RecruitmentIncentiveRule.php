@@ -8,6 +8,7 @@ use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
 use App\Enums\TargetMetric;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\RecruitmentIncentiveRuleFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -46,7 +47,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruitmentIncentiveRule extends Model
 {
     /** @use HasFactory<RecruitmentIncentiveRuleFactory> */
-    use Auditable, HasFactory;
+    use Auditable, HasFactory, ReferencesActiveMasterData;
+
+    /**
+     * Phase 8.6 (D8.6-015): what a rule pays, for what and to whom. Once the rule has priced any
+     * incentive these are locked — new terms are a new rule (end this one with effective_to).
+     *
+     * @var array<int, string>
+     */
+    public const array PRICING_ATTRIBUTES = [
+        'trigger_event', 'achievement_metric', 'payout_type', 'fixed_amount', 'slab_upgrade_mode', 'retention_days',
+        'employee_id', 'department_id', 'designation_id', 'location_id', 'employment_type', 'effective_from',
+    ];
 
     protected static function booted(): void
     {
@@ -54,7 +66,30 @@ class RecruitmentIncentiveRule extends Model
             if ($rule->payout_type === IncentivePayoutType::Fixed && (float) $rule->fixed_amount <= 0) {
                 throw new DomainException('A fixed-rate incentive rule needs an amount greater than zero.');
             }
+
+            // Phase 8.6 (D8.6-016): an effective range must run forwards.
+            if ($rule->effective_from !== null && $rule->effective_to !== null && $rule->effective_to->lt($rule->effective_from)) {
+                throw new DomainException('The effective-to date cannot be before the effective-from date.');
+            }
+
+            if ($rule->exists && $rule->isDirty(self::PRICING_ATTRIBUTES) && $rule->isUsed()) {
+                throw new DomainException('This rule has already priced incentives, so its terms are locked. End it (set an effective-to date) and create a new rule for the new terms.');
+            }
         });
+
+        static::deleting(function (RecruitmentIncentiveRule $rule): void {
+            if ($rule->isUsed()) {
+                throw new DomainException('This rule has already priced incentives and cannot be deleted — end it with an effective-to date instead.');
+            }
+        });
+    }
+
+    /**
+     * Whether any calculation (in any status) was priced by this rule (D8.6-015).
+     */
+    public function isUsed(): bool
+    {
+        return $this->exists && RecruiterIncentiveCalculation::query()->where('incentive_rule_id', $this->getKey())->exists();
     }
 
     protected function casts(): array
@@ -85,7 +120,7 @@ class RecruitmentIncentiveRule extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -93,7 +128,7 @@ class RecruitmentIncentiveRule extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -101,7 +136,7 @@ class RecruitmentIncentiveRule extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -140,5 +175,19 @@ class RecruitmentIncentiveRule extends Model
         return $this->payout_type === IncentivePayoutType::SlabByCount
             ? number_format($value).' '.$this->trigger_event->countNoun()
             : number_format($value, 1).'%';
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

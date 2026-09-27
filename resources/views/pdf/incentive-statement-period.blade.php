@@ -45,18 +45,14 @@
             </tr>
             @foreach ($calculations as $calculation)
                 <tr>
-                    <td>{{ $calculation->incentiveRule?->name ?? '—' }}</td>
+                    <td>{{ $calculation->pricedRuleName() }}</td>
                     <td>
                         {{ $calculation->candidateApplication?->application_code ?? '—' }}<br>
                         <span class="muted">{{ $calculation->candidate?->full_name }}</span>
                     </td>
                     <td class="num">{{ $calculation->slabBasis() !== null ? $calculation->incentiveRule->formatSlabBasis($calculation->slabBasis()) : '—' }}</td>
                     <td>
-                        @if ($calculation->incentiveSlab)
-                            {{ $calculation->incentiveSlab->bandLabel($calculation->incentiveRule) }}
-                        @else
-                            {{ $calculation->incentiveRule?->payout_type?->label() ?? '—' }}
-                        @endif
+                        {{ $calculation->pricedBandLabel() ?? $calculation->pricedPayoutLabel() }}
                     </td>
                     <td class="num">&#8377;{{ number_format((float) $calculation->amount, 2) }}</td>
                     <td class="num">

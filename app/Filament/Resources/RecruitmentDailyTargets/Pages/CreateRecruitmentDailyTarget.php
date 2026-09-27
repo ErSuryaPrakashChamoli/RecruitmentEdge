@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruitmentDailyTargets\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\RecruitmentDailyTargets\RecruitmentDailyTargetResource;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
@@ -12,6 +13,8 @@ use Filament\Resources\Pages\CreateRecord;
  */
 class CreateRecruitmentDailyTarget extends CreateRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = RecruitmentDailyTargetResource::class;
 
     /**

@@ -6,10 +6,8 @@ use App\Enums\IncentivePayoutType;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
 use Closure;
-use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -34,6 +32,14 @@ class SlabsRelationManager extends RelationManager
         }
 
         return parent::canViewForRecord($ownerRecord, $pageClass);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-015): a rule that has priced incentives keeps its bands — read-only here.
+     */
+    public function isReadOnly(): bool
+    {
+        return $this->rule()->isUsed() || parent::isReadOnly();
     }
 
     public function form(Schema $schema): Schema
@@ -110,11 +116,7 @@ class SlabsRelationManager extends RelationManager
                 EditAction::make(),
                 DeleteAction::make(),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->toolbarActions([]);
     }
 
     private function rule(): RecruitmentIncentiveRule

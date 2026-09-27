@@ -7,6 +7,7 @@ use App\Enums\IncentiveCalculationStatus;
 use App\Enums\IncentivePayoutType;
 use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
+use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
@@ -197,6 +198,8 @@ class RecruiterIncentiveCalculator
             'achievement' => $achievement,
             'occurrence_count' => $occurrenceCount,
             'amount' => $amount,
+            // Phase 8.6 (D8.6-014): exactly what this price was computed from.
+            'pricing_snapshot' => $this->pricingSnapshot($rule, $slab, $achievement, $occurrenceCount),
             'retention_due_at' => $retentionDueAt,
             'calculated_at' => now(),
         ];
@@ -206,6 +209,7 @@ class RecruiterIncentiveCalculator
         // status a recalculation re-derives).
         return DB::transaction(function () use ($existing, $attributes, $status, $rule, $application, $periodStart, $periodEnd, $slab, $achievement, $occurrenceCount): RecruiterIncentiveCalculation {
             if ($existing !== null) {
+                $this->auditReprice($existing, $attributes);
                 $existing->update($attributes);
 
                 $calculation = $this->approvals->applyRecalculatedStatus($existing, $status);
@@ -310,12 +314,15 @@ class RecruiterIncentiveCalculator
         foreach ($siblings as $sibling) {
             if (in_array($sibling->status, self::RECALCULABLE, true)) {
                 if ((float) $sibling->amount < $newAmount) {
-                    $sibling->update([
+                    $repriced = [
                         'incentive_slab_id' => $slab->id,
                         'amount' => $newAmount,
+                        'pricing_snapshot' => $this->pricingSnapshot($rule, $slab, $achievement, $occurrenceCount),
                         'achievement' => $achievement,
                         'occurrence_count' => $occurrenceCount,
-                    ]);
+                    ];
+                    $this->auditReprice($sibling, $repriced);
+                    $sibling->update($repriced);
                 }
 
                 continue;
@@ -333,5 +340,58 @@ class RecruiterIncentiveCalculator
                 );
             }
         }
+    }
+
+    /**
+     * Phase 8.6 (D8.6-014): the rule, slab and basis a price came from, frozen on the calculation.
+     *
+     * @return array{rule: array<string, mixed>, slab: array<string, mixed>|null, basis: array{achievement: float|null, occurrence_count: int|null}, priced_at: string}
+     */
+    private function pricingSnapshot(RecruitmentIncentiveRule $rule, ?RecruitmentIncentiveSlab $slab, ?float $achievement, ?int $occurrenceCount): array
+    {
+        return [
+            'rule' => [
+                'id' => $rule->id,
+                'name' => $rule->name,
+                'trigger_event' => $rule->trigger_event?->value,
+                'payout_type' => $rule->payout_type?->value,
+                'fixed_amount' => $rule->fixed_amount !== null ? (float) $rule->fixed_amount : null,
+                'slab_upgrade_mode' => $rule->slab_upgrade_mode?->value,
+                'achievement_metric' => $rule->achievement_metric?->value,
+                'retention_days' => $rule->retention_days,
+                'effective_from' => $rule->effective_from?->toDateString(),
+                'effective_to' => $rule->effective_to?->toDateString(),
+            ],
+            'slab' => $slab !== null ? [
+                'id' => $slab->id,
+                'min' => (float) $slab->achievement_min,
+                'max' => $slab->achievement_max !== null ? (float) $slab->achievement_max : null,
+                'amount' => (float) $slab->amount,
+                'band' => $slab->bandLabel($rule),
+            ] : null,
+            'basis' => ['achievement' => $achievement, 'occurrence_count' => $occurrenceCount],
+            'priced_at' => now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Phase 8.6 (D8.6-014): a pending calculation whose amount changes on recalculation is audited
+     * with the old and new amount — a re-price is never silent.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function auditReprice(RecruiterIncentiveCalculation $calculation, array $attributes): void
+    {
+        if ((float) $calculation->amount === (float) $attributes['amount']) {
+            return;
+        }
+
+        AuditLog::record($calculation, 'incentive_repriced', [
+            'amount' => (float) $calculation->amount,
+            'incentive_slab_id' => $calculation->incentive_slab_id,
+        ], [
+            'amount' => (float) $attributes['amount'],
+            'incentive_slab_id' => $attributes['incentive_slab_id'],
+        ]);
     }
 }

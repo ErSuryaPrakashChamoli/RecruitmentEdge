@@ -31,9 +31,12 @@ class RecruitmentIncentiveRulePolicy
         return $user->can('incentives.configureRules');
     }
 
+    /**
+     * Phase 8.6 (D8.6-015): a rule that has priced incentives is ended (effective_to), not deleted.
+     */
     public function delete(User $user, RecruitmentIncentiveRule $recruitmentIncentiveRule): bool
     {
-        return $user->can('incentives.configureRules');
+        return $user->can('incentives.configureRules') && ! $recruitmentIncentiveRule->isUsed();
     }
 
     /**
@@ -42,6 +45,6 @@ class RecruitmentIncentiveRulePolicy
      */
     public function deleteAny(User $user): bool
     {
-        return $user->can('incentives.configureRules');
+        return false;
     }
 }

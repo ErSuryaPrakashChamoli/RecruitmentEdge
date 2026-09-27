@@ -14,7 +14,8 @@ use Illuminate\Console\Command;
 /**
  * Refreshes the monthly RecruiterPerformanceSnapshot cache for every active recruiter. Without
  * --month it refreshes the current month, and on the 1st of a month also finalizes the previous
- * month so late activity from its last day is captured.
+ * month so late activity from its last day is captured. Phase 8.6 (D8.6-017): a month among the
+ * last three whose freeze was missed (unfrozen snapshots remain) is finalised on the next run.
  *
  * Phase 8.5 (D48, D16): months are business-timezone calendar months; finalising a month freezes
  * its snapshots. A frozen month is only recomputed with --month, --force and a --reason, and each
@@ -24,6 +25,11 @@ use Illuminate\Console\Command;
 #[Description('Recompute monthly performance snapshots for all active recruiters')]
 class SnapshotRecruiterPerformance extends Command
 {
+    /**
+     * How many completed months a missed freeze is caught up for.
+     */
+    public const int CATCH_UP_MONTHS = 3;
+
     public function handle(PerformanceEngine $engine): int
     {
         $monthOption = $this->option('month');
@@ -46,10 +52,17 @@ class SnapshotRecruiterPerformance extends Command
             $finalise = [];
         } else {
             $currentMonth = MetricPeriod::now()->startOfMonth();
-            $months = MetricPeriod::now()->day === 1
-                ? [$currentMonth->subMonthNoOverflow(), $currentMonth]
-                : [$currentMonth];
-            $finalise = MetricPeriod::now()->day === 1 ? [$currentMonth->subMonthNoOverflow()] : [];
+            // The month just ended is finalised on the 1st; Phase 8.6 (D8.6-017) also catches up
+            // any of the last CATCH_UP_MONTHS whose freeze was missed (it still has unfrozen
+            // snapshots — the daily run snapshots every month it runs in). Frozen months are never
+            // recomputed here.
+            $justEnded = $currentMonth->subMonthNoOverflow();
+            $finalise = collect(range(self::CATCH_UP_MONTHS, 1))
+                ->map(fn (int $back) => $currentMonth->subMonthsNoOverflow($back))
+                ->filter(fn (CarbonImmutable $month) => ($month->equalTo($justEnded) && MetricPeriod::now()->day === 1) || $this->hasUnfrozenSnapshots($month))
+                ->values()
+                ->all();
+            $months = [...$finalise, $currentMonth];
         }
 
         foreach ($months as $month) {
@@ -72,6 +85,14 @@ class SnapshotRecruiterPerformance extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function hasUnfrozenSnapshots(CarbonImmutable $month): bool
+    {
+        return RecruiterPerformanceSnapshot::query()
+            ->whereDate('period_start', $month->startOfMonth()->toDateString())
+            ->whereNull('frozen_at')
+            ->exists();
     }
 
     private function auditForcedRecompute(CarbonImmutable $start, CarbonImmutable $end): void

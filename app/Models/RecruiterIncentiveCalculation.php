@@ -37,6 +37,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'achievement',
     'occurrence_count',
     'amount',
+    'pricing_snapshot',
     'status',
     'retention_due_at',
     'calculated_at',
@@ -58,6 +59,7 @@ class RecruiterIncentiveCalculation extends Model
     {
         return [
             'status' => IncentiveCalculationStatus::class,
+            'pricing_snapshot' => 'array',
             'beneficiary_type' => IncentiveBeneficiary::class,
             'period_start' => 'date',
             'period_end' => 'date',
@@ -183,5 +185,55 @@ class RecruiterIncentiveCalculation extends Model
     protected function forRecruiters(Builder $query): void
     {
         $query->where('beneficiary_type', IncentiveBeneficiary::Recruiter);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-014): whether the rule/slab parameters this calculation was priced with were
+     * recorded (calculations priced before 8.6 were not).
+     */
+    public function hasPricingSnapshot(): bool
+    {
+        return is_array($this->pricing_snapshot) && isset($this->pricing_snapshot['rule']);
+    }
+
+    /**
+     * The rule name as priced, or today's name (marked) when the pricing was not recorded.
+     */
+    public function pricedRuleName(): string
+    {
+        return $this->hasPricingSnapshot()
+            ? (string) $this->pricing_snapshot['rule']['name']
+            : ($this->incentiveRule?->name ?? '—');
+    }
+
+    public function pricedPayoutLabel(): string
+    {
+        $type = $this->hasPricingSnapshot() ? IncentivePayoutType::tryFrom((string) $this->pricing_snapshot['rule']['payout_type']) : $this->incentiveRule?->payout_type;
+
+        return $type?->label() ?? '—';
+    }
+
+    /**
+     * The slab band as priced; for an unrecorded pricing, the current band marked "(current rule)"
+     * so it is never mistaken for what was applied.
+     */
+    public function pricedBandLabel(): ?string
+    {
+        if ($this->hasPricingSnapshot()) {
+            return $this->pricing_snapshot['slab']['band'] ?? null;
+        }
+
+        $band = $this->incentiveSlab?->bandLabel($this->incentiveRule);
+
+        return $band !== null ? "{$band} (current rule)" : null;
+    }
+
+    public function pricedSlabAmount(): ?float
+    {
+        if ($this->hasPricingSnapshot()) {
+            return isset($this->pricing_snapshot['slab']['amount']) ? (float) $this->pricing_snapshot['slab']['amount'] : null;
+        }
+
+        return $this->incentiveSlab !== null ? (float) $this->incentiveSlab->amount : null;
     }
 }
