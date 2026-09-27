@@ -221,11 +221,70 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 - **Status:** Open (low)
 - `NotificationDispatchService` de-duplicates on the `notifications` table, which a queued Filament database notification writes only when the worker runs; with both workers deployed the lag is small, but concurrent dispatches can still race (no unique key).
 
+## Access & Identity Lifecycle (Phase 8.4)
+
+See `docs/phase-8-4-access-identity-lifecycle.md`.
+
+### P84-BACKLOG-001 — API tokens
+
+- **Status:** Constraint
+- There are no API tokens (no Sanctum/Passport). `IdentityArchitectureTest` fails if a token package or table is added; any future API must make `StaffAccessService` revoke its tokens.
+
+### P84-BACKLOG-002 — Immediate session deletion needs the database driver
+
+- **Status:** Open (low)
+- With other session drivers, old sessions are refused on their next request (session epoch) rather than deleted at once.
+
+### P84-BACKLOG-003 — Email-change verification needs the person signed in
+
+- **Status:** Open (low)
+- An administrator's email change for someone who cannot sign in needs access restored (or a password reset) first.
+
+### P84-BACKLOG-004 — Handoff does not move requisitions, interviews or direct reports in bulk
+
+- **Status:** Open (future)
+- The handoff counts them and assigns a task; they are reassigned one by one through the existing forms (deliberately explicit).
+
+### P84-BACKLOG-005 — Employment episodes are implicit
+
+- **Status:** Open (future HRMS)
+- A rehire is the pair of joining and separation records; there is no episode table. The Outcome Loop picks the separation by date within the employment.
+
+### P84-BACKLOG-006 — No delegated AI approval
+
+- **Status:** Open (future)
+- Only the requester can approve their AI action.
+
+### P84-BACKLOG-007 — MFA enrolment redirect at page load
+
+- **Status:** Open (low)
+- A Livewire update on a page opened before MFA became required continues until the next page load (access itself is re-checked on every request).
+
+### P84-BACKLOG-008 — Password checks offline by default
+
+- **Status:** Open (low)
+- The common-password list is small; `identity.password.check_breached` enables the breached-password range check where outbound network access is allowed. Invitation links expire with the broker (60 minutes).
+
+### P84-BACKLOG-009 — Master data changes not audited
+
+- **Status:** Open (future)
+- Departments, designations and locations (they drive targets and incentives) are still not audited — outside the 8.4 scope.
+
+### P84-BACKLOG-010 — Metric catalogue
+
+- **Status:** Planned (Phase 8.5)
+- Only the three confirmed defects were fixed in 8.4 (D12). The metric catalogue (distinct keys per implementation, labels from the catalogue, canonical definitions) remains.
+
+### P84-BACKLOG-011 — Role DNA suggestions with an unreachable provider
+
+- **Status:** To verify
+- In the Phase 7 smoke with a configured but unreachable provider, `GenerateRoleDnaSuggestionsJob` fails on the connection error and the page does not show the request as failed. Phase 8.4 did not touch this code; not yet verified against the 8.3 baseline. With no provider (its original configuration) the smoke passes 20/20.
+
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
 These were found by the Phase 8 discovery audit, are outside the AI data boundary, and are kept here so they are not lost. None was changed in Phase 8.1.
 
 - **Lifecycle integrity — addressed in Phase 8.3** (`docs/phase-8-3-lifecycle-integrity.md`): pipeline bypasses (board, Copilot move tool), interview cancel/no-show direct writes, feedback service/policy/audit, offer edits and selection gate, conversion permission, reject/dropout cascades. Original text: stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check (Phase 8.2 added the `EmployeeConvertedFromCandidate` event; the permission check is still open); rejection/dropout not closing open offers, joinings or interviews.
-- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited; force-delete cascades without audit or in-use guard; no hierarchy cycle guard (addressed in Phase 8.3); no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
-- **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule; admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
+- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited (addressed in Phase 8.4); force-delete cascades without audit or in-use guard; no hierarchy cycle guard (addressed in Phase 8.3); no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
+- **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule (the last three addressed in Phase 8.4: access state, MFA for privileged users, password policy); admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
 - **Multi-tenancy:** the product is single-organisation; the reporting hierarchy is the access boundary. Nothing in Phase 8.1 makes it multi-tenant.

@@ -6,11 +6,13 @@ Before planning or editing, find the row whose globs match the file's path and r
 | --- | --- |
 | app/Services/AI/Providers/*.php | .ai/rules/a-i-providers.md |
 | app/Services/InterviewService.php,app/Filament/Resources/Interviews/**,app/Filament/Pages/InterviewWorkspace.php,app/Services/AI/Tools/ActionTools/ScheduleInterviewTool.php | .ai/rules/action-tools.md |
+| app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
 | app/Models/*.php | .ai/rules/app-models.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php | .ai/rules/app-services.md |
+| app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
 | app/Services/Communication/** | .ai/rules/communication.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
@@ -24,6 +26,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Pages/Dashboard.php,app/Filament/Widgets/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/filament.md |
 | app/Services/AI/Gateway/*.php | .ai/rules/gateway.md |
 | composer.json, docker-compose.yml | .ai/rules/general.md |
+| app/Services/Identity/** | .ai/rules/identity.md |
 | app/Services/AI/Tools/IntelligenceTools/** | .ai/rules/intelligence-tools.md |
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
 | app/Jobs/** | .ai/rules/jobs.md |
