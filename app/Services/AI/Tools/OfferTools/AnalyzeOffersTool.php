@@ -3,6 +3,7 @@
 namespace App\Services\AI\Tools\OfferTools;
 
 use App\Enums\AiRiskLevel;
+use App\Enums\OfferStatus;
 use App\Models\Offer;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
@@ -61,9 +62,11 @@ class AnalyzeOffersTool implements AiTool
             ->get(['status']);
 
         $byStatus = $offers->countBy(fn (Offer $o) => $o->status->label());
-        $decided = $offers->whereIn('status', ['accepted', 'rejected']);
+        // Phase 8.4: status is an enum cast — compare cases, not strings (the string comparison never
+        // matched, so the rate was always blank).
+        $decided = $offers->filter(fn (Offer $offer) => in_array($offer->status, [OfferStatus::Accepted, OfferStatus::Rejected], true));
         $acceptanceRate = $decided->count() > 0
-            ? round($offers->where('status', 'accepted')->count() / $decided->count() * 100, 1)
+            ? round($decided->filter(fn (Offer $offer) => $offer->status === OfferStatus::Accepted)->count() / $decided->count() * 100, 1)
             : null;
 
         return ToolResult::ok(

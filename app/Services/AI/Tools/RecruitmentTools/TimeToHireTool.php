@@ -55,8 +55,8 @@ class TimeToHireTool implements AiTool
         $start = filled($arguments['start_date'] ?? null) ? CarbonImmutable::parse($arguments['start_date']) : $end->subDays(90);
         $departmentId = $arguments['department_id'] ?? null;
 
-        $avgDays = $this->analytics->averageTimeToHireDays($start, $end, $user);
-        // Scoped to the caller's hierarchy, same as averageTimeToHireDays() above.
+        // Phase 8.4: the average, cost and joins all cover the same population (hierarchy and department).
+        $avgDays = $this->analytics->averageTimeToHireDays($start, $end, $user, $departmentId !== null ? (int) $departmentId : null);
         $costPerHire = $this->cost->costPerHire($start, $end, null, $departmentId, user: $user);
         $joins = $this->cost->successfulJoins($start, $end, null, $departmentId, user: $user);
 

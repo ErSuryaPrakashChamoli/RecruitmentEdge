@@ -217,7 +217,13 @@ class RecruitmentAnalyticsService
         };
     }
 
-    public function averageTimeToHireDays(CarbonInterface $start, CarbonInterface $end, ?User $user = null): ?float
+    /**
+     * Mean time to hire over joinings in the period, in whole calendar days from the configured
+     * start point to the joining date. Phase 8.4: counted like the hiring snapshot (start of day to
+     * start of day) — a start after the joining date is invalid and left out, never averaged in as
+     * a negative — and optionally limited to one department.
+     */
+    public function averageTimeToHireDays(CarbonInterface $start, CarbonInterface $end, ?User $user = null, ?int $departmentId = null): ?float
     {
         $startPoint = RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
         $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
@@ -229,6 +235,10 @@ class RecruitmentAnalyticsService
                 'candidateApplication',
                 fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
             ))
+            ->when($departmentId !== null, fn (Builder $q) => $q->whereHas(
+                'candidateApplication.requisition',
+                fn (Builder $r) => $r->where('department_id', $departmentId),
+            ))
             ->with(['candidateApplication.requisition', 'candidateApplication.candidate'])
             ->get();
 
@@ -236,7 +246,13 @@ class RecruitmentAnalyticsService
             return null;
         }
 
-        $days = $joinings->map(fn (CandidateJoining $joining) => self::timeToHireStart($joining->candidateApplication, $startPoint)?->diffInDays($joining->actual_doj))->filter(fn ($days) => $days !== null);
+        $days = $joinings
+            ->map(function (CandidateJoining $joining) use ($startPoint): ?int {
+                $from = self::timeToHireStart($joining->candidateApplication, $startPoint);
+
+                return $from !== null ? (int) $from->copy()->startOfDay()->diffInDays($joining->actual_doj->copy()->startOfDay(), false) : null;
+            })
+            ->filter(fn (?int $days) => $days !== null && $days >= 0);
 
         if ($days->isEmpty()) {
             return null;
