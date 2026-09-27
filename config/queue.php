@@ -124,6 +124,8 @@ return [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
         'database' => env('DB_CONNECTION', 'sqlite'),
         'table' => 'failed_jobs',
+        // Phase 8.7 (D8.7-012): failed jobs are kept 30 days, then pruned daily (queue:prune-failed).
+        'retention_hours' => (int) env('QUEUE_FAILED_RETENTION_HOURS', 720),
     ],
 
 ];

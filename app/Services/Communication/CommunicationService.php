@@ -16,6 +16,7 @@ use App\Models\Employee;
 use App\Services\CandidateIdentityNormalizer;
 use App\Services\CandidateTimelineService;
 use DomainException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -93,6 +94,10 @@ class CommunicationService
 
             $blockedReason = $e->getMessage();
         }
+
+        // Phase 8.7 (DQ-87-16): a rendered subject can outgrow its column; it is shortened, never
+        // allowed to fail the insert.
+        $renderedSubject = $renderedSubject !== null ? Str::limit($renderedSubject, 250, '…') : null;
 
         $recipient = $this->recipientFor($candidate, $channel);
         $provider = $this->providers->for($channel);
@@ -193,6 +198,10 @@ class CommunicationService
 
             try {
                 $sent[] = $this->send($channel, $context, $template, trigger: $trigger, idempotencyKey: "{$idempotencyBase}:{$channel->value}");
+            } catch (UniqueConstraintViolationException) {
+                // Phase 8.7: a concurrent send of the same message won the idempotency key — it is
+                // already queued; nothing to report (the SQL would repeat the message content).
+                continue;
             } catch (Throwable $e) {
                 report($e);
             }

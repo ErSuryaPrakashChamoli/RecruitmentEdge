@@ -23,3 +23,6 @@ Schedule::command('outcomes:evaluate')->dailyAt('03:00')->withoutOverlapping();
 // Phase 8.4: separations whose last working day has passed (identity.scheduled_enforcement).
 Schedule::command('ai:expire-pending-actions')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping()->when(fn (): bool => (bool) config('identity.scheduled_enforcement'));
+// Phase 8.7 (D8.7-012): failed jobs (payload and redacted exception) are kept for the retention
+// window only — the queue health page shows them until then.
+Schedule::command('queue:prune-failed', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:30');

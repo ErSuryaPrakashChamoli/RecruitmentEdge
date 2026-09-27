@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Logging\RedactingFailedJobProvider;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\RolePolicy;
@@ -81,6 +82,12 @@ class AppServiceProvider extends ServiceProvider
         // It only applies when the model has a policy, the policy has no such method and no gate
         // ability of that name is defined — every rule must be written down, never assumed.
         Gate::before(fn (mixed $user, string $ability, array $arguments = []): ?bool => self::policyLacksAbility($ability, $arguments) ? false : null);
+
+        // Phase 8.7 (SEC-87-07): exception text stored in failed_jobs is redacted centrally. The
+        // queue provider is deferred (and would re-bind over an extender), so the store is wrapped
+        // here, once; constructing it runs no query.
+        $failer = $this->app->make('queue.failer');
+        $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
 
         $this->configureTables();
         $this->configurePortalRateLimits();
