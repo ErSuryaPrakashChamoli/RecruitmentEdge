@@ -58,3 +58,11 @@ test('one offer that cannot be expired never stops the others from expiring', fu
     expect($healthy->fresh()->status)->toBe(OfferStatus::Expired)
         ->and($broken->fresh()->status)->toBe(OfferStatus::Released);
 });
+
+test('the heartbeat lists the schedule even where the console kernel has not loaded it (a web request)', function (): void {
+    app()->instance(Schedule::class, new Schedule);
+
+    $tasks = collect(app(SchedulerHeartbeat::class)->tasks())->pluck('task');
+
+    expect($tasks)->toContain('reliability:sweep', 'queue:health-check', 'intelligence:refresh');
+});

@@ -293,3 +293,12 @@ test('a completed run shows its condition trace, action results and escalations'
         ->assertSee('✓ met')
         ->assertSee('Escalated to');
 });
+
+test('the rule editor offers to cancel or keep scheduled runs, with cancel selected', function (): void {
+    automationUiUser('vp_hr');
+    $rule = AutomationRule::factory()->create();
+
+    Livewire::test(EditAutomationRule::class, ['record' => $rule->id])
+        ->assertSee('Runs already scheduled')
+        ->assertFormSet(['pending_runs' => 'cancel']);
+});

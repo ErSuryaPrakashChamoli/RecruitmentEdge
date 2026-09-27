@@ -6,6 +6,7 @@ use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schedule as ScheduleFacade;
 
 /**
  * Phase 8.7 (D8.7-021/028): the scheduler's pulse. Every scheduled task's outcome (finished,
@@ -39,7 +40,7 @@ class SchedulerHeartbeat
      */
     public function tasks(): array
     {
-        return collect(app(Schedule::class)->events())->map(function (Event $task): array {
+        return collect($this->schedule()->events())->map(function (Event $task): array {
             $last = Cache::get($this->keyFor($task));
 
             return [
@@ -49,6 +50,23 @@ class SchedulerHeartbeat
                 'at' => $last['at'] ?? null,
             ];
         })->values()->all();
+    }
+
+    /**
+     * The schedule is defined in routes/console.php, which only the console kernel loads — in a
+     * web request (the Queue health page, /health/queue) it is loaded here, once, from the same file.
+     */
+    private function schedule(): Schedule
+    {
+        $schedule = app(Schedule::class);
+
+        if ($schedule->events() === []) {
+            app()->instance(Schedule::class, $schedule = new Schedule(config('app.schedule_timezone') ?? config('app.timezone')));
+            ScheduleFacade::clearResolvedInstance(Schedule::class);
+            require base_path('routes/console.php');
+        }
+
+        return $schedule;
     }
 
     public function nameOf(Event $task): string

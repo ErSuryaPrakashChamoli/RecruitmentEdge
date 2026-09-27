@@ -24,7 +24,9 @@ class EditAutomationRule extends EditRecord
         /** @var AutomationRule $rule */
         $rule = $this->getRecord();
 
-        return AutomationRuleFormData::toForm($rule);
+        // Phase 8.7 (D8.7-009 c): a field default is not applied when an edit page fills from the
+        // record, so the "cancel scheduled runs" default is set here.
+        return [...AutomationRuleFormData::toForm($rule), 'pending_runs' => 'cancel'];
     }
 
     protected function handleRecordUpdate(Model $record, array $data): Model
