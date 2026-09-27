@@ -22,6 +22,8 @@ enum StageHistoryEvent: string
     case Reactivated = 'reactivated';
     case MovedRequisition = 'moved_requisition';
     case StageCorrected = 'stage_corrected';
+    // Phase 8.6 (D8.6-019): a re-applied pipeline template moved the configured stage; the milestone is unchanged.
+    case PipelineRemapped = 'pipeline_remapped';
 
     public function label(): string
     {
@@ -33,6 +35,7 @@ enum StageHistoryEvent: string
             self::Reactivated => 'Reactivated',
             self::MovedRequisition => 'Moved to another requisition',
             self::StageCorrected => 'Stage corrected',
+            self::PipelineRemapped => 'Pipeline re-applied',
         };
     }
 

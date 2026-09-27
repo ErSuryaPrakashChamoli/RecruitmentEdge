@@ -9,6 +9,7 @@ use App\Enums\StageType;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
+use App\Models\RecruitmentPipelineTemplate;
 use App\Models\RecruitmentStage;
 use App\Models\RequisitionPipelineStage;
 use DomainException;
@@ -128,7 +129,18 @@ class StageConfigurationService
             $attributes['is_active'] = (bool) $data['is_active'];
         }
 
-        $stage->update($attributes);
+        // Phase 8.6 (D8.6-019): a milestone or terminal change must keep every template that uses the
+        // stage valid (canonical order, terminal last) — otherwise the change is refused.
+        DB::transaction(function () use ($stage, $attributes): void {
+            $stage->update($attributes);
+
+            if ($stage->wasChanged(['milestone', 'is_terminal'])) {
+                RecruitmentPipelineTemplate::query()
+                    ->whereHas('templateStages', fn ($query) => $query->where('recruitment_stage_id', $stage->id))
+                    ->get()
+                    ->each(fn (RecruitmentPipelineTemplate $template) => app(PipelineTemplateService::class)->assertValidStageOrder($template));
+            }
+        });
 
         return $stage;
     }

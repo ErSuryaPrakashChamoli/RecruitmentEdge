@@ -4,11 +4,14 @@ use App\Enums\CandidateStage;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\CandidateStageHistory;
+use App\Models\Employee;
 use App\Models\RecruitmentPipelineTemplate;
 use App\Models\RecruitmentRequisition;
 use App\Models\RecruitmentStage;
 use App\Models\RequisitionPipelineStage;
+use App\Models\User;
 use App\Services\PipelineTemplateService;
+use Database\Seeders\RolePermissionSeeder;
 
 /**
  * @param  array<int, RecruitmentStage>  $stages
@@ -175,7 +178,12 @@ test('re-applying a template supersedes the old snapshot and remaps applications
         'new_pipeline_stage_id' => $oldShortlist->id,
     ]);
 
-    $service->applyToRequisition($requisition, pipelineTemplateOf([$screen], 'New'));
+    // Phase 8.6 (D8.6-019): re-applying needs pipeline.configure and a reason.
+    $this->seed(RolePermissionSeeder::class);
+    $configurer = Employee::factory()->create();
+    User::factory()->create(['employee_id' => $configurer->id])->assignRole('vp_hr');
+
+    $service->applyToRequisition($requisition->fresh(), pipelineTemplateOf([$screen], 'New'), $configurer->fresh(), 'Screening consolidated');
 
     $current = $requisition->pipelineStages()->get();
 

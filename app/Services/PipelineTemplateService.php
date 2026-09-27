@@ -3,11 +3,15 @@
 namespace App\Services;
 
 use App\Enums\CandidateStage;
+use App\Enums\RequisitionStatus;
+use App\Enums\StageHistoryEvent;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
+use App\Models\CandidateStageHistory;
 use App\Models\Employee;
 use App\Models\RecruitmentPipelineTemplate;
 use App\Models\RecruitmentPipelineTemplateStage;
+use App\Models\RecruitmentPipelineTemplateVersion;
 use App\Models\RecruitmentRequisition;
 use App\Models\RecruitmentStage;
 use App\Models\RequisitionPipelineStage;
@@ -81,6 +85,7 @@ class PipelineTemplateService
             ]);
 
             $this->writeStageRows($template, $rows);
+            $this->recordVersion($template, $actor);
 
             return $template;
         });
@@ -109,6 +114,9 @@ class PipelineTemplateService
             $existingStageIds = $template->templateStages()->pluck('recruitment_stage_id')->all();
             $rows = $this->validatedStageRows($stages, $existingStageIds);
             $before = $this->stageSummary($template);
+            // Phase 8.6 (D8.6-018): a template defined before versions were stored keeps its current
+            // definition as the version it is now, before it changes.
+            $this->recordVersion($template);
 
             $template->templateStages()->delete();
             $this->writeStageRows($template, $rows);
@@ -117,6 +125,7 @@ class PipelineTemplateService
 
             if ($before !== $after) {
                 $template->forceFill(['version' => $template->version + 1])->save();
+                $this->recordVersion($template);
 
                 AuditLog::record($template, 'stages_updated', ['stages' => $before], ['stages' => $after]);
             }
@@ -175,9 +184,16 @@ class PipelineTemplateService
      * Any previous snapshot is superseded and every application is remapped to the equivalent
      * stage of the new one (same code if present, else by milestone).
      *
+     * Phase 8.6 (D8.6-019): the first application needs only the requisition itself (callers check
+     * requisitions.update). Re-applying a template to a requisition that already has a pipeline is
+     * a governed change: the actor needs pipeline.configure, the requisition must not be closed or
+     * cancelled, and a reason is required. Each application whose configured stage changes gets a
+     * `pipeline_remapped` stage-history row (never a stage entry — its milestone is unchanged), and
+     * the re-application is audited with the reason and the number of applications moved.
+     *
      * @return Collection<int, RequisitionPipelineStage>
      */
-    public function applyToRequisition(RecruitmentRequisition $requisition, RecruitmentPipelineTemplate $template, ?Employee $actor = null): Collection
+    public function applyToRequisition(RecruitmentRequisition $requisition, RecruitmentPipelineTemplate $template, ?Employee $actor = null, ?string $reason = null): Collection
     {
         if (! $template->is_active) {
             throw new DomainException("The template \"{$template->name}\" is inactive and cannot be applied.");
@@ -189,7 +205,16 @@ class PipelineTemplateService
             throw new DomainException("The template \"{$template->name}\" has no stages.");
         }
 
-        return DB::transaction(function () use ($requisition, $template, $templateStages, $actor): Collection {
+        $reapply = $requisition->pipeline_applied_at !== null;
+        $reason = filled($reason) ? trim((string) $reason) : null;
+
+        if ($reapply) {
+            $this->guardReapply($requisition, $actor, $reason);
+        }
+
+        return DB::transaction(function () use ($requisition, $template, $templateStages, $actor, $reapply, $reason): Collection {
+            $this->recordVersion($template, $actor);
+
             $previousTemplateId = $requisition->pipeline_template_id;
             $previousVersion = $requisition->pipeline_template_version;
             $previousStages = RequisitionPipelineStage::query()->where('requisition_id', $requisition->id)->current()->get()->keyBy('id');
@@ -225,13 +250,14 @@ class PipelineTemplateService
                 'pipeline_applied_by' => $actor?->id,
             ])->save();
 
-            $this->remapApplications($requisition, $previousStages, $snapshot);
+            $moved = $this->remapApplications($requisition, $previousStages, $snapshot, $reapply ? $actor : null, $reason);
 
             AuditLog::record(
                 $requisition,
-                'pipeline_applied',
+                $reapply ? 'pipeline_reapplied' : 'pipeline_applied',
                 ['pipeline_template_id' => $previousTemplateId, 'pipeline_template_version' => $previousVersion],
-                ['pipeline_template_id' => $template->id, 'pipeline_template_version' => $template->version, 'stages' => $codesInTemplate],
+                ['pipeline_template_id' => $template->id, 'pipeline_template_version' => $template->version, 'stages' => $codesInTemplate, 'applications_remapped' => $moved],
+                $reason,
             );
 
             return $snapshot;
@@ -314,26 +340,117 @@ class PipelineTemplateService
     }
 
     /**
+     * Moves every application to the equivalent stage of the new snapshot. On a re-application,
+     * each application whose configured stage changes gets a `pipeline_remapped` history row
+     * (same milestone, previous → new configured stage), so the move is on record. Returns how
+     * many applications changed configured stage.
+     *
      * @param  Collection<int, RequisitionPipelineStage>  $previousStages  keyed by id
      * @param  Collection<int, RequisitionPipelineStage>  $snapshot
      */
-    private function remapApplications(RecruitmentRequisition $requisition, Collection $previousStages, Collection $snapshot): void
+    private function remapApplications(RecruitmentRequisition $requisition, Collection $previousStages, Collection $snapshot, ?Employee $actor, ?string $reason): int
     {
         $byCode = $snapshot->keyBy('code');
+        $moved = 0;
+        $record = $previousStages->isNotEmpty();
 
         CandidateApplication::query()
             ->where('requisition_id', $requisition->id)
             ->select(['id', 'requisition_id', 'current_stage', 'pipeline_stage_id'])
-            ->chunkById(200, function (Collection $applications) use ($previousStages, $byCode, $snapshot): void {
+            ->chunkById(200, function (Collection $applications) use ($previousStages, $byCode, $snapshot, $actor, $reason, $record, &$moved): void {
+                $history = [];
+
                 foreach ($applications as $application) {
                     $previousCode = $previousStages->get($application->pipeline_stage_id)?->code;
 
                     $target = ($previousCode !== null ? $byCode->get($previousCode) : null)
                         ?? $this->stageForMilestone($snapshot, $application->current_stage);
 
+                    if ($application->pipeline_stage_id === $target?->id) {
+                        continue;
+                    }
+
+                    if ($record) {
+                        $history[] = [
+                            'candidate_application_id' => $application->id,
+                            'previous_stage' => $application->current_stage->value,
+                            'new_stage' => $application->current_stage->value,
+                            'event' => StageHistoryEvent::PipelineRemapped->value,
+                            'previous_pipeline_stage_id' => $application->pipeline_stage_id,
+                            'new_pipeline_stage_id' => $target?->id,
+                            'changed_by' => $actor?->id,
+                            'remarks' => $reason !== null ? mb_substr("Pipeline re-applied: {$reason}", 0, 1000) : 'Pipeline re-applied',
+                            'created_at' => now(),
+                        ];
+                    }
+
                     $application->forceFill(['pipeline_stage_id' => $target?->id])->saveQuietly();
+                    $moved++;
+                }
+
+                if ($history !== []) {
+                    CandidateStageHistory::query()->insert($history);
                 }
             });
+
+        return $moved;
+    }
+
+    private function guardReapply(RecruitmentRequisition $requisition, ?Employee $actor, ?string $reason): void
+    {
+        if (! (bool) $actor?->user?->can('pipeline.configure')) {
+            throw new DomainException('Re-applying a pipeline to a requisition that already has one needs the pipeline.configure permission.');
+        }
+
+        if (in_array($requisition->status, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true)) {
+            throw new DomainException("The requisition is {$requisition->status->label()}; its pipeline can no longer be changed.");
+        }
+
+        if ($reason === null) {
+            throw new DomainException('A reason is required to re-apply a pipeline template.');
+        }
+    }
+
+    /**
+     * Phase 8.6 (D8.6-018): stores the template's current stage list as its current version, once.
+     */
+    private function recordVersion(RecruitmentPipelineTemplate $template, ?Employee $actor = null): void
+    {
+        if (RecruitmentPipelineTemplateVersion::query()->where('pipeline_template_id', $template->id)->where('version', $template->version)->exists()) {
+            return;
+        }
+
+        RecruitmentPipelineTemplateVersion::query()->create([
+            'pipeline_template_id' => $template->id,
+            'version' => $template->version,
+            'stages' => $template->templateStages()->with('stage')->get()->map(fn (RecruitmentPipelineTemplateStage $row) => [
+                'recruitment_stage_id' => $row->recruitment_stage_id,
+                'code' => $row->stage->code,
+                'name' => $row->stage->name,
+                'milestone' => $row->stage->milestone->value,
+                'is_terminal' => (bool) $row->stage->is_terminal,
+                'sort_order' => $row->sort_order,
+                'sla_hours' => $row->sla_hours ?? $row->stage->sla_hours,
+                'is_skippable' => $row->is_skippable ?? $row->stage->is_skippable,
+            ])->all(),
+            'created_by' => $actor?->id,
+        ]);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-019): re-checks a saved template against the current stage library (after a
+     * library stage's milestone or terminal flag changed). Throws DomainException naming the
+     * template when its order no longer holds.
+     */
+    public function assertValidStageOrder(RecruitmentPipelineTemplate $template): void
+    {
+        $ids = $template->templateStages()->orderBy('sort_order')->pluck('recruitment_stage_id')->all();
+
+        try {
+            $this->validatedStageRows(array_map(fn (int $id) => ['recruitment_stage_id' => $id], $ids), $ids);
+        } catch (DomainException $e) {
+            throw new DomainException("This change would break the pipeline template \"{$template->name}\": {$e->getMessage()}");
+        }
     }
 
     /**

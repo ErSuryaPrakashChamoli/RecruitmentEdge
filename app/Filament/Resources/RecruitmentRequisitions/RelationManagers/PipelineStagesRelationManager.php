@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RecruitmentRequisitions\RelationManagers;
 
 use App\Enums\CandidateStage;
+use App\Enums\RequisitionStatus;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
 use App\Models\RecruitmentPipelineTemplate;
 use App\Models\RecruitmentRequisition;
@@ -10,6 +11,7 @@ use App\Models\RequisitionPipelineStage;
 use App\Services\PipelineTemplateService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -80,20 +82,38 @@ class PipelineStagesRelationManager extends RelationManager
             ->label('Apply template')
             ->icon('heroicon-o-queue-list')
             ->color('gray')
-            ->visible(fn (): bool => (bool) auth()->user()?->can('update', $this->getOwnerRecord()))
-            ->modalDescription('Replaces this requisition\'s pipeline with a fresh copy of the template. Candidates keep their progress: each moves to the matching stage of the new pipeline, and stage history is preserved.')
+            // Phase 8.6 (D8.6-019): replacing an existing pipeline needs pipeline.configure, an open
+            // requisition and a reason (the service enforces all three).
+            ->visible(function (): bool {
+                /** @var RecruitmentRequisition $requisition */
+                $requisition = $this->getOwnerRecord();
+                $user = auth()->user();
+
+                if ($requisition->pipeline_applied_at === null) {
+                    return (bool) $user?->can('update', $requisition);
+                }
+
+                return (bool) $user?->can('pipeline.configure')
+                    && ! in_array($requisition->status, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true);
+            })
+            ->modalDescription('Replaces this requisition\'s pipeline with a fresh copy of the template. Candidates keep their progress: each moves to the matching stage of the new pipeline, the move is recorded in their stage history, and earlier history is preserved.')
             ->schema([
                 Select::make('pipeline_template_id')
                     ->label('Template')
                     ->options(fn (): array => RecruitmentPipelineTemplate::activeOptions())
                     ->required(),
+                Textarea::make('reason')
+                    ->label('Reason')
+                    ->maxLength(1000)
+                    ->required(fn (): bool => $this->getOwnerRecord()->pipeline_applied_at !== null)
+                    ->visible(fn (): bool => $this->getOwnerRecord()->pipeline_applied_at !== null),
             ])
             ->action(function (array $data): void {
                 /** @var RecruitmentRequisition $requisition */
                 $requisition = $this->getOwnerRecord();
                 $template = RecruitmentPipelineTemplate::query()->active()->findOrFail($data['pipeline_template_id']);
 
-                InterviewsTable::guarded('Template could not be applied', fn () => app(PipelineTemplateService::class)->applyToRequisition($requisition, $template, auth()->user()?->employee));
+                InterviewsTable::guarded('Template could not be applied', fn () => app(PipelineTemplateService::class)->applyToRequisition($requisition, $template, auth()->user()?->employee, $data['reason'] ?? null));
 
                 Notification::make()->title('Pipeline template applied')->success()->send();
             });
