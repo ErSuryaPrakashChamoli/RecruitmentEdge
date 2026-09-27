@@ -5,6 +5,7 @@ namespace App\Services\Automation;
 use App\Enums\AutomationActionStatus;
 use App\Enums\AutomationExecutionStatus;
 use App\Enums\AutomationFailureBehavior;
+use App\Enums\AutomationRuleStatus;
 use App\Enums\EscalationStatus;
 use App\Jobs\RunAutomationExecutionJob;
 use App\Models\AuditLog;
@@ -240,15 +241,40 @@ class AutomationEngine
      */
     public function processDue(int $limit): array
     {
-        $staleFailed = AutomationExecution::query()
+        // Phase 8.7 (D8.7-013): a run whose worker died before any action started is safe to run
+        // again, once; one that had started an action is failed for a person to retry, because
+        // that action's effect is unknown.
+        $staleFailed = 0;
+        AutomationExecution::query()
             ->where('status', AutomationExecutionStatus::Running)
             ->where('started_at', '<', now()->subMinutes((int) config('automation.stale_running_minutes', 60)))
-            ->update(['status' => AutomationExecutionStatus::Failed, 'failure_reason' => 'The run was interrupted (worker stopped) — retry it to finish the remaining actions.', 'completed_at' => now()]);
+            ->withCount('actionExecutions')
+            ->each(function (AutomationExecution $execution) use (&$staleFailed): void {
+                $reclaimable = $execution->action_executions_count === 0 && ! ($execution->context['reclaimed'] ?? false);
+
+                $claimed = AutomationExecution::query()->whereKey($execution->id)->where('status', AutomationExecutionStatus::Running)->update($reclaimable
+                    ? ['status' => AutomationExecutionStatus::Pending, 'started_at' => null, 'scheduled_for' => now(), 'context' => json_encode([...$execution->context ?? [], 'reclaimed' => true])]
+                    : ['status' => AutomationExecutionStatus::Failed, 'failure_reason' => 'The run was interrupted (worker stopped) — retry it to finish the remaining actions.', 'completed_at' => now()]);
+
+                if ($claimed === 1) {
+                    AuditLog::record($execution, $reclaimable ? 'automation_run_reclaimed' : 'automation_run_interrupted', null, ['rule_id' => $execution->automation_rule_id]);
+                    $staleFailed += $reclaimable ? 0 : 1;
+                }
+            });
 
         $staleCancelled = AutomationExecution::query()
             ->where('status', AutomationExecutionStatus::Pending)
             ->where('scheduled_for', '<', now()->subDays((int) config('automation.stale_pending_days', 7)))
             ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => 'Not run in time (too far past its scheduled time).', 'completed_at' => now()]);
+
+        // Phase 8.7 (D8.7-023): belt and braces — a rule whose owner lost the authority to run it is
+        // paused here, even if the handoff that should have paused it never ran.
+        $rules = app(AutomationRuleService::class);
+        AutomationRule::query()->where('status', AutomationRuleStatus::Active)->with('owner')->each(function (AutomationRule $rule) use ($rules): void {
+            if (($problem = $rules->ownerAuthorityProblem($rule)) !== null) {
+                $rules->pauseForAuthority($rule, $problem);
+            }
+        });
 
         $due = AutomationExecution::query()
             ->where('status', AutomationExecutionStatus::Pending)
@@ -462,6 +488,15 @@ class AutomationEngine
             return;
         }
 
+        // Phase 8.7 (D8.7-010 a): the record must still be in the rule's scope and visible to its
+        // owner now — a delayed run never acts on a record that left the owner's authority.
+        if (($outside = $this->scopes->outsideAuthority($rule, $context)) !== null) {
+            $this->finish($execution, AutomationExecutionStatus::Skipped, skip: $outside);
+            AuditLog::record($execution, 'automation_skipped_authority', null, ['rule_id' => $rule->id, 'reason' => $outside]);
+
+            return;
+        }
+
         if (($stale = $this->anchorChanged($execution, $context)) !== null) {
             $this->finish($execution, AutomationExecutionStatus::Skipped, skip: $stale);
 
@@ -483,9 +518,16 @@ class AutomationEngine
             return;
         }
 
-        $this->runtime->within($execution, fn () => $this->runActions($execution, $context, $snapshot));
+        $this->runtime->within($execution, fn () => $this->runActions($execution, $context, $snapshot, $rule->owner));
 
         $statuses = $execution->actionExecutions()->pluck('status');
+
+        if ($statuses->isNotEmpty() && $statuses->every(fn (AutomationActionStatus $status) => $status === AutomationActionStatus::Skipped)) {
+            $this->finish($execution, AutomationExecutionStatus::Skipped, skip: 'No action was taken: the rule owner no longer holds the permissions its actions need.');
+
+            return;
+        }
+
         $failed = $statuses->filter(fn (AutomationActionStatus $status) => $status === AutomationActionStatus::Failed)->count();
         $completed = $statuses->filter(fn (AutomationActionStatus $status) => $status === AutomationActionStatus::Completed)->count();
 
@@ -513,7 +555,7 @@ class AutomationEngine
     /**
      * @param  array<string, mixed>  $snapshot
      */
-    private function runActions(AutomationExecution $execution, AutomationContext $context, array $snapshot): void
+    private function runActions(AutomationExecution $execution, AutomationContext $context, array $snapshot, ?User $owner): void
     {
         $stopOnFailure = ($snapshot['failure_behavior'] ?? 'continue') === AutomationFailureBehavior::Stop->value;
         $halted = false;
@@ -535,6 +577,15 @@ class AutomationEngine
             }
 
             $handler = $this->actions->find((string) ($config['type'] ?? ''));
+            $permission = $this->actions->permissionFor((string) ($config['type'] ?? ''));
+
+            // Phase 8.7 (D8.7-010 b): each action runs only while the owner holds its permission.
+            if ($permission !== null && ! (bool) $owner?->can($permission)) {
+                $row->forceFill(['status' => AutomationActionStatus::Skipped, 'summary' => "Not run: the rule owner no longer holds {$permission}.", 'completed_at' => now()])->save();
+                AuditLog::record($execution, 'automation_action_skipped_authority', null, ['position' => $position, 'action' => $config['type'] ?? null, 'permission' => $permission]);
+
+                continue;
+            }
 
             try {
                 $outcome = $handler !== null ? $handler->execute($config, $context, $execution, $position) : ActionOutcome::failed('Unknown action type.');

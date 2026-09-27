@@ -3,7 +3,6 @@
 namespace App\Services\Automation;
 
 use App\Enums\ActionPriority;
-use App\Enums\CommunicationTrigger;
 use App\Enums\EscalationStatus;
 use App\Enums\RecruiterActionStatus;
 use App\Enums\RecruiterActionType;
@@ -11,7 +10,7 @@ use App\Models\AuditLog;
 use App\Models\AutomationEscalation;
 use App\Models\AutomationExecution;
 use App\Models\RecruiterAction;
-use App\Services\Communication\CommunicationService;
+use App\Services\Automation\Actions\Handlers\SendCommunicationAction;
 use App\Services\NotificationDispatchService;
 use App\Services\RecruiterActionService;
 use Carbon\CarbonInterface;
@@ -34,7 +33,6 @@ class EscalationService
         private readonly RecipientResolver $recipients,
         private readonly NotificationDispatchService $notifications,
         private readonly RecruiterActionService $actions,
-        private readonly CommunicationService $communications,
         private readonly ConditionEvaluator $conditions,
     ) {}
 
@@ -97,6 +95,26 @@ class EscalationService
                 return $this->close($escalation, EscalationStatus::Cancelled, 'Rule is no longer active or the record no longer exists.');
             }
 
+            // Phase 8.7 (SEC-87-06, D8.7-016/023): an escalation acts on the rule owner's authority,
+            // re-checked now — effective dates, the owner's access, and the record's scope.
+            $rule = $execution->rule;
+
+            if (! $rule->isEffectiveAt(now())) {
+                return $this->close($escalation, EscalationStatus::Cancelled, 'The rule is outside its effective dates.');
+            }
+
+            if (($problem = app(AutomationRuleService::class)->ownerAuthorityProblem($rule)) !== null) {
+                app(AutomationRuleService::class)->pauseForAuthority($rule, $problem);
+
+                return $this->close($escalation, EscalationStatus::Cancelled, "The rule was paused: {$problem}.");
+            }
+
+            if (($outside = app(AutomationScopeResolver::class)->outsideAuthority($rule, $context)) !== null) {
+                AuditLog::asActor('automation', $rule->owner_id, fn () => AuditLog::record($execution, 'automation_skipped_authority', null, ['escalation_step' => $escalation->step, 'reason' => $outside]));
+
+                return $this->close($escalation, EscalationStatus::Cancelled, $outside);
+            }
+
             $config = $execution->ruleVersion?->snapshot['escalation'] ?? $execution->rule->escalation ?? [];
             $resolved = $this->resolvedReason($execution, $context, $config['stop_conditions'] ?? null);
 
@@ -106,7 +124,7 @@ class EscalationService
                 return $escalation->refresh();
             }
 
-            return $this->send($escalation, $execution, $context, $config['steps'][$escalation->step - 1] ?? ['target' => $escalation->target]);
+            return AuditLog::asActor('automation', $rule->owner_id, fn () => $this->send($escalation, $execution, $context, $config['steps'][$escalation->step - 1] ?? ['target' => $escalation->target]));
         });
     }
 
@@ -218,9 +236,11 @@ class EscalationService
             ]);
         }
 
-        if (filled($step['candidate_template'] ?? null) && ($messageContext = $context->messageContext()) !== null) {
+        // Phase 8.7 (SEC-87-06): a candidate message from an escalation needs the owner's send
+        // permission and counts toward the candidate's daily automated-message cap.
+        if (filled($step['candidate_template'] ?? null) && ($messageContext = $context->messageContext()) !== null && (bool) $execution->rule?->owner?->can('communications.send')) {
             try {
-                $this->communications->sendAutomatic((string) $step['candidate_template'], $messageContext, "automation:{$execution->id}:escalation:{$escalation->step}", trigger: CommunicationTrigger::Automation);
+                app(SendCommunicationAction::class)->sendWithinDailyCap((string) $step['candidate_template'], $messageContext, "automation:{$execution->id}:escalation:{$escalation->step}");
             } catch (Throwable $e) {
                 report($e);
             }

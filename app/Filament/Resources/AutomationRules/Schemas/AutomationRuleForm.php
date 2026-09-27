@@ -26,6 +26,7 @@ use Filament\Forms\Components\Builder;
 use Filament\Forms\Components\Builder\Block;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
@@ -59,6 +60,17 @@ class AutomationRuleForm
                         ->label('Reason')
                         ->helperText('Required when the change affects what the rule does. Recorded on the new version and in the audit log.')
                         ->maxLength(1000)
+                        ->dehydrated(),
+                    // Phase 8.7 (D8.7-009 c): runs already scheduled were created under the old
+                    // version; the editor decides whether they still happen.
+                    Radio::make('pending_runs')
+                        ->label('Runs already scheduled')
+                        ->options([
+                            'cancel' => 'Cancel them — only the changed rule runs from now on',
+                            'keep' => 'Keep them — they run as the previous version',
+                        ])
+                        ->default('cancel')
+                        ->helperText('Applies only when the change affects what the rule does.')
                         ->dehydrated(),
                 ]),
             Section::make('Rule')

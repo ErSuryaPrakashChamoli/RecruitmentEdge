@@ -36,6 +36,22 @@ class AutomationActionRegistry
     ];
 
     /**
+     * Phase 8.7 (D8.7-010 b): the permission a rule owner must still hold, when the run happens, for
+     * the automation to take each action on their authority. Actions not listed only notify staff
+     * or record notes about the run itself.
+     *
+     * @var array<string, string>
+     */
+    public const array PERMISSIONS = [
+        'send_communication' => 'communications.send',
+        'move_stage' => 'pipeline.transition',
+        'hold_application' => 'pipeline.transition',
+        'create_action' => 'actions.manage',
+        'create_followup' => 'followups.manage',
+        'add_timeline_event' => 'candidates.update',
+    ];
+
+    /**
      * @var Collection<string, AutomationAction>|null
      */
     private ?Collection $handlers = null;
@@ -48,6 +64,11 @@ class AutomationActionRegistry
         return $this->handlers ??= collect(self::HANDLERS)
             ->map(fn (string $class) => app($class))
             ->keyBy(fn (AutomationAction $handler) => $handler->key());
+    }
+
+    public function permissionFor(string $key): ?string
+    {
+        return self::PERMISSIONS[$key] ?? null;
     }
 
     public function find(string $key): ?AutomationAction

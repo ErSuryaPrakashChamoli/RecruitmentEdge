@@ -12,8 +12,8 @@ use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Saving a changed configuration creates a new rule version; runs already created keep the
- * version they started with.
+ * Saving a changed configuration creates a new rule version. Runs already scheduled are cancelled
+ * unless the editor chooses to keep them on the version they were created with (Phase 8.7).
  */
 class EditAutomationRule extends EditRecord
 {
@@ -30,7 +30,7 @@ class EditAutomationRule extends EditRecord
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var AutomationRule $record */
-        return AutomationRuleActions::guarded('The rule could not be saved', fn () => app(AutomationRuleService::class)->update($record, AutomationRuleFormData::fromForm($data), auth()->user(), $data['change_reason'] ?? null));
+        return AutomationRuleActions::guarded('The rule could not be saved', fn () => app(AutomationRuleService::class)->update($record, AutomationRuleFormData::fromForm($data), auth()->user(), $data['change_reason'] ?? null, ($data['pending_runs'] ?? 'cancel') === 'keep'));
     }
 
     protected function getHeaderActions(): array

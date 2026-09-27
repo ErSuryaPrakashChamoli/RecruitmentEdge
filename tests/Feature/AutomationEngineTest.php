@@ -220,7 +220,7 @@ test('chains of different rules stop at the maximum chain depth', function (): v
         ->and(AutomationExecution::query()->where('skip_reason', 'like', '%maximum automation chain depth%')->exists())->toBeTrue();
 });
 
-test('a run keeps using the rule version it was created with after the rule is edited', function (): void {
+test('a run the editor chose to keep uses the rule version it was created with after the rule is edited', function (): void {
     $admin = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
     $rule = AutomationRule::factory()->create(['timing' => ['mode' => 'delay', 'amount' => 2, 'unit' => 'hours', 'anchor' => 'event']]);
     app(AutomationRuleService::class)->activate($rule, $admin, 'Reviewed and approved');
@@ -228,7 +228,7 @@ test('a run keeps using the rule version it was created with after the rule is e
     engineInterview(engineApplication($this->recruiter));
     $execution = AutomationExecution::query()->sole();
 
-    app(AutomationRuleService::class)->update($rule, ['actions' => [['type' => 'add_audit_event', 'note' => 'changed']]], $admin, 'Record differently');
+    app(AutomationRuleService::class)->update($rule, ['actions' => [['type' => 'add_audit_event', 'note' => 'changed']]], $admin, 'Record differently', keepPendingRuns: true);
     $this->travel(3)->hours();
     $this->artisan('recruitment:automation:process')->assertSuccessful();
 
@@ -268,9 +268,10 @@ test('pausing a rule cancels its runs that have not happened yet', function (): 
         ->and(RecruiterAction::query()->count())->toBe(0);
 });
 
-test('a run whose worker died is marked failed so it can be retried', function (): void {
+test('a run whose worker died after an action started is marked failed so it can be retried', function (): void {
     $execution = AutomationExecution::factory()->create(['status' => AutomationExecutionStatus::Running]);
     $execution->forceFill(['started_at' => now()->subHours(2)])->save();
+    $execution->actionExecutions()->create(['position' => 0, 'action_type' => 'create_action']);
 
     $this->artisan('recruitment:automation:process')->assertSuccessful();
 

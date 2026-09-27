@@ -59,9 +59,13 @@ class AutomationRuleService
     }
 
     /**
+     * Phase 8.7 (D8.7-009 c): when what the rule does changes, runs already scheduled under the old
+     * version are cancelled unless $keepPendingRuns — either way the choice is audited with the
+     * change's reason.
+     *
      * @param  array<string, mixed>  $data
      */
-    public function update(AutomationRule $rule, array $data, User $actor, ?string $reason = null): AutomationRule
+    public function update(AutomationRule $rule, array $data, User $actor, ?string $reason = null, bool $keepPendingRuns = false): AutomationRule
     {
         if ($rule->status === AutomationRuleStatus::Archived) {
             throw new DomainException('Archived rules cannot be edited — duplicate it instead.');
@@ -84,15 +88,41 @@ class AutomationRuleService
             $reason = $this->requireReason($reason, 'changing');
         }
 
-        return DB::transaction(function () use ($rule, $actor, $before, $reason): AutomationRule {
+        return DB::transaction(function () use ($rule, $actor, $before, $reason, $keepPendingRuns): AutomationRule {
             AuditLog::withReason($reason, fn () => $rule->save());
 
             if ($rule->configuration() !== $before) {
                 $this->snapshot($rule, $actor, (string) $reason);
+                $this->settlePendingRuns($rule, $keepPendingRuns, (string) $reason);
             }
 
             return $rule;
         });
+    }
+
+    private function settlePendingRuns(AutomationRule $rule, bool $keep, string $reason): void
+    {
+        $latestVersionId = $rule->versions()->orderByDesc('version')->value('id');
+        $pending = AutomationExecution::query()
+            ->where('automation_rule_id', $rule->id)
+            ->where('status', AutomationExecutionStatus::Pending)
+            ->where(fn ($query) => $query->whereNull('automation_rule_version_id')->orWhere('automation_rule_version_id', '!=', $latestVersionId));
+
+        $count = (clone $pending)->count();
+
+        if ($count === 0) {
+            return;
+        }
+
+        if (! $keep) {
+            $pending->update([
+                'status' => AutomationExecutionStatus::Cancelled->value,
+                'skip_reason' => mb_substr("Cancelled: the rule was changed (v{$rule->version}) — {$reason}", 0, 250),
+                'completed_at' => now(),
+            ]);
+        }
+
+        AuditLog::record($rule, $keep ? 'automation_pending_runs_kept' : 'automation_pending_runs_cancelled', null, ['count' => $count, 'version' => $rule->version], $reason);
     }
 
     public function activate(AutomationRule $rule, User $actor, ?string $reason = null): AutomationRule

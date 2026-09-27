@@ -40,6 +40,25 @@ class AutomationScopeResolver
     }
 
     /**
+     * Phase 8.7 (D8.7-010 a, SEC-87-06): why a run or escalation may not act on this record now —
+     * it left the rule's scope, or its owner can no longer see it — or null.
+     */
+    public function outsideAuthority(AutomationRule $rule, AutomationContext $context): ?string
+    {
+        if (! $this->matches($rule, $context)) {
+            return 'The record is no longer within the rule\'s scope.';
+        }
+
+        $application = $context->application();
+
+        if ($application !== null && ($rule->owner === null || ! $this->hierarchy->canView($rule->owner, $application->recruiter))) {
+            return 'The record is no longer visible to the rule\'s owner.';
+        }
+
+        return null;
+    }
+
+    /**
      * Narrows a schedule-trigger sweep query to the rule's scope in SQL, so a scoped rule never
      * scans the whole organisation.
      *

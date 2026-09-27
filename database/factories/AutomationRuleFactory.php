@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Enums\AutomationRuleStatus;
 use App\Models\AutomationRule;
 use App\Models\User;
+use App\Services\Automation\AutomationActionRegistry;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Permission;
@@ -44,11 +45,15 @@ class AutomationRuleFactory extends Factory
             $rule->versions()->create(['version' => $rule->version + 1, 'snapshot' => $rule->configuration(), 'change_summary' => 'Factory']);
             $rule->forceFill(['version' => $rule->version + 1])->saveQuietly();
 
-            // A factory-made owner can run the rule it owns (organisation-wide, like the default scope).
+            // A factory-made owner can run the rule it owns (organisation-wide, like the default scope):
+            // it sees every record and, since Phase 8.7 (D8.7-010), holds each action's permission.
             $owner = $rule->owner;
 
             if ($owner !== null && $owner->roles()->doesntExist() && $owner->getDirectPermissions()->isEmpty()) {
-                $owner->givePermissionTo(collect(['automation.activate', 'automation.organization'])->map(fn (string $name) => Permission::findOrCreate($name))->all());
+                $owner->givePermissionTo(collect(['automation.activate', 'automation.organization', 'hierarchy.view-all', ...array_values(AutomationActionRegistry::PERMISSIONS)])
+                    ->unique()
+                    ->map(fn (string $name) => Permission::findOrCreate($name))
+                    ->all());
             }
         });
     }
