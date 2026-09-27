@@ -42,3 +42,5 @@ Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping(
 Schedule::command('queue:prune-failed', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:30')->withoutOverlapping(30)->onOneServer();
 // Phase 8.7 (D8.7-013): re-queue lost messages; fail work a crashed worker or request left stuck.
 Schedule::command('reliability:sweep')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
+// Phase 8.7 (D8.7-028): raise failed jobs, backlogs, stuck work and a silent scheduler.
+Schedule::command('queue:health-check')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();

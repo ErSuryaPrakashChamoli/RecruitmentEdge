@@ -40,7 +40,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 330),
             'after_commit' => false,
         ],
 
@@ -125,6 +125,10 @@ return [
     | database connection's retry_after is not above it (a running job would be handed out twice).
     */
     'worker_max_timeout' => (int) env('QUEUE_WORKER_MAX_TIMEOUT', 300),
+
+    // Phase 8.7 (D8.7-021): bearer token an external monitor presents to GET /health/queue. Empty
+    // = only signed-in platform administrators can read it.
+    'health_token' => env('QUEUE_HEALTH_TOKEN'),
 
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),

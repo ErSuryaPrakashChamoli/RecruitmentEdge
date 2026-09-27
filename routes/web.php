@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Careers\CareerSiteController;
 use App\Http\Controllers\Integrations\CalendarOAuthController;
+use App\Http\Controllers\QueueHealthController;
 use App\Http\Controllers\Webhooks\CommunicationWebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -24,6 +25,9 @@ Route::middleware(['auth'])->prefix('integrations/calendar')->name('integrations
 });
 
 // Phase 5 public career site (applications flow into the existing candidate pipeline).
+// Phase 8.7 (D8.7-021): queue health for external monitoring (administrators or a bearer token).
+Route::get('health/queue', QueueHealthController::class)->middleware('throttle:60,1')->name('health.queue');
+
 Route::prefix('careers')->name('careers.')->group(function (): void {
     Route::get('/', [CareerSiteController::class, 'index'])->name('index');
     Route::get('feed.xml', [CareerSiteController::class, 'feed'])->name('feed');
