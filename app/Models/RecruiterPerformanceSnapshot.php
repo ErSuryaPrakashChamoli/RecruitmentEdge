@@ -14,9 +14,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A computed, recomputable cache of a performance calculation for one recruiter/period — never a
  * source of truth itself. Always recreated via PerformanceEngine::snapshotFor(), never edited by
- * hand.
+ * hand. Phase 8.5 (D48): once its month is finalised it is frozen (frozen_at) and only an audited,
+ * forced recompute can change it.
  */
-#[Fillable(['employee_id', 'period_start', 'period_end', 'score', 'breakdown', 'computed_at'])]
+#[Fillable(['employee_id', 'period_start', 'period_end', 'score', 'breakdown', 'computed_at', 'frozen_at'])]
 class RecruiterPerformanceSnapshot extends Model
 {
     /** @use HasFactory<RecruiterPerformanceSnapshotFactory> */
@@ -30,6 +31,7 @@ class RecruiterPerformanceSnapshot extends Model
             'score' => 'decimal:2',
             'breakdown' => 'array',
             'computed_at' => 'datetime',
+            'frozen_at' => 'datetime',
         ];
     }
 

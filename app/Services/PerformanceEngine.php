@@ -81,9 +81,22 @@ class PerformanceEngine
      * `period_end` are date-cast columns: Eloquent's date cast serializes to a full "Y-m-d H:i:s"
      * string for storage, so a plain string match on `toDateString()` never finds the existing
      * row. `whereDate()` compares only the date part at the SQL level and sidesteps that mismatch.
+     *
+     * Phase 8.5 (D48): a frozen snapshot (a finalised month) is returned untouched unless $force —
+     * the audited `performance:snapshot --month --force --reason` path.
      */
-    public function snapshotFor(Employee $recruiter, CarbonInterface $start, CarbonInterface $end): RecruiterPerformanceSnapshot
+    public function snapshotFor(Employee $recruiter, CarbonInterface $start, CarbonInterface $end, bool $force = false): RecruiterPerformanceSnapshot
     {
+        $existing = RecruiterPerformanceSnapshot::query()
+            ->where('employee_id', $recruiter->id)
+            ->whereDate('period_start', $start)
+            ->whereDate('period_end', $end)
+            ->first();
+
+        if ($existing?->frozen_at !== null && ! $force) {
+            return $existing;
+        }
+
         $result = $this->computeFor($recruiter, $start, $end);
 
         $attributes = [
@@ -92,16 +105,10 @@ class PerformanceEngine
             'computed_at' => now(),
         ];
 
-        $snapshot = RecruiterPerformanceSnapshot::query()
-            ->where('employee_id', $recruiter->id)
-            ->whereDate('period_start', $start)
-            ->whereDate('period_end', $end)
-            ->first();
+        if ($existing !== null) {
+            $existing->update($attributes);
 
-        if ($snapshot !== null) {
-            $snapshot->update($attributes);
-
-            return $snapshot;
+            return $existing;
         }
 
         return RecruiterPerformanceSnapshot::query()->create([
@@ -119,18 +126,32 @@ class PerformanceEngine
      * @param  Collection<int, int>|null  $visibleEmployeeIds  null means no restriction
      * @return int the number of recruiters snapshotted
      */
-    public function snapshotAllRecruiters(CarbonInterface $start, CarbonInterface $end, ?Collection $visibleEmployeeIds = null): int
+    public function snapshotAllRecruiters(CarbonInterface $start, CarbonInterface $end, ?Collection $visibleEmployeeIds = null, bool $force = false): int
     {
         $count = 0;
 
         $this->activeRecruitersQuery($visibleEmployeeIds)
             ->lazyById()
-            ->each(function (Employee $recruiter) use ($start, $end, &$count): void {
-                $this->snapshotFor($recruiter, $start, $end);
+            ->each(function (Employee $recruiter) use ($start, $end, $force, &$count): void {
+                $this->snapshotFor($recruiter, $start, $end, $force);
                 $count++;
             });
 
         return $count;
+    }
+
+    /**
+     * Phase 8.5 (D48): freeze a finalised period's snapshots so later changes cannot rewrite it.
+     *
+     * @return int the number of snapshots frozen
+     */
+    public function freezePeriod(CarbonInterface $start, CarbonInterface $end): int
+    {
+        return RecruiterPerformanceSnapshot::query()
+            ->whereDate('period_start', $start)
+            ->whereDate('period_end', $end)
+            ->whereNull('frozen_at')
+            ->update(['frozen_at' => now()]);
     }
 
     /**
