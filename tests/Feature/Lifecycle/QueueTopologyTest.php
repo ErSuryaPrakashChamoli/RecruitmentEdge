@@ -55,6 +55,29 @@ function queueTopologyProduced(): array
         }
     }
 
+    // Phase 8.7: queued notifications and mail too — in-app alerts and auth mails run on
+    // `notifications`, and a queue nobody consumes means nobody is ever told anything.
+    foreach ([...glob($root.'/app/Notifications/*.php'), ...glob($root.'/app/Notifications/*/*.php'), ...glob($root.'/app/Mail/*.php')] as $file) {
+        $class = 'App\\'.str_replace(['/', '.php'], ['\\', ''], substr($file, strlen($root.'/app/')));
+
+        if (is_subclass_of($class, ShouldQueue::class)) {
+            $reflection = new ReflectionClass($class);
+            $arguments = collect($reflection->getConstructor()?->getParameters() ?? [])
+                ->map(fn (ReflectionParameter $parameter) => match (true) {
+                    $parameter->isDefaultValueAvailable() => $parameter->getDefaultValue(),
+                    $parameter->allowsNull() => null,
+                    default => match ($parameter->getType()?->getName()) {
+                        'int' => 1,
+                        'bool' => false,
+                        'array' => [],
+                        default => 'x',
+                    },
+                })
+                ->all();
+            $queues[$class] = $reflection->newInstanceArgs($arguments)->queue ?? 'default';
+        }
+    }
+
     return $queues;
 }
 
@@ -81,4 +104,35 @@ test('a job is never handed to a second worker while it is still running', funct
     preg_match('/DB_QUEUE_RETRY_AFTER: "(\d+)"/', queueTopologyCompose(), $retryAfter);
 
     expect((int) ($retryAfter[1] ?? 0))->toBeGreaterThan(max(array_map('intval', $timeouts[1])));
+});
+
+test('workers finish their current job on shutdown: grace period, signal delivery and retry_after agree', function (): void {
+    $compose = queueTopologyCompose();
+    $root = dirname(__DIR__, 3);
+    preg_match('/DB_QUEUE_RETRY_AFTER: "(\d+)"/', $compose, $retryAfter);
+    preg_match_all('/"--timeout=(\d+)"/', $compose, $timeouts);
+    preg_match_all('/^  ([a-z-]+):\n(?:    .*\n)*?    command: \["php", "artisan", "(?:queue:work|schedule:work)"/m', $compose, $workers);
+    preg_match('/^DB_QUEUE_RETRY_AFTER=(\d+)$/m', (string) file_get_contents($root.'/.env.example'), $exampleRetryAfter);
+    $entrypoint = (string) file_get_contents($root.'/docker/entrypoint.sh');
+
+    expect($workers[1])->toContain('queue', 'queue-automation', 'queue-background', 'scheduler');
+
+    foreach ($workers[1] as $service) {
+        preg_match('/^  '.preg_quote($service, '/').':\n(?:    .*\n)*?    stop_grace_period: (\d+)s/m', $compose, $grace);
+        expect((int) ($grace[1] ?? 0))->toBeGreaterThanOrEqual((int) $retryAfter[1], "{$service} has no stop_grace_period covering a running job");
+    }
+
+    expect((int) ($exampleRetryAfter[1] ?? 0))->toBe((int) $retryAfter[1])
+        ->and(max(array_map('intval', $timeouts[1])))->toBe(config('queue.worker_max_timeout'))
+        ->and($entrypoint)->toContain('exec setpriv')
+        ->and($entrypoint)->not->toContain('su -s');
+});
+
+test('automation has its own worker, so candidate messages never starve it', function (): void {
+    preg_match('/queue-automation:\n(?:    .*\n)*?    command: \[[^\]]*"--queue=([^"]+)"/', queueTopologyCompose(), $automation);
+    preg_match('/^  queue:\n(?:    .*\n)*?    command: \[[^\]]*"--queue=([^"]+)"/m', queueTopologyCompose(), $messages);
+
+    expect(explode(',', $automation[1] ?? ''))->toContain('automation')
+        ->and(explode(',', $messages[1] ?? ''))->not->toContain('automation')
+        ->and(explode(',', $messages[1] ?? ''))->toContain('communications', 'notifications');
 });

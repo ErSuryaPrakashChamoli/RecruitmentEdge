@@ -27,9 +27,11 @@ php artisan view:cache
 php artisan event:cache
 
 # Long-running artisan workers (scheduler/queue) run as www-data so any log or cache files they
-# create stay writable by Apache.
+# create stay writable by Apache. Phase 8.7 (D8.7-020): setpriv replaces this process with the
+# worker (no `su` shell in between), so Docker's SIGTERM reaches the worker, which finishes its
+# current job and exits within stop_grace_period.
 if [ "$(id -u)" = "0" ] && [ "$1" = "php" ]; then
-    exec su -s /bin/sh www-data -c "$*"
+    exec setpriv --reuid=www-data --regid=www-data --init-groups "$@"
 fi
 
 exec "$@"

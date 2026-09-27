@@ -120,6 +120,12 @@ return [
     |
     */
 
+    /*
+    | Phase 8.7 (D8.7-020): the longest --timeout of any worker. queue:health-check alerts when the
+    | database connection's retry_after is not above it (a running job would be handed out twice).
+    */
+    'worker_max_timeout' => (int) env('QUEUE_WORKER_MAX_TIMEOUT', 300),
+
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
         'database' => env('DB_CONNECTION', 'sqlite'),
