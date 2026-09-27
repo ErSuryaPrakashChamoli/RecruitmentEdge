@@ -1,7 +1,7 @@
 # Backlog
 
 Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
-updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop), Phase 8.3 (Lifecycle Integrity), Phase 8.4 (Access & Identity) and Phase 8.5 (Metric Governance). None of these block production. Items are not scheduled
+updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop), Phase 8.3 (Lifecycle Integrity), Phase 8.4 (Access & Identity), Phase 8.5 (Metric Governance) and Phase 8.6 (Data Governance). None of these block production. Items are not scheduled
 into a phase yet unless stated.
 
 Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
@@ -321,7 +321,7 @@ See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/w
 
 ### P85-BACKLOG-008 — Outcome filters use live requisition attributes
 
-- **Status:** Open (low) [8.6]
+- **Status:** Open (low) [future] — Phase 8.6 froze the dimension *names* in hiring-snapshot/3; the filters still match by id on the current requisition.
 - Department / designation / location filters on outcome metrics use the requisition's current values, not those frozen in the snapshot.
 
 ### P85-BACKLOG-009 — Recruitment plan does not narrow the historical rate by role or location
@@ -334,11 +334,56 @@ See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/w
 - **Status:** Open (low) [8.12 or later]
 - Definitions show as hover text on every governed number and live in code; a read-only catalogue page listing `MetricSpec`s would help auditors.
 
+## Phase 8.6 (Data Governance, Master Data & Configuration Integrity)
+
+See `docs/phase-8-6-implementation.md` §8 and `docs/phase-8-6-security-review.md`.
+
+### P86-BACKLOG-001 — Foreign-key action hardening for master data
+
+- **Status:** Open (medium) [future] (D8.6-006 deferred)
+- Cascade / set-null foreign keys to departments, designations, locations and sources remain. The application can no longer force-delete master data (model + policy), so only raw SQL could trigger them.
+
+### P86-BACKLOG-002 — Skills and qualification taxonomy
+
+- **Status:** Open (low) [8.8+] — with P7-BACKLOG-001.
+
+### P86-BACKLOG-003 — Scheduler and job request id
+
+- **Status:** Superseded by Phase 8.7 decision D8.7-014.
+
+### P86-BACKLOG-004 — Audit log immutability and retention
+
+- **Status:** Open (medium) [8.8, legal retention decision]
+
+### P86-BACKLOG-005 — Configuration maker-checker workflow
+
+- **Status:** Open (low) [future] — 8.6 implemented separation of duties for automation only (D8.6-026).
+
+### P86-BACKLOG-006 — Employee org history
+
+- **Status:** Open (medium) [future HRMS] — same as P85-BACKLOG-002.
+
+### P86-BACKLOG-007 — Deploy the SEC-1 hotfix, with the manual-joining create fix
+
+- **Status:** Open (**production action**) [release] — `hotfix/filament-delete-authorization` @ `2fab3fd` (644/644 passing) plus `CandidateJoiningPolicy::create` (SEC-86-I-01). Procedure in the implementation document §7. Not pushed or deployed.
+
+### P86-BACKLOG-008 — Stage deactivation not re-validated against templates
+
+- **Status:** Open (low) — milestone and terminal changes are re-validated (D8.6-019); `setActive` is not.
+
+### P86-BACKLOG-009 — Issued offer letter storage and retention
+
+- **Status:** Open (low) [8.8] — issued PDFs are kept indefinitely on the private disk.
+
+### P86-BACKLOG-010 — Settings-aware metric cache key
+
+- **Status:** Open (low) [8.7, PF-1] — a current-period SLA result cached before a target change may show for up to 600 s.
+
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
 These were found by the Phase 8 discovery audit, are outside the AI data boundary, and are kept here so they are not lost. None was changed in Phase 8.1.
 
 - **Lifecycle integrity — addressed in Phase 8.3** (`docs/phase-8-3-lifecycle-integrity.md`): pipeline bypasses (board, Copilot move tool), interview cancel/no-show direct writes, feedback service/policy/audit, offer edits and selection gate, conversion permission, reject/dropout cascades. Original text: stage transitions that bypass the configured pipeline (`transitionTo` on the canonical board and the Copilot move tool); interview cancel/no-show written directly by table actions; interview feedback without an owning service, policy or audit; offer field edits unaudited and offers not gated on selection; employee conversion without a permission check (Phase 8.2 added the `EmployeeConvertedFromCandidate` event; the permission check is still open); rejection/dropout not closing open offers, joinings or interviews.
-- **Configuration and audit:** master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited (addressed in Phase 8.4); force-delete cascades without audit or in-use guard; no hierarchy cycle guard (addressed in Phase 8.3); no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
+- **Configuration and audit — mostly addressed in Phase 8.6** (audit of master data and slabs, force-delete guards, in-use checks, change reasons, audit actor/date filters; export and hierarchy-scoped audit remain open). Original text: master-data changes (departments, designations, locations, sources, reasons, interviewers, incentive slabs) not audited; role assignment and role deletion not audited (addressed in Phase 8.4); force-delete cascades without audit or in-use guard; no hierarchy cycle guard (addressed in Phase 8.3); no change-reason field; audit log UI lacks actor/date filters and export and is not hierarchy-scoped.
 - **Access and data protection:** any user with any role can open the admin panel; no MFA; weak admin password rule (the last three addressed in Phase 8.4: access state, MFA for privileged users, password policy); admin document uploads lack type/size validation; every staff role can export personal data; no retention, anonymisation or erasure capability; PII not encrypted at rest.
 - **Multi-tenancy:** the product is single-organisation; the reporting hierarchy is the access boundary. Nothing in Phase 8.1 makes it multi-tenant.
