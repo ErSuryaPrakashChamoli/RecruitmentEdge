@@ -10,6 +10,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
 | app/Models/*.php, app/Models/CandidateStageHistory.php | .ai/rules/app-models.md |
+| app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php, app/Services/RecruitmentActivityService.php | .ai/rules/app-services.md |
 | app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |

@@ -46,6 +46,37 @@ class RecruitmentRequisitionPolicy
         return $user->can('requisitions.update') && $this->isInScope($user, $recruitmentRequisition);
     }
 
+    /**
+     * Security containment (Phase 8.6 discovery): these methods must exist — Filament treats a
+     * missing one as allowed, which let anyone who could delete a requisition also force-delete it
+     * (cascading its pipeline snapshots, Role DNA and approval history). A requisition is never
+     * force-deleted; a soft-deleted one may be restored by whoever may delete it; bulk actions are off.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function restore(User $user, RecruitmentRequisition $recruitmentRequisition): bool
+    {
+        return $this->delete($user, $recruitmentRequisition);
+    }
+
+    public function restoreAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function forceDelete(User $user, RecruitmentRequisition $recruitmentRequisition): bool
+    {
+        return false;
+    }
+
+    public function forceDeleteAny(User $user): bool
+    {
+        return false;
+    }
+
     private function isInScope(User $user, RecruitmentRequisition $requisition): bool
     {
         $visible = $this->hierarchy->visibleEmployeeIdsFor($user);

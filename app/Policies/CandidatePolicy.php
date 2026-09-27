@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\Candidate;
 use App\Models\User;
+use App\Policies\Concerns\ForbidsDeletion;
 use App\Services\HierarchyService;
 
 /**
@@ -13,6 +14,8 @@ use App\Services\HierarchyService;
  */
 class CandidatePolicy
 {
+    use ForbidsDeletion;
+
     public function __construct(private readonly HierarchyService $hierarchy) {}
 
     public function viewAny(User $user): bool

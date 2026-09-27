@@ -53,4 +53,13 @@ class RecruitmentDailyTargetPolicy
 
         return $target->employee !== null && $this->hierarchy->canView($user, $target->employee);
     }
+
+    /**
+     * Bulk actions (Phase 8.6 discovery security guard): explicit, never Filament's missing-method
+     * fallback. Each selected record is still checked against the per-record rule.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return $user->can('targets.configure');
+    }
 }

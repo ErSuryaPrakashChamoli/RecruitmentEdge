@@ -31,4 +31,13 @@ class AiKnowledgeArticlePolicy
     {
         return $user->can('ai.manage');
     }
+
+    /**
+     * Bulk actions (Phase 8.6 discovery security guard): explicit, never Filament's missing-method
+     * fallback. Each selected record is still checked against the per-record rule.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return $user->can('ai.manage');
+    }
 }

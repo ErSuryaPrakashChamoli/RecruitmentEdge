@@ -4,10 +4,13 @@ namespace App\Policies;
 
 use App\Models\Offer;
 use App\Models\User;
+use App\Policies\Concerns\ForbidsDeletion;
 use App\Services\HierarchyService;
 
 class OfferPolicy
 {
+    use ForbidsDeletion;
+
     public function __construct(private readonly HierarchyService $hierarchy) {}
 
     public function viewAny(User $user): bool
