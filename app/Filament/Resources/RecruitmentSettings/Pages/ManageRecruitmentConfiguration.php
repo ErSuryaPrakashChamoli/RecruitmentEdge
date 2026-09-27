@@ -88,6 +88,8 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
                         ->columns(['md' => 3])
                         ->schema([
                             self::daysInput('candidate_stall_days', 'Candidate stall threshold', 'Active candidates with no stage change for this long are flagged as stalled.'),
+                            self::integerInput('activity_backdate_days', 'Activity logging window', 'days', 0, 31)
+                                ->helperText('How many days back a recruiter activity may be logged. Activities feed targets, scores and incentives.'),
                             self::daysInput('offer_expiry_alert_days', 'Offer expiry alert window', 'Released offers expiring within this many days appear in the Action Center.'),
                             TextInput::make('interviewer_daily_capacity')
                                 ->label('Interviewer daily capacity')

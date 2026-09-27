@@ -47,6 +47,7 @@ class RecruitmentSetting extends Model
         'position_risk_max_days_open' => ['type' => 'int', 'group' => 'hiring', 'default' => 45, 'description' => 'Days open before an unfilled position is critical'],
         'position_risk_min_pipeline_ratio' => ['type' => 'float', 'group' => 'hiring', 'default' => 2.0, 'description' => 'Minimum active pipeline per remaining opening'],
         'candidate_stall_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'Days without a stage change before a candidate is stalled'],
+        'activity_backdate_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'How many days back a recruiter activity may be logged (Phase 8.5, SEC-4)'],
         'self_scheduling_min_lead_hours' => ['type' => 'int', 'group' => 'pipeline', 'default' => 2, 'description' => 'Minimum hours of notice before a self-scheduled interview slot starts'],
         'self_scheduling_invitation_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'Days a self-scheduling invitation link stays valid'],
         'offer_expiry_alert_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 3, 'description' => 'Days before offer expiry to flag it in the Action Center'],

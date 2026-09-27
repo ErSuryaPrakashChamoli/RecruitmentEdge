@@ -4,12 +4,18 @@ namespace App\Filament\Resources\RecruitmentDailyActivities\Tables;
 
 use App\Enums\ActivityOutcome;
 use App\Enums\ActivityType;
+use App\Models\User;
+use App\Services\RecruitmentActivityService;
+use DomainException;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class RecruitmentDailyActivitiesTable
 {
@@ -51,7 +57,26 @@ class RecruitmentDailyActivitiesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Phase 8.5 (SEC-4): each deletion goes through RecruitmentActivityService (team
+                    // scope, incentive lock, audit); locked rows are left and reported.
+                    DeleteBulkAction::make()
+                        ->using(function (Collection $records): void {
+                            /** @var User $user */
+                            $user = Filament::auth()->user();
+                            $refused = 0;
+
+                            foreach ($records as $record) {
+                                try {
+                                    app(RecruitmentActivityService::class)->delete($user, $record);
+                                } catch (DomainException) {
+                                    $refused++;
+                                }
+                            }
+
+                            if ($refused > 0) {
+                                Notification::make()->title("{$refused} activit(ies) could not be deleted (outside your team or in an approved incentive period).")->warning()->send();
+                            }
+                        }),
                 ]),
             ]);
     }
