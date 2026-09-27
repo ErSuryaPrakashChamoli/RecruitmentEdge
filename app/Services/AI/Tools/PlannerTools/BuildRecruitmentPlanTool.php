@@ -9,6 +9,7 @@ use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\Concerns\CallsLanguageModel;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\Metrics\MetricPeriod;
 use App\Services\RecruitmentAnalyticsService;
 use Carbon\CarbonImmutable;
 
@@ -69,10 +70,12 @@ class BuildRecruitmentPlanTool implements AiTool
         $days = max(1, (int) ($arguments['days'] ?? 1));
 
         $end = CarbonImmutable::now();
-        $start = $end->subDays(90);
-        $funnel = $this->analytics->funnel($start, $end, $user);
-        $joinedRow = $funnel->firstWhere('stage.value', 'joined') ?? $funnel->last();
-        $conversionPct = $joinedRow['conversion_from_sourced'] ?? null;
+        // Phase 8.5: the cohort funnel's application -> joined rate over the last 90 days
+        // (pipeline.funnel), across every requisition in the viewer's scope — role and location are
+        // not used to narrow it (stated in the plan's basis).
+        $period = MetricPeriod::lastDays(90);
+        $funnel = $this->analytics->metric('pipeline.funnel', $period->from, $period->lastInstant(), $user);
+        $conversionPct = $funnel->isAvailable() && $funnel->value > 0 ? $funnel->value : null;
 
         $requiredSourced = ($conversionPct !== null && $conversionPct > 0)
             ? (int) ceil($targetHires / ($conversionPct / 100))
@@ -104,6 +107,7 @@ class BuildRecruitmentPlanTool implements AiTool
             'role' => $arguments['role'] ?? null,
             'location' => $arguments['location'] ?? null,
             'historical_conversion_rate_pct' => $conversionPct,
+            'conversion_basis' => 'Applications created in the last 90 days across all requisitions you can see (not narrowed by role or location) that have joined so far.',
             'required_sourced_candidates' => $requiredSourced,
             'weekly_sourcing_target' => $weeklySourcingTarget,
             'weekly_hire_target' => $weeklyHireTarget,

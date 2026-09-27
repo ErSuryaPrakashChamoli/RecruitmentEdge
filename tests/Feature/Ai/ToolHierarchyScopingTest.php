@@ -94,7 +94,7 @@ test('generate_interview_questions refuses to tailor questions to a candidate ou
         ->and($provider->calls)->toBe([]);
 });
 
-test('analyze_sources counts only candidates within the caller\'s hierarchy', function (): void {
+test('analyze_sources counts only applications within the caller\'s hierarchy', function (): void {
     $source = CandidateSource::factory()->create();
 
     ($this->teamCandidate)(['source_id' => $source->id]);
@@ -102,7 +102,7 @@ test('analyze_sources counts only candidates within the caller\'s hierarchy', fu
 
     $row = collect(app(AnalyzeSourcesTool::class)->handle([], $this->user)->data['sources'])->firstWhere('source', $source->name);
 
-    expect($row['sourced'])->toBe(1);
+    expect($row['applications'])->toBe(1);
 });
 
 test('time_to_hire counts only successful joins within the caller\'s hierarchy', function (): void {

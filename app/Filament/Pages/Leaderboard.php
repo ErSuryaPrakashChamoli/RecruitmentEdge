@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\RecruiterPerformanceSnapshot;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
 use App\Services\PerformanceEngine;
 use App\Services\RecruiterDailyMetricsService;
 use App\Services\TargetResolutionService;
@@ -174,8 +175,8 @@ class Leaderboard extends Page implements HasForms, HasTable
     {
         return $this->liveMetricCache[$record->id] ??= collect(self::LIVE_METRICS)
             ->mapWithKeys(fn (TargetMetric $metric): array => [$metric->value => [
-                'actual' => app(RecruiterDailyMetricsService::class)->actualFor($record, $metric, now()->startOfMonth(), now()->endOfMonth()),
-                'target' => app(TargetResolutionService::class)->resolveForRange($record, $metric, now()->startOfMonth(), now()->endOfMonth()),
+                'actual' => app(RecruiterDailyMetricsService::class)->actualFor($record, $metric, MetricPeriod::now()->startOfMonth(), MetricPeriod::now()->endOfMonth()),
+                'target' => app(TargetResolutionService::class)->resolveForRange($record, $metric, MetricPeriod::now()->startOfMonth(), MetricPeriod::now()->endOfMonth()),
             ]])
             ->all();
     }
@@ -186,7 +187,7 @@ class Leaderboard extends Page implements HasForms, HasTable
     private function liveResultFor(Employee $record): array
     {
         return $this->liveResultCache[$record->id] ??= app(PerformanceEngine::class)
-            ->computeFor($record, now()->startOfMonth(), now()->endOfMonth());
+            ->computeFor($record, MetricPeriod::now()->startOfMonth(), MetricPeriod::now()->endOfMonth());
     }
 
     private function scoreFor(Employee $record): ?float
@@ -212,8 +213,8 @@ class Leaderboard extends Page implements HasForms, HasTable
 
     private function baseQuery(): Builder
     {
-        $periodStart = now()->startOfMonth()->toDateString();
-        $periodEnd = now()->endOfMonth()->toDateString();
+        $periodStart = MetricPeriod::now()->startOfMonth()->toDateString();
+        $periodEnd = MetricPeriod::now()->endOfMonth()->toDateString();
 
         /** @var User $user */
         $user = Filament::auth()->user();

@@ -68,11 +68,13 @@ class CandidateJoiningsTable
                     ->formatStateUsing(fn (string $state) => match ($state) {
                         'green' => 'On Track',
                         'yellow' => 'Needs Follow-up',
+                        'closed' => 'Closed',
                         default => 'High Risk',
                     })
                     ->color(fn (string $state) => match ($state) {
                         'green' => 'success',
                         'yellow' => 'warning',
+                        'closed' => 'gray',
                         default => 'danger',
                     }),
                 TextColumn::make('status')

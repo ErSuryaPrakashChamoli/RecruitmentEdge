@@ -5,6 +5,7 @@ namespace App\Filament\Widgets\Concerns;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
 use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 
@@ -16,26 +17,24 @@ use Filament\Facades\Filament;
 trait ResolvesDashboardPeriod
 {
     /**
+     * The selected period as business-timezone calendar days (Phase 8.5 D16/D17). Returned as the
+     * first and last instant of the period in the business timezone, so every service reads the same
+     * calendar days whatever timezone it formats in.
+     *
      * @return array{0: CarbonImmutable, 1: CarbonImmutable}
      */
     protected function resolvePeriod(): array
     {
-        $filters = $this->pageFilters ?? [];
-        $period = $filters['period'] ?? 'this_month';
-        $now = CarbonImmutable::now();
+        $period = $this->resolveMetricPeriod();
 
-        return match ($period) {
-            'today' => [$now->startOfDay(), $now->endOfDay()],
-            'yesterday' => [$now->subDay()->startOfDay(), $now->subDay()->endOfDay()],
-            'this_week' => [$now->startOfWeek(), $now->endOfWeek()],
-            'last_month' => [$now->subMonthNoOverflow()->startOfMonth(), $now->subMonthNoOverflow()->endOfMonth()],
-            'last_30_days' => [$now->subDays(29)->startOfDay(), $now->endOfDay()],
-            'custom' => [
-                filled($filters['start'] ?? null) ? CarbonImmutable::parse($filters['start'])->startOfDay() : $now->startOfMonth(),
-                filled($filters['end'] ?? null) ? CarbonImmutable::parse($filters['end'])->endOfDay() : $now->endOfDay(),
-            ],
-            default => [$now->startOfMonth(), $now->endOfMonth()],
-        };
+        return [$period->from, $period->to->endOfDay()];
+    }
+
+    protected function resolveMetricPeriod(): MetricPeriod
+    {
+        $filters = $this->pageFilters ?? [];
+
+        return MetricPeriod::preset($filters['period'] ?? 'this_month', $filters['start'] ?? null, $filters['end'] ?? null);
     }
 
     /**

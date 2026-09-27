@@ -10,7 +10,7 @@ use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\PerformanceEngine;
 
 class FindInactiveRecruitersTool implements AiTool
 {
@@ -55,10 +55,10 @@ class FindInactiveRecruitersTool implements AiTool
             ->distinct()
             ->pluck('recruiter_id');
 
-        $recruiters = Employee::query()
+        // Phase 8.5 (DF-2): the recruiter population is the one the Performance Engine uses — active
+        // employees who own applications — never every active employee in scope.
+        $recruiters = app(PerformanceEngine::class)->activeRecruitersQuery($visibleIds)
             ->whereNotIn('id', $activeRecruiterIds)
-            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('id', $visibleIds))
-            ->where('status', 'active')
             ->get();
 
         $rows = $recruiters->map(fn (Employee $e) => ['employee_id' => $e->id, 'employee_ref' => $this->projector()->employeeRef($e)]);

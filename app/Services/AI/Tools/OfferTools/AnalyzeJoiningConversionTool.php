@@ -3,20 +3,18 @@
 namespace App\Services\AI\Tools\OfferTools;
 
 use App\Enums\AiRiskLevel;
-use App\Enums\JoiningStatus;
-use App\Enums\OfferStatus;
-use App\Models\CandidateJoining;
 use App\Models\Offer;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ResolvesMetricPeriod;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
+use App\Services\Metrics\MetricQuery;
+use App\Services\Metrics\MetricService;
 
 class AnalyzeJoiningConversionTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ResolvesMetricPeriod, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -51,33 +49,27 @@ class AnalyzeJoiningConversionTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $end = filled($arguments['end_date'] ?? null) ? Carbon::parse($arguments['end_date']) : Carbon::now();
-        $start = filled($arguments['start_date'] ?? null) ? Carbon::parse($arguments['start_date']) : $end->copy()->subDays(90);
-        $visibleIds = $this->visibleEmployeeIds($user);
+        $period = $this->metricPeriod($arguments, 90);
 
-        $acceptedOfferIds = Offer::query()
-            ->where('status', OfferStatus::Accepted)
-            ->whereBetween('accepted_at', [$start, $end])
-            ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas(
-                'candidateApplication',
-                fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
-            ))
-            ->pluck('id');
-
-        $joinings = CandidateJoining::query()->whereIn('offer_id', $acceptedOfferIds)->get(['status']);
-        $joined = $joinings->where('status', JoiningStatus::Joined)->count();
-        $rate = $acceptedOfferIds->count() > 0 ? round($joined / $acceptedOfferIds->count() * 100, 1) : null;
+        // Phase 8.5 (DF-4): joining.offer_to_join — linked by application, never by offer id, so a
+        // re-linked or deleted offer can never turn a hire into "not joined".
+        $result = app(MetricService::class)->get('joining.offer_to_join', MetricQuery::make($period, $user));
 
         return ToolResult::ok(
             data: [
-                'accepted_offers' => $acceptedOfferIds->count(),
-                'actually_joined' => $joined,
-                'conversion_rate_pct' => $rate,
-                'by_status' => $joinings->countBy(fn (CandidateJoining $j) => $j->status->label())->toArray(),
+                'accepted_offers' => (int) $result->detail('accepted_applications', 0),
+                'actually_joined' => (int) $result->detail('joined', 0),
+                'did_not_join' => (int) $result->detail('not_joined', 0),
+                'awaiting_joining' => (int) $result->detail('awaiting', 0),
+                'cancelled' => (int) $result->detail('cancelled', 0),
+                'conversion_rate_pct' => $result->isAvailable() ? $result->value : null,
+                'metric' => "{$result->key} v{$result->version}",
+                'start_date' => $period->fromDate(),
+                'end_date' => $period->toDate(),
             ],
-            summary: $rate !== null
-                ? "{$rate}% of accepted offers converted to actual joins ({$joined} of {$acceptedOfferIds->count()})."
-                : 'No accepted offers in this range.',
+            summary: $result->isAvailable()
+                ? "{$result->value}% of accepted offers whose joining is decided converted to actual joins ({$result->detail('joined', 0)} of {$result->sampleSize}); {$result->detail('awaiting', 0)} still awaiting joining."
+                : 'Not enough decided joinings among offers accepted in this range for a conversion rate.',
             type: 'kpi_card',
         );
     }

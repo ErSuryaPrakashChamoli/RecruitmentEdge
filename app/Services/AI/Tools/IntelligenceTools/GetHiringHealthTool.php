@@ -51,7 +51,8 @@ class GetHiringHealthTool implements AiTool
             return ToolResult::fail('Requisition not found, or not visible to you.');
         }
 
-        $snapshot = $this->health->refresh($requisition);
+        // Phase 8.5 (SEC-5): a refresh this read triggers is recorded with its actor and audited.
+        $snapshot = $this->health->refresh($requisition, $user);
 
         return ToolResult::ok(
             data: [

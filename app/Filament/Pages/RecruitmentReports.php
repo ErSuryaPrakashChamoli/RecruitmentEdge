@@ -10,6 +10,8 @@ use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\CostPerHireService;
 use App\Services\Export\ReportExportService;
+use App\Services\Metrics\MetricResult;
+use App\Services\Metrics\MetricService;
 use App\Services\RecruitmentAnalyticsService;
 use BackedEnum;
 use Carbon\Carbon;
@@ -31,8 +33,11 @@ use UnitEnum;
  * A single consolidated report combining Sections 32 (funnel), 33 (source analytics), 36 (vacancy
  * ageing), 34 (cost per hire), and 35 (time to hire) — all read through RecruitmentAnalyticsService
  * and CostPerHireService, hierarchy-scoped to the viewer. The requisition/department/source filters
- * apply to Cost per Hire only (the other report services don't take those dimensions), and are
- * labelled as such so no control silently does nothing.
+ * apply to Cost per Hire and Time to Hire only (the funnel and source tables don't take those
+ * dimensions), and are labelled as such so no control silently does nothing.
+ *
+ * Phase 8.5: every figure is a governed metric (the same number the dashboard and Copilot show),
+ * and each CSV names the metric and version it was computed with.
  */
 class RecruitmentReports extends Page implements HasForms
 {
@@ -74,17 +79,17 @@ class RecruitmentReports extends Page implements HasForms
                 ]),
                 Grid::make(3)->schema([
                     Select::make('requisition_id')
-                        ->label('Cost per Hire: Requisition')
+                        ->label('Cost & Time to Hire: Requisition')
                         ->options(fn () => RecruitmentRequisitionResource::getEloquentQuery()->orderBy('code')->pluck('code', 'id'))
                         ->searchable()
                         ->live(),
                     Select::make('department_id')
-                        ->label('Cost per Hire: Department')
+                        ->label('Cost & Time to Hire: Department')
                         ->options(fn () => Department::query()->orderBy('name')->pluck('name', 'id'))
                         ->searchable()
                         ->live(),
                     Select::make('source_id')
-                        ->label('Cost per Hire: Source')
+                        ->label('Cost & Time to Hire: Source')
                         ->options(fn () => CandidateSource::query()->orderBy('name')->pluck('name', 'id'))
                         ->searchable()
                         ->live(),
@@ -122,7 +127,7 @@ class RecruitmentReports extends Page implements HasForms
         return app(RecruitmentAnalyticsService::class)->funnel($start, $end, $this->viewer());
     }
 
-    /** @return Collection<int, array{source: CandidateSource, spend: float, sourced: int, connected: int, interested: int, interviewed: int, selected: int, offers: int, joined: int, conversion_percent: float|null, cost_per_interview: float|null, cost_per_selection: float|null, cost_per_join: float|null}> */
+    /** @return Collection<int, array{source: CandidateSource|null, source_name: string, spend: float, sourced: int, connected: int, interested: int, interviewed: int, selected: int, offers: int, joined: int, conversion_percent: float|null, cost_per_interview: float|null, cost_per_selection: float|null, cost_per_join: float|null}> */
     public function getSourceAnalytics(): Collection
     {
         [$start, $end] = $this->period();
@@ -136,26 +141,33 @@ class RecruitmentReports extends Page implements HasForms
         return app(RecruitmentAnalyticsService::class)->vacancyAgeing($this->viewer());
     }
 
-    public function getAverageTimeToHire(): ?float
+    public function getTimeToHire(): MetricResult
     {
         [$start, $end] = $this->period();
 
-        return app(RecruitmentAnalyticsService::class)->averageTimeToHireDays($start, $end, $this->viewer());
+        return app(RecruitmentAnalyticsService::class)->metric('hiring.time_to_hire', $start, $end, $this->viewer(), $this->dimensionFilters());
     }
 
-    public function getCostPerHire(): ?float
+    public function getCostPerHire(): MetricResult
     {
         [$start, $end] = $this->period();
+        $filters = $this->dimensionFilters();
+
+        return app(CostPerHireService::class)->result($start, $end, $filters['requisition_id'], $filters['department_id'], $filters['source_id'], $this->viewer());
+    }
+
+    /**
+     * @return array{requisition_id: int|null, department_id: int|null, source_id: int|null}
+     */
+    private function dimensionFilters(): array
+    {
         $state = $this->form->getState();
 
-        return app(CostPerHireService::class)->costPerHire(
-            $start,
-            $end,
-            filled($state['requisition_id'] ?? null) ? (int) $state['requisition_id'] : null,
-            filled($state['department_id'] ?? null) ? (int) $state['department_id'] : null,
-            filled($state['source_id'] ?? null) ? (int) $state['source_id'] : null,
-            $this->viewer(),
-        );
+        return [
+            'requisition_id' => filled($state['requisition_id'] ?? null) ? (int) $state['requisition_id'] : null,
+            'department_id' => filled($state['department_id'] ?? null) ? (int) $state['department_id'] : null,
+            'source_id' => filled($state['source_id'] ?? null) ? (int) $state['source_id'] : null,
+        ];
     }
 
     /**
@@ -185,11 +197,12 @@ class RecruitmentReports extends Page implements HasForms
             $row['stage']->label(),
             $row['count'],
             $row['conversion_from_sourced'] !== null ? $row['conversion_from_sourced'].'%' : '',
+            $this->metricLabel('pipeline.funnel'),
         ]);
 
         return app(ReportExportService::class)->streamCsv(
             'recruitment-funnel.csv',
-            ['Stage', 'Count', 'Conversion from Sourced'],
+            ['Stage', 'Reached (cohort)', '% of applications in period', 'Metric'],
             $rows,
         );
     }
@@ -199,7 +212,7 @@ class RecruitmentReports extends Page implements HasForms
         abort_unless($this->canExport(), 403);
 
         $rows = $this->getSourceAnalytics()->map(fn (array $row) => [
-            $row['source']->name,
+            $row['source_name'],
             $row['spend'],
             $row['sourced'],
             $row['connected'],
@@ -212,13 +225,19 @@ class RecruitmentReports extends Page implements HasForms
             $row['cost_per_interview'] ?? '',
             $row['cost_per_selection'] ?? '',
             $row['cost_per_join'] ?? '',
+            'source-roi (Phase 8.5)',
         ]);
 
         return app(ReportExportService::class)->streamCsv(
             'source-roi.csv',
-            ['Source', 'Spend', 'Sourced', 'Connected', 'Interested', 'Interviewed', 'Selected', 'Offers', 'Joined', 'Conversion %', 'Cost per Interview', 'Cost per Selection', 'Cost per Join'],
+            ['Source', 'Spend', 'Applications', 'Connected', 'Interested', 'Interviewed', 'Selected', 'Offers', 'Joined', 'Conversion %', 'Cost per Interview', 'Cost per Selection', 'Cost per Join', 'Definition'],
             $rows,
         );
+    }
+
+    private function metricLabel(string $key): string
+    {
+        return $key.' v'.app(MetricService::class)->spec($key)->version;
     }
 
     public function exportVacancyAgeing(): StreamedResponse
@@ -231,11 +250,12 @@ class RecruitmentReports extends Page implements HasForms
             $this->priorityLabel($row['priority'] ?? null) ?? '',
             $row['ageing_days'],
             $row['is_overdue'] ? 'Yes' : 'No',
+            $this->metricLabel('requisition.ageing'),
         ]);
 
         return app(ReportExportService::class)->streamCsv(
             'vacancy-ageing.csv',
-            ['Requisition', 'Designation', 'Priority', 'Ageing (days)', 'Overdue'],
+            ['Requisition', 'Designation', 'Priority', 'Ageing (days)', 'Overdue', 'Metric'],
             $rows,
         );
     }

@@ -159,7 +159,7 @@ class AutomationFieldRegistry
             new FieldDefinition('joining.status', 'Status', 'Joining', 'enum', fn (AutomationContext $c) => $c->joining()?->status, fn () => $enum(JoiningStatus::class)),
             new FieldDefinition('joining.expected_doj', 'Expected joining date', 'Joining', 'datetime', fn (AutomationContext $c) => $c->joining()?->expected_doj),
             new FieldDefinition('joining.confirmed', 'Is confirmed', 'Joining', 'boolean', fn (AutomationContext $c) => $c->joining()?->status === JoiningStatus::Confirmed),
-            new FieldDefinition('joining.risk', 'Joining risk', 'Joining', 'enum', fn (AutomationContext $c) => $c->joining()?->riskLevel(), ['green' => 'Low (green)', 'yellow' => 'Medium (yellow)', 'red' => 'High (red)']),
+            new FieldDefinition('joining.risk', 'Joining risk', 'Joining', 'enum', fn (AutomationContext $c) => $c->joining()?->riskLevel(), ['green' => 'Low (green)', 'yellow' => 'Medium (yellow)', 'red' => 'High (red)', 'closed' => 'Closed (cancelled)']),
             new FieldDefinition('joining.joined', 'Has joined', 'Joining', 'boolean', fn (AutomationContext $c) => $c->joining()?->status === JoiningStatus::Joined),
 
             // Requisition

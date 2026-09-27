@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\RecruitmentRequisition;
 use App\Services\RecruitmentAnalyticsService;
@@ -17,7 +18,7 @@ use Illuminate\Support\Collection;
  */
 class PositionHealthWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
@@ -28,7 +29,7 @@ class PositionHealthWidget extends Widget
     protected int|string|array $columnSpan = 'full';
 
     /**
-     * @return Collection<int, array{requisition: RecruitmentRequisition, required: int, filled: int, remaining: int, fulfilment_percent: float, pipeline: int, ageing_days: int, is_overdue: bool, risk: string, url: string}>
+     * @return Collection<int, array{requisition: RecruitmentRequisition, required: int, filled: int, remaining: int, fulfilment_percent: float|null, pipeline: int, ageing_days: int, is_overdue: bool, risk: string, url: string}>
      */
     public function getRows(): Collection
     {

@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\IncentiveCalculationStatus;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\User;
 use App\Services\HierarchyService;
@@ -19,6 +20,13 @@ use Illuminate\Support\Collection;
  */
 class IncentiveDashboardStats extends StatsOverviewWidget
 {
+    use AuthorizesWidget;
+
+    protected static function requiredPermission(): string
+    {
+        return 'incentives.view';
+    }
+
     /**
      * @var array<int, IncentiveCalculationStatus>
      */

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentActionCenterService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -18,7 +19,7 @@ use Illuminate\Support\Collection;
  */
 class RecruitmentInsightsWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.

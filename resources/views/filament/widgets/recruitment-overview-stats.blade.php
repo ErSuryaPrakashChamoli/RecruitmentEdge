@@ -10,6 +10,7 @@
                 :trend-label="$card['trendLabel']"
                 :sparkline="$card['sparkline'] ?? null"
                 :progress="$card['progress'] ?? null"
+                :title="$card['definition'] ?? null"
             />
         @endforeach
     </div>

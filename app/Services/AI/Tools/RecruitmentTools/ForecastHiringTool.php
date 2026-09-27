@@ -6,8 +6,8 @@ use App\Enums\AiRiskLevel;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Contracts\AiTool;
+use App\Services\Metrics\MetricPeriod;
 use App\Services\RecruitmentAnalyticsService;
-use Carbon\CarbonImmutable;
 
 /**
  * Deterministic sourcing-volume math from historical Sourced->Joined conversion — never asks the
@@ -54,31 +54,25 @@ class ForecastHiringTool implements AiTool
         $targetHires = max(1, (int) ($arguments['target_hires'] ?? 0));
         $lookbackDays = max(30, (int) ($arguments['lookback_days'] ?? 90));
 
-        $end = CarbonImmutable::now();
-        $start = $end->subDays($lookbackDays);
-
-        $funnel = $this->analytics->funnel($start, $end, $user);
-        $joinedRow = $funnel->firstWhere('stage.value', 'joined') ?? $funnel->last();
-        $conversionPct = $joinedRow['conversion_from_sourced'] ?? null;
-
-        if ($conversionPct === null || $conversionPct <= 0) {
-            return ToolResult::ok(
-                data: ['target_hires' => $targetHires, 'conversion_rate_pct' => $conversionPct],
-                summary: 'Not enough historical Sourced-to-Joined data in the lookback window to forecast a required sourcing volume.',
-                type: 'kpi_card',
-            );
-        }
-
-        $requiredSourced = (int) ceil($targetHires / ($conversionPct / 100));
+        // Phase 8.5: the cohort funnel's application -> joined rate (pipeline.funnel). DF-13: the
+        // same keys whether or not there is enough history.
+        $period = MetricPeriod::lastDays($lookbackDays);
+        $funnel = $this->analytics->metric('pipeline.funnel', $period->from, $period->lastInstant(), $user);
+        $conversionPct = $funnel->isAvailable() && $funnel->value > 0 ? $funnel->value : null;
+        $requiredSourced = $conversionPct !== null ? (int) ceil($targetHires / ($conversionPct / 100)) : null;
 
         return ToolResult::ok(
             data: [
                 'target_hires' => $targetHires,
                 'historical_conversion_rate_pct' => $conversionPct,
                 'lookback_days' => $lookbackDays,
+                'applications_in_lookback' => $funnel->sampleSize,
                 'required_sourced_candidates' => $requiredSourced,
+                'basis' => 'Share of applications created in the lookback window that have joined so far (recent applications may still join).',
             ],
-            summary: "Based on a {$conversionPct}% historical Sourced-to-Joined rate, you'd need to source roughly {$requiredSourced} candidates to reach {$targetHires} hires.",
+            summary: $requiredSourced !== null
+                ? "Based on a {$conversionPct}% historical application-to-joined rate, you'd need roughly {$requiredSourced} applications to reach {$targetHires} hires."
+                : 'Not enough historical application-to-joined data in the lookback window to forecast a required sourcing volume.',
             type: 'kpi_card',
         );
     }

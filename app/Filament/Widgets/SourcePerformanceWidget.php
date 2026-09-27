@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\AppTheme;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\User;
 use App\Services\RecruitmentAnalyticsService;
@@ -19,7 +20,7 @@ use Illuminate\Contracts\Support\Htmlable;
  */
 class SourcePerformanceWidget extends ChartWidget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
@@ -44,16 +45,16 @@ class SourcePerformanceWidget extends ChartWidget
 
         $best = app(RecruitmentAnalyticsService::class)->sourceAnalytics($start, $end, $this->filteredUser())
             ->filter(fn (array $row) => $row['sourced'] > 0)
-            ->map(fn (array $row) => [
-                'name' => $row['source']->name,
-                'rate' => round($row['joined'] / $row['sourced'] * 100, 1),
-            ])
+            // Phase 8.5: the same conversion the Source ROI report shows, with no rate below the
+            // minimum sample (one lucky application is not "the best source").
+            ->filter(fn (array $row) => $row['sourced'] >= (int) config('metrics.min_sample', 3))
+            ->map(fn (array $row) => ['name' => $row['source_name'], 'rate' => $row['conversion_percent']])
             ->sortByDesc('rate')
             ->first();
 
         return $best !== null
-            ? "Best Sourced -> Joined rate: {$best['name']} ({$best['rate']}%)"
-            : 'No sourced candidates in this period.';
+            ? "Best Applications -> Joined rate: {$best['name']} ({$best['rate']}%)"
+            : 'Not enough applications in this period to compare sources.';
     }
 
     protected function getData(): array
@@ -73,13 +74,13 @@ class SourcePerformanceWidget extends ChartWidget
 
         return [
             'datasets' => [[
-                'label' => 'Sourced',
+                'label' => 'Applications',
                 'data' => $rows->pluck('sourced')->all(),
                 // A monochromatic ramp of the active theme's own color (not an unrelated rainbow),
                 // so this chart visibly belongs to whichever of the 8 themes is active.
                 'backgroundColor' => $theme->chartCategoricalPalette(),
             ]],
-            'labels' => $rows->map(fn (array $row) => $row['source']->name)->all(),
+            'labels' => $rows->map(fn (array $row) => $row['source_name'])->all(),
         ];
     }
 }

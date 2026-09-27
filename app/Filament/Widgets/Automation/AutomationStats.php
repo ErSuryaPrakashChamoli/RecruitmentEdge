@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets\Automation;
 
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Models\User;
 use App\Services\RecruitmentAnalyticsService;
 use Filament\Facades\Filament;
@@ -15,6 +16,13 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class AutomationStats extends StatsOverviewWidget
 {
+    use AuthorizesWidget;
+
+    protected static function requiredPermission(): string
+    {
+        return 'automation.analytics';
+    }
+
     protected static bool $isDiscovered = false;
 
     protected function getStats(): array

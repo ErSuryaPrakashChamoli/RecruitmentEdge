@@ -24,7 +24,7 @@
                             <span>Today <span class="font-semibold text-gray-900 dark:text-white">{{ $row['today'] }}</span></span>
                         @endunless
                         <span>{{ $isTodayOnly ? 'Actual' : $periodLabel }} <span class="font-semibold text-gray-900 dark:text-white">{{ $row['actual'] }}</span></span>
-                        <span>Target <span class="font-semibold text-gray-900 dark:text-white">{{ $row['target'] ?? '—' }}</span></span>
+                        <span>Target <span class="font-semibold text-gray-900 dark:text-white">{{ $row['target'] ?? 'No target' }}</span></span>
                     </div>
 
                     <div class="sm:col-span-4">

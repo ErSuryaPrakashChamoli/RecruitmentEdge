@@ -67,7 +67,7 @@ class RecruitmentInsightsService
         $facts = [
             'period' => ['start' => $start->toDateString(), 'end' => $end->toDateString()],
             'funnel' => $this->analytics->funnel($start, $end, $user)
-                ->map(fn (array $row) => ['stage' => $row['stage']->label(), 'count' => $row['count'], 'conversion_from_sourced_percent' => $row['conversion_from_sourced']])
+                ->map(fn (array $row) => ['stage' => $row['stage']->label(), 'count' => $row['count'], 'percent_of_applications' => $row['conversion_from_sourced']])
                 ->values()->all(),
             'turn_up' => $this->analytics->turnUpAnalysis($start, $end, $user),
             'positions_at_risk' => $this->analytics->positionHealth($user)

@@ -1,9 +1,9 @@
 <x-filament-panels::page>
-    <x-filament::section heading="Filters" description="The period applies to every report; requisition, department and source narrow Cost per Hire only.">
+    <x-filament::section heading="Filters" description="The period applies to every report; requisition, department and source narrow Cost per Hire and Time to Hire only. Days are business days in {{ \App\Services\Metrics\MetricPeriod::timezone() }}.">
         {{ $this->form }}
     </x-filament::section>
 
-    <x-filament::section heading="Hiring Funnel">
+    <x-filament::section heading="Hiring Funnel" description="Of the applications created in the period, how many have reached each stage so far (a stage counts once reached, including by moving past it). Joined = joining record marked Joined.">
         @if ($this->canExport())
             <x-slot name="afterHeader">
                 <x-filament::button size="xs" color="gray" outlined wire:click="exportFunnel">
@@ -17,8 +17,8 @@
                 <thead>
                     <tr class="text-left text-gray-500 dark:text-gray-400">
                         <th class="py-2 pr-4">Stage</th>
-                        <th class="py-2 pr-4 text-right">Count</th>
-                        <th class="py-2 text-right">Conversion from Sourced</th>
+                        <th class="py-2 pr-4 text-right">Reached</th>
+                        <th class="py-2 text-right">% of applications</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -34,7 +34,7 @@
         </div>
     </x-filament::section>
 
-    <x-filament::section heading="Source ROI" description="Which source actually produces joining employees, and at what cost">
+    <x-filament::section heading="Source ROI" description="Applications created in the period by the candidate's current source, how far they got, and the source's spend on your requisitions">
         @if ($this->canExport())
             <x-slot name="afterHeader">
                 <x-filament::button size="xs" color="gray" outlined wire:click="exportSourceRoi">
@@ -49,7 +49,7 @@
                     <tr class="text-left text-gray-500 dark:text-gray-400">
                         <th class="py-2 pr-4">Source</th>
                         <th class="py-2 pr-4 text-right">Spend</th>
-                        <th class="py-2 pr-4 text-right">Sourced</th>
+                        <th class="py-2 pr-4 text-right">Applications</th>
                         <th class="py-2 pr-4 text-right">Connected</th>
                         <th class="py-2 pr-4 text-right">Interested</th>
                         <th class="py-2 pr-4 text-right">Interviewed</th>
@@ -65,7 +65,7 @@
                 <tbody>
                     @foreach ($this->getSourceAnalytics() as $row)
                         <tr class="border-t border-gray-100 dark:border-white/5">
-                            <td class="py-2 pr-4 font-medium">{{ $row['source']->name }}</td>
+                            <td class="py-2 pr-4 font-medium">{{ $row['source_name'] }}</td>
                             <td class="py-2 pr-4 text-right">₹{{ number_format($row['spend'], 2) }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['sourced'] }}</td>
                             <td class="py-2 pr-4 text-right">{{ $row['connected'] }}</td>
@@ -86,17 +86,16 @@
     </x-filament::section>
 
     <div class="grid gap-6 md:grid-cols-2">
-        <x-filament::section heading="Time to Hire &amp; Cost per Hire">
+        <x-filament::section heading="Time to Hire & Cost per Hire">
+            @php
+                $timeToHire = $this->getTimeToHire();
+                $costPerHire = $this->getCostPerHire();
+            @endphp
             <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">Avg. Time to Hire</div>
-                    <div class="text-2xl font-semibold">{{ $this->getAverageTimeToHire() !== null ? $this->getAverageTimeToHire().' days' : '—' }}</div>
-                </div>
-                <div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400">Cost per Hire</div>
-                    <div class="text-2xl font-semibold">{{ $this->getCostPerHire() !== null ? '₹'.number_format($this->getCostPerHire(), 2) : '—' }}</div>
-                </div>
+                <x-recruitment.metric-card :result="$timeToHire" />
+                <x-recruitment.metric-card :result="$costPerHire" />
             </div>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $timeToHire->basisLine() }} &middot; {{ $costPerHire->basisLine() }}</p>
         </x-filament::section>
     </div>
 

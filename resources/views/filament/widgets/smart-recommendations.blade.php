@@ -47,7 +47,7 @@
                         <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Funnel ({{ $facts['period']['start'] ?? '' }} – {{ $facts['period']['end'] ?? '' }})</p>
                         <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-300">
                             @foreach ($facts['funnel'] ?? [] as $row)
-                                <li>&bull; {{ $row['stage'] }}: {{ $row['count'] }}@if ($row['conversion_from_sourced_percent'] !== null) ({{ $row['conversion_from_sourced_percent'] }}% of sourced)@endif</li>
+                                <li>&bull; {{ $row['stage'] }}: {{ $row['count'] }}@if ($row['percent_of_applications'] !== null) ({{ $row['percent_of_applications'] }}% of applications)@endif</li>
                             @endforeach
                         </ul>
                     </div>

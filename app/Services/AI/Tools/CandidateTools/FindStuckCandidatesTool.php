@@ -4,7 +4,9 @@ namespace App\Services\AI\Tools\CandidateTools;
 
 use App\Enums\AiRiskLevel;
 use App\Enums\ApplicationStatus;
+use App\Enums\CandidateStage;
 use App\Models\CandidateApplication;
+use App\Models\RecruitmentSetting;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ProjectsForAi;
@@ -36,7 +38,7 @@ class FindStuckCandidatesTool implements AiTool
         return [
             'type' => 'object',
             'properties' => [
-                'days' => ['type' => 'integer', 'description' => 'Minimum days of inactivity, default 7'],
+                'days' => ['type' => 'integer', 'description' => 'Minimum days of inactivity, default: the configured candidate stall days'],
                 'limit' => ['type' => 'integer', 'description' => 'Max results, default 20'],
             ],
         ];
@@ -54,17 +56,21 @@ class FindStuckCandidatesTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $days = max(1, (int) ($arguments['days'] ?? 7));
+        // Phase 8.5 (DF-6): the configured stall threshold (candidate_stall_days) by default; an
+        // application with no recorded activity is judged by when it was created (never skipped);
+        // an application that has already joined is not stuck.
+        $days = max(1, (int) ($arguments['days'] ?? RecruitmentSetting::get('candidate_stall_days', 7)));
         $limit = min((int) ($arguments['limit'] ?? 20), 50);
         $visibleIds = $this->visibleEmployeeIds($user);
         $threshold = now()->subDays($days);
 
         $applications = CandidateApplication::query()
             ->where('status', ApplicationStatus::Active)
-            ->where('last_activity_at', '<=', $threshold)
+            ->whereNotIn('current_stage', [CandidateStage::Joined->value, CandidateStage::DocumentsCompleted->value, CandidateStage::OnboardingCompleted->value])
+            ->where(fn (Builder $q) => $q->where('last_activity_at', '<=', $threshold)->orWhere(fn (Builder $never) => $never->whereNull('last_activity_at')->where('created_at', '<=', $threshold)))
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
             ->with(['candidate', 'recruiter'])
-            ->orderBy('last_activity_at')
+            ->orderByRaw('coalesce(last_activity_at, created_at)')
             ->limit($limit)
             ->get();
 
@@ -74,11 +80,12 @@ class FindStuckCandidatesTool implements AiTool
             'candidate_ref' => $this->projector()->candidateRef($app->candidate),
             'stage' => $app->current_stage->label(),
             'recruiter_ref' => $this->projector()->employeeRef($app->recruiter),
-            'days_inactive' => (int) $app->last_activity_at->diffInDays(now()),
+            'days_inactive' => (int) ($app->last_activity_at ?? $app->created_at)->diffInDays(now()),
+            'no_activity_recorded' => $app->last_activity_at === null,
         ]);
 
         return ToolResult::ok(
-            data: ['stuck_applications' => $rows->toArray()],
+            data: ['stuck_applications' => $rows->toArray(), 'days' => $days],
             summary: "Found {$rows->count()} application(s) stuck for {$days}+ days.",
             type: 'candidate_list',
         );

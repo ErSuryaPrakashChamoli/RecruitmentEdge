@@ -346,7 +346,9 @@ class Pipeline extends Page
 
         $ids = $applications->pluck('id');
 
-        $latestStageChange = CandidateStageHistory::query()
+        // Phase 8.5 (DF-7, DF-9): the latest genuine move into a stage — a hold or reactivation does
+        // not reset a card's age — measured forwards (Carbon 3 diffs are signed).
+        $latestStageChange = CandidateStageHistory::query()->pipelineStageEntries()
             ->whereIn('candidate_application_id', $ids)
             ->orderByDesc('created_at')
             ->get(['candidate_application_id', 'created_at'])
@@ -363,7 +365,7 @@ class Pipeline extends Page
 
         foreach ($applications as $application) {
             $reachedAt = $latestStageChange->get($application->id)?->created_at ?? $application->application_date;
-            $application->setAttribute('stage_age_days', $reachedAt !== null ? (int) now()->diffInDays($reachedAt) : null);
+            $application->setAttribute('stage_age_days', $reachedAt !== null ? max(0, (int) $reachedAt->diffInDays(now())) : null);
             $application->setAttribute('next_followup', $nextFollowups->get($application->id)?->followup_date);
         }
     }

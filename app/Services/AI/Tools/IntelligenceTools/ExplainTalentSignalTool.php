@@ -55,7 +55,8 @@ class ExplainTalentSignalTool implements AiTool
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $snapshot = $this->signals->refresh($application);
+        // Phase 8.5 (SEC-5): a refresh this read triggers is recorded with its actor and audited.
+        $snapshot = $this->signals->refresh($application, $user);
         $this->projector()->candidateRef($application->candidate);
 
         // Evidence can describe the candidate's other applications ("history"); only those the

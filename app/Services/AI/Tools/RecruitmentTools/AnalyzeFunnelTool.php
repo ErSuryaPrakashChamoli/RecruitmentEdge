@@ -5,12 +5,14 @@ namespace App\Services\AI\Tools\RecruitmentTools;
 use App\Enums\AiRiskLevel;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ResolvesMetricPeriod;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\RecruitmentAnalyticsService;
-use Carbon\CarbonImmutable;
 
 class AnalyzeFunnelTool implements AiTool
 {
+    use ResolvesMetricPeriod;
+
     public function __construct(private readonly RecruitmentAnalyticsService $analytics) {}
 
     public function name(): string
@@ -46,18 +48,23 @@ class AnalyzeFunnelTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $end = filled($arguments['end_date'] ?? null) ? CarbonImmutable::parse($arguments['end_date']) : CarbonImmutable::now();
-        $start = filled($arguments['start_date'] ?? null) ? CarbonImmutable::parse($arguments['start_date']) : $end->subDays(30);
+        $period = $this->metricPeriod($arguments, 30);
 
-        $funnel = $this->analytics->funnel($start, $end, $user)->map(fn (array $row) => [
+        // Phase 8.5: the cohort funnel (pipeline.funnel) — the dashboard's funnel.
+        $funnel = $this->analytics->funnel($period->from, $period->lastInstant(), $user)->map(fn (array $row) => [
             'stage' => $row['stage']->label(),
-            'count' => $row['count'],
-            'conversion_from_sourced' => $row['conversion_from_sourced'],
+            'reached' => $row['count'],
+            'percent_of_applications' => $row['conversion_from_sourced'],
         ]);
 
         return ToolResult::ok(
-            data: ['funnel' => $funnel->toArray(), 'start_date' => $start->toDateString(), 'end_date' => $end->toDateString()],
-            summary: "Funnel for {$start->toDateString()} to {$end->toDateString()}.",
+            data: [
+                'funnel' => $funnel->toArray(),
+                'basis' => 'Applications created in the range, and how far each has got by now.',
+                'start_date' => $period->fromDate(),
+                'end_date' => $period->toDate(),
+            ],
+            summary: "Funnel of applications created {$period->fromDate()} to {$period->toDate()}.",
             type: 'funnel_chart',
         );
     }

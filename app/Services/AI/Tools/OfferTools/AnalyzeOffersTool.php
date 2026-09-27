@@ -3,18 +3,17 @@
 namespace App\Services\AI\Tools\OfferTools;
 
 use App\Enums\AiRiskLevel;
-use App\Enums\OfferStatus;
-use App\Models\Offer;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ResolvesMetricPeriod;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Carbon;
+use App\Services\Metrics\MetricQuery;
+use App\Services\Metrics\MetricService;
 
 class AnalyzeOffersTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ResolvesMetricPeriod, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -49,37 +48,30 @@ class AnalyzeOffersTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $end = filled($arguments['end_date'] ?? null) ? Carbon::parse($arguments['end_date']) : Carbon::now();
-        $start = filled($arguments['start_date'] ?? null) ? Carbon::parse($arguments['start_date']) : $end->copy()->subDays(90);
-        $visibleIds = $this->visibleEmployeeIds($user);
+        $period = $this->metricPeriod($arguments, 90);
+        $query = MetricQuery::make($period, $user);
+        $metrics = app(MetricService::class);
 
-        $offers = Offer::query()
-            ->whereBetween('offer_date', [$start->toDateString(), $end->toDateString()])
-            ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas(
-                'candidateApplication',
-                fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
-            ))
-            ->get(['status']);
-
-        $byStatus = $offers->countBy(fn (Offer $o) => $o->status->label());
-        // Phase 8.4: status is an enum cast — compare cases, not strings (the string comparison never
-        // matched, so the rate was always blank).
-        $decided = $offers->filter(fn (Offer $offer) => in_array($offer->status, [OfferStatus::Accepted, OfferStatus::Rejected], true));
-        $acceptanceRate = $decided->count() > 0
-            ? round($decided->filter(fn (Offer $offer) => $offer->status === OfferStatus::Accepted)->count() / $decided->count() * 100, 1)
-            : null;
+        // Phase 8.5 (D4): the governed acceptance rate — the dashboard's number — over offers first
+        // released in the range; withdrawn offers are excluded (an employer action).
+        $acceptance = $metrics->get('offer.acceptance_rate', $query);
+        $decided = $metrics->get('offer.decided_acceptance_rate', $query);
+        $counts = collect($acceptance->details)->only(['released', 'accepted', 'rejected', 'expired', 'withdrawn', 'awaiting']);
 
         return ToolResult::ok(
             data: [
-                'total_offers' => $offers->count(),
-                'by_status' => $byStatus->toArray(),
-                'acceptance_rate_pct' => $acceptanceRate,
-                'start_date' => $start->toDateString(),
-                'end_date' => $end->toDateString(),
+                'offers_released' => (int) $counts->get('released', 0),
+                'by_status' => $counts->except('released')->all(),
+                'acceptance_rate_pct' => $acceptance->isAvailable() ? $acceptance->value : null,
+                'accepted_vs_declined_pct' => $decided->isAvailable() ? $decided->value : null,
+                'decided_offers' => $acceptance->sampleSize,
+                'metric' => "{$acceptance->key} v{$acceptance->version}",
+                'start_date' => $period->fromDate(),
+                'end_date' => $period->toDate(),
             ],
-            summary: $acceptanceRate !== null
-                ? "{$offers->count()} offer(s) in range; acceptance rate {$acceptanceRate}%."
-                : "{$offers->count()} offer(s) in range; not enough decided offers for an acceptance rate.",
+            summary: $acceptance->isAvailable()
+                ? "{$counts->get('released', 0)} offer(s) released in range; acceptance rate {$acceptance->value}% of {$acceptance->sampleSize} decided."
+                : "{$counts->get('released', 0)} offer(s) released in range; acceptance rate not available ({$acceptance->status->label()}).",
             type: 'kpi_card',
         );
     }

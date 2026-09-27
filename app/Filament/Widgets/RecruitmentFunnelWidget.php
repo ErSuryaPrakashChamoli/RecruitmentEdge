@@ -4,6 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Enums\CandidateStage;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentAnalyticsService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -15,10 +16,13 @@ use Illuminate\Support\Collection;
  * drop-off between consecutive stages, each row linking into the already-filtered Candidate
  * Applications list. Built entirely on the existing RecruitmentAnalyticsService::funnel(), which
  * returns every CandidateStage — this widget narrows the display to the stages the brief names.
+ *
+ * Phase 8.5: a cohort funnel (pipeline.funnel) — the applications created in the period and how far
+ * each has got — so every percentage is of the same applications and never exceeds 100%.
  */
 class RecruitmentFunnelWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
