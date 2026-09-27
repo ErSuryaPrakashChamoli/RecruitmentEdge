@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RecruitmentRequisitions\Tables;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Actions\RequisitionLifecycleActions;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\RecruitmentRequisition;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -30,9 +31,11 @@ class RecruitmentRequisitionsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))
                     ->searchable()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),

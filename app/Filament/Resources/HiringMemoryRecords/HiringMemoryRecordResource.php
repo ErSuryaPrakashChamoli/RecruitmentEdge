@@ -6,6 +6,7 @@ use App\Enums\IntelligenceAiStatus;
 use App\Enums\MemoryType;
 use App\Filament\Resources\HiringMemoryRecords\Pages\ListHiringMemoryRecords;
 use App\Filament\Resources\HiringMemoryRecords\Pages\ViewHiringMemoryRecord;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\HiringMemoryRecord;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
@@ -62,7 +63,8 @@ class HiringMemoryRecordResource extends Resource
                 TextColumn::make('memory_type')->label('Type')->badge()->formatStateUsing(fn (MemoryType $state) => $state->label())->color(fn (MemoryType $state) => $state->color()),
                 TextColumn::make('summary')->wrap()->searchable(),
                 TextColumn::make('requisition.code')->label('Requisition')->placeholder('—'),
-                TextColumn::make('designation.name')->label('Designation')->placeholder('—')->toggleable(),
+                TextColumn::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))->label('Designation')->placeholder('—')->toggleable(),
                 TextColumn::make('version')->prefix('v')->description(fn (HiringMemoryRecord $record) => $record->is_current ? null : 'superseded'),
                 TextColumn::make('captured_at')->label('Captured')->dateTime()->sortable(),
             ])

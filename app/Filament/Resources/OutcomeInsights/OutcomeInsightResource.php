@@ -9,6 +9,7 @@ use App\Enums\OutcomeInsightStatus;
 use App\Enums\OutcomeSampleBand;
 use App\Filament\Resources\OutcomeInsights\Pages\ListOutcomeInsights;
 use App\Filament\Resources\OutcomeInsights\Pages\ViewOutcomeInsight;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\OutcomeInsight;
 use BackedEnum;
 use Filament\Actions\ViewAction;
@@ -73,7 +74,8 @@ class OutcomeInsightResource extends Resource
                 TextEntry::make('insight')->hiddenLabel()->columnSpanFull(),
                 TextEntry::make('suggested_change')->label('Suggested')->columnSpanFull()->placeholder('—'),
                 TextEntry::make('kind')->formatStateUsing(fn (OutcomeInsightKind $state) => $state->label()),
-                TextEntry::make('designation.name')->label('Designation')->placeholder('All designations'),
+                TextEntry::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))->label('Designation')->placeholder('All designations'),
                 TextEntry::make('status')->badge()->formatStateUsing(fn (OutcomeInsightStatus $state) => $state->label())->color(fn (OutcomeInsightStatus $state) => $state->color()),
             ]),
             Section::make('Basis')->columns(3)->schema([

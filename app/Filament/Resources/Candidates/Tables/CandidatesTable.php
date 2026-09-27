@@ -6,6 +6,7 @@ use App\Enums\TalentPoolMemberSource;
 use App\Filament\Exports\CandidateExporter;
 use App\Filament\Resources\Candidates\RelationManagers\TalentPoolsRelationManager;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\TalentPool;
 use App\Services\TalentPoolService;
 use Filament\Actions\BulkAction;
@@ -51,6 +52,7 @@ class CandidatesTable
                     ->searchable()
                     ->toggleable(),
                 TextColumn::make('source.name')
+                    ->formatStateUsing(MasterDataLabel::for('source'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('total_experience')

@@ -4,6 +4,7 @@ use App\Enums\RequisitionStatus;
 use App\Filament\Resources\Departments\Pages\EditDepartment;
 use App\Filament\Resources\Departments\Pages\ListDepartments;
 use App\Filament\Resources\RecruitmentRequisitions\Pages\EditRecruitmentRequisition;
+use App\Filament\Resources\RecruitmentRequisitions\Pages\ListRecruitmentRequisitions;
 use App\Models\AuditLog;
 use App\Models\CandidateSource;
 use App\Models\Department;
@@ -203,4 +204,14 @@ test('re-running the reference seeder never recreates or restores an archived so
 
     expect(CandidateSource::withTrashed()->where('code', 'SRC-012')->count())->toBe(1)
         ->and(CandidateSource::withTrashed()->where('code', 'SRC-012')->sole()->trashed())->toBeTrue();
+});
+
+test('a list shows archived master data on existing records, marked as archived', function (): void {
+    $requisition = masterDataRequisition([], RequisitionStatus::Closed);
+    $department = $requisition->department;
+    $this->lifecycle->archive($this->admin, $department, 'Reorganised');
+
+    Livewire::test(ListRecruitmentRequisitions::class)
+        ->assertCanSeeTableRecords([$requisition])
+        ->assertSee("{$department->name} (archived)");
 });

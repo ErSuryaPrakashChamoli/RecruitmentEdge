@@ -4,6 +4,7 @@ namespace App\Filament\Resources\TalentPools\Schemas;
 
 use App\Enums\TalentPoolStatus;
 use App\Enums\TalentPoolVisibility;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\TalentPool;
 use App\Models\TalentPoolMembership;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -27,7 +28,8 @@ class TalentPoolInfolist
                         TextEntry::make('visibility')->formatStateUsing(fn (TalentPoolVisibility $state) => $state->label()),
                         TextEntry::make('active_memberships_count')->label('Candidates')->state(fn (TalentPool $record) => $record->activeMemberships()->count()),
                         TextEntry::make('owner.first_name')->label('Owner')->formatStateUsing(fn (TalentPool $record) => $record->owner?->fullName())->placeholder('—'),
-                        TextEntry::make('department.name')->placeholder('—'),
+                        TextEntry::make('department.name')
+                            ->formatStateUsing(MasterDataLabel::for('department'))->placeholder('—'),
                         TextEntry::make('createdBy.first_name')->label('Created by')->formatStateUsing(fn (TalentPool $record) => $record->createdBy?->fullName())->placeholder('—'),
                         TextEntry::make('tags')->badge()->placeholder('—'),
                         TextEntry::make('description')->placeholder('—')->columnSpan(2),

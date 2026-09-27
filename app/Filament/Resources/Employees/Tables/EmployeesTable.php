@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Employees\Tables;
 
 use App\Enums\EmployeeStatus;
+use App\Filament\Support\MasterDataLabel;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -24,9 +25,11 @@ class EmployeesTable
                     ->formatStateUsing(fn ($record) => $record->fullName())
                     ->searchable(['first_name', 'last_name']),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('reportsTo.first_name')

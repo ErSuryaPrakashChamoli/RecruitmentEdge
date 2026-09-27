@@ -7,6 +7,7 @@ use App\Enums\ReferralRelationship;
 use App\Enums\ReferralStatus;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Resources\Candidates\CandidateResource;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\EmployeeReferral;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -49,7 +50,8 @@ class EmployeeReferralInfolist
                     ->schema([
                         TextEntry::make('reviewedBy.first_name')->label('Reviewed by')->formatStateUsing(fn (EmployeeReferral $record) => $record->reviewedBy?->fullName())->placeholder('—'),
                         TextEntry::make('reviewed_at')->dateTime()->placeholder('—'),
-                        TextEntry::make('rejectionReason.name')->label('Rejection reason')->placeholder('—'),
+                        TextEntry::make('rejectionReason.name')
+                            ->formatStateUsing(MasterDataLabel::for('rejectionReason'))->label('Rejection reason')->placeholder('—'),
                         TextEntry::make('joining_date')->date()->placeholder('—'),
                         IconEntry::make('incentive_eligible')->label('Bonus eligible')->boolean(),
                         TextEntry::make('incentive_status')->label('Bonus')->badge()->formatStateUsing(fn (ReferralIncentiveStatus $state) => $state->label())->color(fn (ReferralIncentiveStatus $state) => $state->color()),

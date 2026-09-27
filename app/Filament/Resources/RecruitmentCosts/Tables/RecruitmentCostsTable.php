@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RecruitmentCosts\Tables;
 
 use App\Enums\RecruitmentCostStatus;
 use App\Enums\RecruitmentCostType;
+use App\Filament\Support\MasterDataLabel;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -34,12 +35,14 @@ class RecruitmentCostsTable
                     ->date()
                     ->sortable(),
                 TextColumn::make('source.name')
+                    ->formatStateUsing(MasterDataLabel::for('source'))
                     ->placeholder('—')
                     ->searchable(),
                 TextColumn::make('requisition.code')
                     ->placeholder('—')
                     ->searchable(),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->placeholder('—')
                     ->searchable(),
             ])

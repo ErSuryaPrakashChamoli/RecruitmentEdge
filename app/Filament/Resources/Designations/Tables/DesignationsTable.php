@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Designations\Tables;
 
 use App\Filament\Actions\MasterDataLifecycleActions;
+use App\Filament\Support\MasterDataLabel;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -22,6 +23,7 @@ class DesignationsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->label('Department')
                     ->searchable()
                     ->sortable(),

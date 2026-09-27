@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Interviewers;
 
 use App\Filament\Resources\Interviewers\Pages\ManageInterviewers;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\Interviewer;
@@ -70,6 +71,7 @@ class InterviewerResource extends Resource
                     ->formatStateUsing(fn (Interviewer $record): string => $record->employee->fullName())
                     ->searchable(['first_name', 'last_name']),
                 TextColumn::make('employee.designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('employee.designation'))
                     ->label('Designation')
                     ->placeholder('—'),
                 IconColumn::make('is_active')
