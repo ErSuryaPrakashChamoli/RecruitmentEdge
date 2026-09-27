@@ -26,7 +26,9 @@ use App\Services\RecruiterActionService;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -50,6 +52,11 @@ class HiringRiskRadar
 
     public const int DISMISS_SUPPRESSION_DAYS = 7;
 
+    /**
+     * Requisitions / joinings / offers evaluated per chunk of a full scan (Phase 8.7).
+     */
+    public const int CHUNK = 200;
+
     public function __construct(
         private readonly HiringHealthService $health,
         private readonly EvidenceRecorder $evidence,
@@ -58,9 +65,38 @@ class HiringRiskRadar
     ) {}
 
     /**
+     * Phase 8.7 (D8.7-026, DQ-87-01): a full scan evaluates EVERY open requisition (in chunks) and
+     * every joining and offer at risk — no row cap — and only then resolves the open risks that were
+     * not detected. Before 8.7 the scan stopped at the first 200 requisitions and 500 joining/offer
+     * rows, yet resolved every risk it had not seen, closing live risks on larger installations.
+     * A scan that fails part-way resolves nothing. Full scans never overlap (a cache lock); a scan
+     * that finds another one running skips instead of racing it.
+     *
+     * @return array{opened: int, refreshed: int, resolved: int, skipped?: bool}
+     */
+    public function scan(?RecruitmentRequisition $only = null): array
+    {
+        if ($only !== null) {
+            return $this->runScan($only);
+        }
+
+        $lock = Cache::lock('hiring-risk-radar:full-scan', 3600);
+
+        if (! $lock->get()) {
+            return ['opened' => 0, 'refreshed' => 0, 'resolved' => 0, 'skipped' => true];
+        }
+
+        try {
+            return $this->runScan(null);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
      * @return array{opened: int, refreshed: int, resolved: int}
      */
-    public function scan(?RecruitmentRequisition $only = null, int $limit = 200): array
+    private function runScan(?RecruitmentRequisition $only): array
     {
         $started = now()->subSecond();
         $counts = ['opened' => 0, 'refreshed' => 0, 'resolved' => 0];
@@ -68,17 +104,23 @@ class HiringRiskRadar
             $counts[$this->observe($risk) ? 'opened' : 'refreshed']++;
         };
 
-        $requisitions = $only !== null
-            ? collect([$only])
-            : RecruitmentRequisition::query()->where('status', RequisitionStatus::Open)->orderBy('id')->limit($limit)->get();
-
-        foreach ($requisitions as $requisition) {
-            foreach ($this->requisitionRisks($requisition) as $risk) {
+        if ($only !== null) {
+            foreach ($this->requisitionRisks($only) as $risk) {
                 $observe($risk);
             }
+        } else {
+            RecruitmentRequisition::query()
+                ->where('status', RequisitionStatus::Open)
+                ->chunkById(self::CHUNK, function ($requisitions) use ($observe): void {
+                    foreach ($requisitions as $requisition) {
+                        foreach ($this->requisitionRisks($requisition) as $risk) {
+                            $observe($risk);
+                        }
+                    }
+                });
         }
 
-        $requisitionIds = $requisitions->pluck('id');
+        $requisitionIds = $only !== null ? collect([$only->id]) : collect();
 
         foreach ($this->joiningRisks($requisitionIds, $only !== null) as $risk) {
             $observe($risk);
@@ -94,6 +136,7 @@ class HiringRiskRadar
             }
         }
 
+        // Reached only when the whole population above was evaluated.
         $counts['resolved'] = $this->autoResolve($started, $only);
 
         return $counts;
@@ -165,30 +208,37 @@ class HiringRiskRadar
 
         $owner = $this->actions->reachableOwner($risk['owner']);
 
-        $created = DB::transaction(function () use ($risk, $key, $owner): HiringRisk {
-            $created = HiringRisk::query()->create([
-                'type' => $risk['type'],
-                'severity' => $risk['severity'],
-                'status' => HiringRiskStatus::Open,
-                'requisition_id' => $risk['requisition_id'],
-                'subject_type' => $risk['subject']->getMorphClass(),
-                'subject_id' => $risk['subject']->getKey(),
-                'candidate_application_id' => $risk['application_id'] ?? null,
-                'owner_id' => $owner?->id,
-                'title' => $risk['title'],
-                'description' => $risk['description'],
-                'recommended_action' => $risk['action'],
-                'detector_version' => self::DETECTOR_VERSION,
-                'open_key' => $key,
-                'first_detected_at' => now(),
-                'last_seen_at' => now(),
-            ]);
+        try {
+            $created = DB::transaction(function () use ($risk, $key, $owner): HiringRisk {
+                $created = HiringRisk::query()->create([
+                    'type' => $risk['type'],
+                    'severity' => $risk['severity'],
+                    'status' => HiringRiskStatus::Open,
+                    'requisition_id' => $risk['requisition_id'],
+                    'subject_type' => $risk['subject']->getMorphClass(),
+                    'subject_id' => $risk['subject']->getKey(),
+                    'candidate_application_id' => $risk['application_id'] ?? null,
+                    'owner_id' => $owner?->id,
+                    'title' => $risk['title'],
+                    'description' => $risk['description'],
+                    'recommended_action' => $risk['action'],
+                    'detector_version' => self::DETECTOR_VERSION,
+                    'open_key' => $key,
+                    'first_detected_at' => now(),
+                    'last_seen_at' => now(),
+                ]);
 
-            $this->evidence->record($created, $risk['evidence'], 'risk-radar', self::DETECTOR_VERSION);
-            AuditLog::record($created, 'hiring_risk_opened', null, ['type' => $risk['type']->value, 'severity' => $risk['severity']->value]);
+                $this->evidence->record($created, $risk['evidence'], 'risk-radar', self::DETECTOR_VERSION);
+                AuditLog::record($created, 'hiring_risk_opened', null, ['type' => $risk['type']->value, 'severity' => $risk['severity']->value]);
 
-            return $created;
-        });
+                return $created;
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Phase 8.7: a concurrent scan opened the same risk a moment ago — it is open; count it as seen.
+            HiringRisk::query()->where('open_key', $key)->update(['last_seen_at' => now()]);
+
+            return false;
+        }
 
         if ($owner !== null && in_array($created->severity, [RiskSeverity::High, RiskSeverity::Critical], true)) {
             $action = $this->actions->createOnce("risk:{$created->id}", [
@@ -295,8 +345,7 @@ class HiringRiskRadar
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->when($scoped, fn ($q) => $q->whereHas('candidateApplication', fn ($a) => $a->whereIn('requisition_id', $requisitionIds)))
             ->with(['candidateApplication.candidate', 'candidateApplication.recruiter', 'candidateApplication.requisition'])
-            ->limit(500)
-            ->get()
+            ->lazyById(self::CHUNK)
             ->filter(fn (CandidateJoining $joining) => $joining->riskLevel() === 'red')
             ->map(fn (CandidateJoining $joining) => [
                 'type' => HiringRiskType::JoiningRisk,
@@ -329,8 +378,7 @@ class HiringRiskRadar
             ->where('offer_expiry', '<=', now()->addDays(2)->toDateString())
             ->when($scoped, fn ($q) => $q->whereHas('candidateApplication', fn ($a) => $a->whereIn('requisition_id', $requisitionIds)))
             ->with(['candidateApplication.candidate', 'candidateApplication.recruiter'])
-            ->limit(500)
-            ->get()
+            ->lazyById(self::CHUNK)
             ->map(fn (Offer $offer) => [
                 'type' => HiringRiskType::OfferRisk,
                 'severity' => $offer->offer_expiry->isPast() ? RiskSeverity::Critical : RiskSeverity::High,

@@ -20,8 +20,8 @@ return [
     ],
 
     'refresh' => [
-        // Open requisitions refreshed per scheduled run, and signals refreshed per requisition.
-        'requisitions_per_run' => 200,
+        // Talent signals refreshed per requisition per run (a throughput bound). Since Phase 8.7 every
+        // open requisition is refreshed and scanned — there is no per-run requisition cap.
         'signals_per_requisition' => 200,
     ],
 
