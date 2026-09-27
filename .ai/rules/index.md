@@ -12,12 +12,15 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/*.php, app/Models/CandidateStageHistory.php | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
+| app/Services/OfferService.php,app/Services/InterviewService.php | .ai/rules/app-services-services.md |
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php, app/Services/RecruitmentActivityService.php | .ai/rules/app-services.md |
 | app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
+| routes/console.php,app/Console/Commands/** | .ai/rules/commands.md |
 | app/Services/Communication/** | .ai/rules/communication.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
 | app/Models/Concerns/Auditable.php,app/Models/*.php | .ai/rules/concerns-models.md |
+| app/Models/AuditLog.php,app/Jobs/Concerns/**,app/Providers/AppServiceProvider.php | .ai/rules/concerns-providers.md |
 | app/Models/AuditLog.php,app/Models/Concerns/Auditable.php | .ai/rules/concerns.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
 | app/Models/RecruitmentSetting.php,app/Services/RecruitmentSettingService.php,app/Filament/Resources/RecruitmentSettings/**,app/Services/Metrics/Definitions/SlaLegCompliance.php | .ai/rules/definitions.md |
@@ -36,6 +39,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
 | app/Jobs/** | .ai/rules/jobs.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php,app/Services/CandidateJoiningService.php,app/Events/OfferAccepted.php,app/Listeners/CreateJoiningRecordForAcceptedOffer.php | .ai/rules/listeners.md |
+| app/Jobs/**,app/Listeners/**,app/Notifications/**,app/Mail/** | .ai/rules/mail.md |
 | app/Services/Metrics/** | .ai/rules/metrics.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Services/StageTransitionService.php,app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Models/RecruitmentStage.php,app/Models/RequisitionPipelineStage.php,app/Models/CandidateApplication.php | .ai/rules/models-models-models.md |

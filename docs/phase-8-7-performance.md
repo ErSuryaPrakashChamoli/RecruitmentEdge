@@ -1,4 +1,77 @@
-# Phase 8.7 Performance: Asynchronous Platform (Discovery)
+# Phase 8.7 Performance: Asynchronous Platform
+
+**Part A** records measurements taken during implementation. **Part B** is the discovery analysis as committed in `88fbcf6` (estimates from code paths).
+
+# PART A: IMPLEMENTATION MEASUREMENTS
+
+**Environment:**
+
+| | |
+|---|---|
+| Database | `hrms_p87_perf`: MySQL 8.4, throwaway, Phase 8.5 benchmark seeder (`P85_ADD=100000`) |
+| Data volume | 100,001 applications, 271k stage-history rows, 42k interviews, 21k offers, 9.7k joinings; **520 open requisitions**; 50,000 candidate messages (200 stuck Queued, 50 stuck Sending); 2,000 queued jobs over 5 queues; 500 failed jobs; 200 active automation rules |
+| Mode | array cache, database queue, single process; nothing sent externally |
+| Load testing | none (no multi-process load test) |
+| Scripts | scratchpad `p87_perf_run.php`; output `p87_perf_100k.txt`, `p87_perf_radar_warm.txt` |
+
+**Fixture correction:** the Phase 8.5 benchmark seeder wrote an invalid stage value (`interview_completed`) into its throwaway data; the Risk Radar scan rejected it. The throwaway rows were corrected to `interview_1` and the seeder script fixed. No application code or real data was involved.
+
+## A.1 Results (100k)
+
+| Operation | Time | Queries | Notes |
+|---|---|---|---|
+| Risk Radar full scan, 520 open requisitions, **cold** | **414 s** | 140,204 | every Hiring Health snapshot stale → recomputed (~0.8 s per requisition: the known stage-history scan, P85-BACKLOG-007) |
+| Risk Radar full scan, 520 open requisitions, **warm** | **19.5 s** | 13,975 | 6,138 risks refreshed; 11 s of it is one lookup and one `last_seen_at` update per risk (P87-BACKLOG-004) |
+| Risk Radar, one requisition (566 applications) | 107 ms | 60 | |
+| `QueueHealthService::problems()` | 41 ms | 8 | the alert check |
+| `QueueHealthService::snapshot()` (page, endpoint) | 38 ms | 16 | |
+| `QueueHealthService::stuck()` | 2.0 ms | 4 | |
+| `queue:health-check` | 29 ms | 15 | every 5 min |
+| `reliability:sweep` (50k messages, 250 stuck) | 560 ms | 354 | 200 re-queued, 50 failed |
+| `AutomationEngine::processDue` incl. owner sweep | 387 ms | 205 | 200 active rules: one authority check each |
+| `CommunicationService::send` incl. queue-time snapshot | 10.1 ms each | 11 | 100 sends |
+| `SendTimeGuard::suppressionReason` (send-time re-check) | 2.5 ms each | 5 | added to every send |
+| `AuditLog::record` inside `asActor` | 1.9 ms each | 1 | same as 8.6 (1.9 ms) — actor context costs nothing measurable |
+| `CandidateTimelineService::forPortal` (sent-only filter) | 1.6 ms | 2 | |
+| Queued payload size | 932 bytes average | — | 200 encrypted listener / notification jobs |
+
+## A.2 Indexes (EXPLAIN)
+
+| Query | Access | Key | Rows |
+|---|---|---|---|
+| stuck Queued messages | ref | `cc_status_channel_index` | 300 |
+| stuck Sending messages | ref | `cc_status_channel_index` | 1 |
+| queue depth and oldest job per queue | index | `jobs_queue_index` | 4,274 |
+| failed jobs in the last hour | index | `failed_jobs_connection_queue_failed_at_index` | 500 (pruned to 30 days) |
+| a candidate's sent messages (portal filter) | ref | `cc_candidate_created_index` | 2 |
+| running automation executions | ref | `automation_exec_due` | 1 |
+
+No new index was needed.
+
+## A.3 Scale statement (D8.7-027 b)
+
+On the database queue with the three shipped workers: **up to about 100k applications and 500 open requisitions.** The limiting job is `intelligence:refresh`: a cold hourly run takes about 7 minutes at 520 requisitions (it runs in the background, guarded against overlap for 120 minutes, and a concurrent full Risk Radar scan is skipped). Beyond this, plan Redis and additional workers (needs approval; not done).
+
+## A.4 Discovery findings → status
+
+| ID | Finding | Status |
+|---|---|---|
+| PF-87-01 | `intelligence:refresh` inline, heavy, capped at 200 | **Fixed:** covers every open requisition; background; overlap-guarded (120 min); measured above |
+| PF-87-02 | `dispatch-alerts` unguarded, not fault-isolated | **Fixed** (guard, one server, per-check isolation). Its per-run volume is unchanged (not bounded) — **accepted** |
+| PF-87-03 | `jobs` / `failed_jobs` never pruned; index | **Fixed:** failed jobs pruned daily; `jobs` rows are removed as processed; existing `queue` index sufficient (A.2) |
+| PF-87-04 | unindexed JSON dedupe on `notifications` | **Deferred** (P87-BACKLOG-009): an atomic cache claim now precedes delivery, but the JSON check still runs first |
+| PF-87-05 | serial scheduler, 24 h mutex | **Fixed:** heavy tasks in background; lock expiry sized per task (10 min – 3 h) |
+| PF-87-06 | one worker, strict priority | **Fixed:** `queue-automation` worker |
+| PF-87-07 | zero-backoff retries | **Fixed:** backoff on every queued class (`QueueContractTest`) |
+| PF-87-08 | `OutcomeLearningService::refresh` loads full history | **Deferred** (P87-BACKLOG-010), Low |
+| PF-87-09 | large-document embedding near the 300 s timeout | **Deferred** (P87-BACKLOG-011), Low; `retry_after` 330 still covers it |
+| PF-87-10 | `processDue` ceiling 200 per 5 min | **Accepted:** throughput cap kept as configuration (D8.7-027) |
+
+---
+
+# PART B: DISCOVERY ANALYSIS (as committed in `88fbcf6`)
+
+## Phase 8.7 Performance: Asynchronous Platform (Discovery)
 
 **Baseline:** HEAD `dcff76e`.
 

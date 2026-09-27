@@ -1,4 +1,69 @@
-# Phase 8.7 Security Review: Asynchronous Paths (Discovery)
+# Phase 8.7 Security Review: Asynchronous Paths
+
+**Part A** records the implementation (baseline `fa4e858`, frozen at the Phase 8.7 freeze commit). **Part B** is the discovery review exactly as committed in `88fbcf6` (baseline `dcff76e`).
+
+# PART A: IMPLEMENTATION
+
+**Result: 0 Critical · 0 High · 0 Medium open. All 14 discovery findings are closed. Two further findings made during implementation are fixed. No new High or Critical issue was found.** The Phase 8.6 production hotfix (D8.6-030) is still a separate, pending release action.
+
+## A.1 Discovery findings → status
+
+| ID | Severity | Status | Fix | Regression test |
+|---|---|---|---|---|
+| SEC-87-01 | High | **Closed** | events use `SerializesModels` (ids only); queued listeners, notifications and mails encrypted; failed jobs pruned after 30 days; stored exception text redacted | `QueuePayloadPrivacyTest` (reads real `jobs` payloads; arch test on all events and queued classes) |
+| SEC-87-02 | Medium | **Closed** | encrypted `ResetPassword` / `NoticeOfEmailChangeRequest` on `notifications` | `QueuePayloadPrivacyTest` "password-reset and email-change notices…" |
+| SEC-87-03 | Medium | **Closed** | `SendTimeGuard` re-checks consent at claim; suppressed as Blocked, audited, not a failure | `CommunicationDeliveryIntegrityTest` "opts out after…" (+ browser 9) |
+| SEC-87-04 | Medium | **Closed** | listeners re-read (ids) and skip stale announcements; `SendTimeGuard` compares queue-time state (application, interview, offer, joined, template) | `CommunicationDeliveryIntegrityTest` (application, interview, offer, joined, archived template) |
+| SEC-87-05 | Medium | **Closed** | run-time scope and visibility re-check; per-action owner permission | `AutomationExecutionAuthorityTest` (scope, visibility, lost permission) |
+| SEC-87-06 | Medium | **Closed** | escalations re-check effective dates, owner authority, scope, visibility, send permission and the message cap; act as automation on the owner's behalf | `AutomationExecutionAuthorityTest` (three escalation tests) |
+| SEC-87-07 | Medium | **Closed** | log tap on every channel, failed-job store and `failed()` columns redacted | `SensitiveDataRedactionTest` (6 tests) |
+| SEC-87-08 | Low | **Closed** | AI jobs reload the requester; skip with `ai_request_skipped` when access is gone | `CorrelationAndActorTest` "requester lost access" |
+| SEC-87-09 | Low | **Closed** | reindex unique until processing; unpublished articles skipped; model dispatches after commit | existing knowledge tests + `QueueContractTest` |
+| SEC-87-10 | Low | **Closed** | calendar job derives cancel from current state; unique per interview; no overlap | `TransitionIdempotencyTest` "calendar job decides…" |
+| SEC-87-11 | Low | **Closed** | deterministic keys for manual and AI sends | `CommunicationDeliveryIntegrityTest` "double-submitted…" |
+| SEC-87-12 | Low | **Closed** | portal password link queued and encrypted (same response path either way) | `QueuePayloadPrivacyTest` "portal password link…", `CandidatePortalTest` |
+| SEC-87-13 | Info | **Closed** | `actor_kind`, `on_behalf_of_user_id`, correlation ids | `CorrelationAndActorTest` |
+| SEC-87-14 | Info | **Closed (documented)** | `AiCopilotEmail` encrypted on `notifications`; the unused providers are documented and listed for removal (P87-BACKLOG-007) | `QueuePayloadPrivacyTest` arch test |
+
+## A.2 Findings made during implementation
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| SEC-87-I-01 | Low | `RunAutomationExecutionJob::failed()` and `SendCommunicationJob::failed()` copied raw exception text (which can hold SQL values such as an email) into staff-visible columns | **Fixed** (`e1c9144`); `SensitiveDataRedactionTest` |
+| REL-87-I-02 | (reliability) | the `notifications` queue added earlier in this phase had no consumer in `docker-compose.yml` — in-app alerts and auth mails would never be delivered. Branch only, never deployed | **Fixed** (`e974ebf`); `QueueTopologyTest` now scans notifications and mailables |
+
+## A.3 New surfaces introduced by Phase 8.7
+
+| Surface | Control | Evidence |
+|---|---|---|
+| Queue health page | `settings.manage`; shows class names, counts and the redacted first line of an error — never payloads | `QueueHealthTest`, browser 1–3, 13–15 |
+| Failed-job Retry | `settings.manage`, reason required, audited (`failed_job_retried`); retried jobs re-check their own state | `QueueHealthTest`, browser 4 |
+| `GET /health/queue` | signed-in `settings.manage`, or `QUEUE_HEALTH_TOKEN` bearer compared with `hash_equals`; throttled 60/min; counts only; 401 anonymous, 403 others | `QueueHealthTest`, browser 5, 6, 15 |
+| Resend | policy ability `resend` (`communications.send` + candidate visibility); consent and state re-checked; reason audited | `CommunicationDeliveryIntegrityTest`, browser 7 |
+| Platform alerts | only to holders of `settings.manage` with current access; no personal data | `QueueHealthTest` |
+| Actor attribution | automation never recorded as its owner (`user_id` null, owner as `on_behalf_of`) | `CorrelationAndActorTest` |
+
+## A.4 Controls re-verified
+
+- Phase 8.6 controls intact: strict authorization in tests, fail-closed gate, master-data guards, audit reasons — the whole suite (1,873 tests) runs under them.
+- AI egress guard on every asynchronous call; jobs never use a provider directly (`QueueContractTest`).
+- All events dispatch after commit (`QueueContractTest`).
+
+## A.5 Stop-condition check (implementation)
+
+| # | Condition | Result |
+|---|---|---|
+| 4 | New Critical/High vulnerability | **No** |
+| 5 | Queue executes a security-sensitive action without authorization | **No**: automation, escalations and AI jobs re-check authority at execution |
+| 6 | Communication path leaks sensitive info | **No**: payloads encrypted or ids-only; logs and stored errors redacted |
+| 7 | Irreversible duplicate business effects | **No**: transitions locked, jobs unique/state-aware, deterministic keys |
+| 8 | Historical record rewritten asynchronously | **No**: Risk Radar resolves only after a full scan (DQ-87-01 fixed) |
+
+---
+
+# PART B: DISCOVERY REVIEW (as committed in `88fbcf6`)
+
+## Phase 8.7 Security Review: Asynchronous Paths (Discovery)
 
 **Baseline:** HEAD `dcff76e` · **Scope:** jobs, listeners, scheduler, automation, communications, AI asynchronous work, queue storage, logs · **Status:** findings only; nothing fixed.
 

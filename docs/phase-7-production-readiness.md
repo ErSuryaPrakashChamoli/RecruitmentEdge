@@ -54,41 +54,48 @@ Reviewed 2026-09-26 at the Phase 7 freeze, before Phase 8. Covers everything unc
 
 ## 4. Queue worker
 
-Run under Supervisor/systemd with automatic restart. Phase 8.3 splits the work into two workers
-so slow provider calls never delay candidate messages (the shipped `docker-compose.yml` runs the
-same two services, `queue` and `queue-background`):
+> **Phase 8.7:** three workers; the current topology, timeouts, grace period and recovery procedures are in `docs/runbooks/queue-operations.md`, which supersedes this section where they differ.
+
+Run under Supervisor/systemd (or the shipped `docker-compose.yml` services `queue`, `queue-automation`, `queue-background`) with automatic restart:
 
 ```bash
-# time-sensitive: candidate messages, automation, in-app notifications
-php artisan queue:work --queue=communications,automation,default --tries=3 --timeout=120 --max-time=3600
+# time-sensitive: candidate messages, in-app notifications, auth and portal mails
+php artisan queue:work --queue=communications,notifications,default --tries=3 --timeout=120 --max-time=3600
+# automation runs and ownership handoffs
+php artisan queue:work --queue=automation,default --tries=3 --timeout=120 --max-time=3600
 # slow provider work: AI, embeddings, calendar and job-board APIs, Outcome Loop / Hiring Memory capture
 php artisan queue:work --queue=intelligence,integrations,default --tries=3 --timeout=300 --max-time=3600
 ```
 
 Set `DB_QUEUE_RETRY_AFTER` above the longest `--timeout` (330), so a slow job is never handed to a
-second worker while it is still running.
+second worker while it is still running, and give workers a stop grace period of at least 330 s.
 
 | Queue | Used by |
 |---|---|
-| `automation` | `RunAutomationExecutionJob` |
+| `automation` | `RunAutomationExecutionJob`, `ProcessOwnershipHandoffJob` |
 | `communications` | `SendCommunicationJob`, `SendCandidateCommunications` listener |
+| `notifications` | in-app alerts (`StaffDatabaseNotification`), password reset / email change notices, candidate portal links |
 | `integrations` | `SyncInterviewCalendarJob`, `PublishJobDistributionJob` |
 | `intelligence` | `GenerateRoleDnaSuggestionsJob`, `SummarizeHiringMemoryJob`, `SummarizeOutcomeInsightJob`, `IndexAiDocumentJob`, `ReindexKnowledgeArticleJob`, `CaptureHiringMemory` and `RecordHiringOutcomes` listeners |
-| `default` | Filament database notifications and anything unrouted |
+| `default` | reserved; should stay empty |
 
 - Retries: AI jobs `tries = 2` (one retry after 60 s), then marked failed with an honest message. The uniqueness lock expires after 1 hour (`uniqueFor`).
 - Stale requests: `intelligence:refresh` marks AI requests stuck in "processing" for over 60 minutes as failed, so they can be requested again.
 - `failed_jobs`: 0. `jobs`: 1 old `Filament\Notifications\DatabaseNotification` on `default` from 2026-09-14 (development, never processed because no worker listened). It was left in place and will be delivered once a worker covers `default`.
 - [ ] Run `php artisan queue:restart` after every deploy
-- [ ] Monitor `failed_jobs`
+- [ ] Monitor Administration → Queue health (Phase 8.7), or `GET /health/queue` from external monitoring
 
 ## 5. Scheduler
 
-Cron (one line):
+**Exactly one scheduler** (Phase 8.7, D8.7-011): with Docker, the `scheduler` service (`schedule:work`);
+without Docker, one cron line on one host — never both:
 
 ```cron
 * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
 ```
+
+The full, current task list is `php artisan schedule:list` (17 tasks since Phase 8.7, all guarded by
+`withoutOverlapping` and `onOneServer`); the table below lists the original tasks.
 
 | Command | Schedule | Notes |
 |---|---|---|
@@ -166,6 +173,6 @@ Literal skill matching (P7-BACKLOG-001), exact location/qualification matching s
 3. Deploy code; `composer install --no-dev`; `npm ci && npm run build`.
 4. `php artisan migrate --force`.
 5. `php artisan optimize` (config, route, view and event caches).
-6. `php artisan queue:restart`; confirm the worker covers all five queues.
-7. Confirm the cron runs `schedule:run`.
+6. `php artisan queue:restart`; confirm the three workers cover all six queues (runbook §2).
+7. Confirm exactly one scheduler runs (the `scheduler` service or one cron `schedule:run`), and Queue health shows its heartbeat.
 8. Smoke test: sign in as a recruiter and a manager, open Intelligence overview, a requisition's Intelligence page, the Risk register and the Action Center.

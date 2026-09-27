@@ -349,7 +349,7 @@ See `docs/phase-8-6-implementation.md` §8 and `docs/phase-8-6-security-review.m
 
 ### P86-BACKLOG-003 — Scheduler and job request id
 
-- **Status:** Superseded by Phase 8.7 decision D8.7-014.
+- **Status:** Superseded by Phase 8.7 decision D8.7-014 — **done in Phase 8.7** (`cmd:` / `job:` request ids, `origin_request_id`).
 
 ### P86-BACKLOG-004 — Audit log immutability and retention
 
@@ -377,7 +377,55 @@ See `docs/phase-8-6-implementation.md` §8 and `docs/phase-8-6-security-review.m
 
 ### P86-BACKLOG-010 — Settings-aware metric cache key
 
-- **Status:** Open (low) [8.7, PF-1] — a current-period SLA result cached before a target change may show for up to 600 s.
+- **Status:** Open (low) [8.7, PF-1] — a current-period SLA result cached before a target change may show for up to 600 s. Not changed in Phase 8.7.
+
+## Phase 8.7 (Platform Reliability, Queue, Automation & Communications Integrity)
+
+Details and evidence: `docs/phase-8-7-implementation.md` §6 and §8, `docs/phase-8-7-performance.md` A.4.
+
+### P87-BACKLOG-001 — Recruiter daily metrics → governed offer definition (D8.7-025 b)
+
+- **Status:** Open — needs product and payroll approval with a versioned effective date. Raw counters are inventoried and pinned by `MetricGovernanceArchitectureTest`.
+
+### P87-BACKLOG-002 — Automation rule priority groups (D8.7-022 c)
+
+- **Status:** Open (product).
+
+### P87-BACKLOG-003 — Supply `{{links.scheduling}}` from an active self-scheduling invitation (DQ-87-16)
+
+- **Status:** Open (product/security) — templates using it are Blocked with a reason until then.
+
+### P87-BACKLOG-004 — Risk Radar and Hiring Health cost at scale
+
+- **Status:** Open (performance) — batch `last_seen_at` updates; per-requisition Hiring Health compute (with P85-BACKLOG-007). Cold hourly refresh ≈ 7 min at 520 open requisitions.
+
+### P87-BACKLOG-005 — Redis queue and horizontal workers (D8.7-027 c)
+
+- **Status:** Open — needs approval; supported scale on the database queue is stated in `phase-8-7-performance.md` A.3.
+
+### P87-BACKLOG-006 — Email platform alerts to an operations address (D8.7-028 b)
+
+- **Status:** Open.
+
+### P87-BACKLOG-007 — Remove unused `app/Services/AI/Communication/*` and `AiCopilotEmail` (SEC-87-14)
+
+- **Status:** Open (informational) — documented as unused; the mail is encrypted on `notifications`.
+
+### P87-BACKLOG-008 — Legal retention for `failed_jobs` and logs
+
+- **Status:** Open [8.8] — 30 days is the engineering default (D8.7-012).
+
+### P87-BACKLOG-009 — JSON dedupe lookup on `notifications` (PF-87-04)
+
+- **Status:** Open (medium).
+
+### P87-BACKLOG-010 — `OutcomeLearningService::refresh` loads full history (PF-87-08)
+
+- **Status:** Open (low).
+
+### P87-BACKLOG-011 — Very large document embedding near the 300 s timeout (PF-87-09)
+
+- **Status:** Open (low).
 
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
