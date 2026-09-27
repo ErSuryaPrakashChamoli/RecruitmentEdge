@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RecruitmentRequisitions\Schemas;
 
 use App\Enums\EmploymentType;
 use App\Enums\Priority;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use App\Models\RecruitmentPipelineTemplate;
 use Filament\Forms\Components\DatePicker;
@@ -28,17 +29,17 @@ class RecruitmentRequisitionForm
                             ->dehydrated(false)
                             ->hidden(fn (string $operation): bool => $operation === 'create'),
                         Select::make('department_id')
-                            ->relationship('department', 'name')
+                            ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                             ->required()
                             ->searchable()
                             ->preload(),
                         Select::make('designation_id')
-                            ->relationship('designation', 'name')
+                            ->relationship('designation', 'name', ActiveMasterDataOptions::scope('designation_id'))
                             ->required()
                             ->searchable()
                             ->preload(),
                         Select::make('location_id')
-                            ->relationship('location', 'name')
+                            ->relationship('location', 'name', ActiveMasterDataOptions::scope('location_id'))
                             ->searchable()
                             ->preload(),
                         TextInput::make('openings')

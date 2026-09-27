@@ -7,6 +7,7 @@ use App\Events\InterviewScheduled;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\User;
 use App\Services\AI\Tools\ActionTools\ScheduleInterviewTool;
 use Database\Seeders\RolePermissionSeeder;
@@ -28,6 +29,7 @@ test('the tool stays behind the confirmation gate', function (): void {
 test('the tool schedules through the interview service, advancing the stage and raising the calendar-sync event', function (): void {
     $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Shortlisted]);
     $interviewer = Employee::factory()->create();
+    Interviewer::factory()->create(['employee_id' => $interviewer->id]);
 
     $result = app(ScheduleInterviewTool::class)->handle([
         'application_id' => $application->id,

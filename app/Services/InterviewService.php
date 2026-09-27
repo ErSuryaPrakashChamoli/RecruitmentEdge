@@ -17,6 +17,7 @@ use App\Filament\Resources\Interviews\InterviewResource;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\Lifecycle\LifecycleGuard;
 use Carbon\CarbonInterface;
@@ -60,6 +61,11 @@ class InterviewService
 
         if (blank($data['interviewer_id'] ?? null) || blank($data['scheduled_at'] ?? null)) {
             throw new DomainException('An interviewer and a scheduled date/time are required to schedule an interview.');
+        }
+
+        // Phase 8.6 (D8.6-009): a new interview goes to someone on the active interviewer list.
+        if (! Interviewer::isActiveInterviewer((int) $data['interviewer_id'])) {
+            throw new DomainException('The interviewer must be on the active interviewer list (Administration → Interviewers).');
         }
 
         $interview = DB::transaction(function () use ($application, $data, $mode, $actor): Interview {

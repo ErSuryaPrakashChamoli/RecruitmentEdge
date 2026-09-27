@@ -19,7 +19,8 @@ use LogicException;
  */
 #[Fillable([
     'candidate_joining_id', 'candidate_application_id', 'candidate_id', 'requisition_id', 'employee_id',
-    'designation_id', 'department_id', 'location_id', 'source_id', 'role_dna_version_id', 'pipeline_template_version',
+    'designation_id', 'department_id', 'location_id', 'source_id', 'department_name', 'designation_name', 'location_name', 'source_name',
+    'role_dna_version_id', 'pipeline_template_version',
     'joined_on', 'time_to_hire_days', 'facts', 'capture_mode', 'rules_version', 'captured_at',
 ])]
 class HiringOutcomeSnapshot extends Model
@@ -28,10 +29,33 @@ class HiringOutcomeSnapshot extends Model
     use HasFactory;
 
     /**
-     * hiring-snapshot/2 (Phase 8.5 D2): time to hire ends only at the actual joining date. Snapshots
-     * captured under /1 keep their stored values and version.
+     * hiring-snapshot/2 (Phase 8.5 D2): time to hire ends only at the actual joining date.
+     * hiring-snapshot/3 (Phase 8.6 D8.6-008): the department, designation, location and source names
+     * are frozen with the snapshot. Snapshots captured under /1 and /2 keep their stored values and
+     * version; their names resolve from the (possibly renamed or archived) current record.
      */
-    public const string RULES_VERSION = 'hiring-snapshot/2';
+    public const string RULES_VERSION = 'hiring-snapshot/3';
+
+    /**
+     * The name of a dimension as it was when the hire completed (hiring-snapshot/3), else the
+     * current record's name (older snapshots), else null.
+     */
+    public function dimensionName(string $dimension): ?string
+    {
+        $frozen = $this->getAttribute("{$dimension}_name");
+
+        if (filled($frozen)) {
+            return $frozen;
+        }
+
+        return match ($dimension) {
+            'department' => Department::withTrashed()->find($this->department_id)?->name,
+            'designation' => $this->designation?->name,
+            'location' => Location::withTrashed()->find($this->location_id)?->name,
+            'source' => $this->source?->name,
+            default => null,
+        };
+    }
 
     protected function casts(): array
     {
@@ -92,7 +116,7 @@ class HiringOutcomeSnapshot extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -100,7 +124,7 @@ class HiringOutcomeSnapshot extends Model
      */
     public function source(): BelongsTo
     {
-        return $this->belongsTo(CandidateSource::class);
+        return $this->belongsTo(CandidateSource::class)->withTrashed();
     }
 
     /**

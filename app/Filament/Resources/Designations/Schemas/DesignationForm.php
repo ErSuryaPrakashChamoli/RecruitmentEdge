@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Designations\Schemas;
 
+use App\Filament\Support\ActiveMasterDataOptions;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -16,17 +17,21 @@ class DesignationForm
                 TextInput::make('name')
                     ->required()
                     ->maxLength(255),
+                // Phase 8.6 (D8.6-007): the code identifies the record in history — set once.
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true)
+                    ->disabledOn('edit'),
                 Select::make('department_id')
-                    ->relationship('department', 'name')
+                    ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                     ->searchable()
                     ->preload(),
+                // Status changes after creation are the Deactivate/Activate/Archive actions (with a reason).
                 Toggle::make('is_active')
                     ->required()
-                    ->default(true),
+                    ->default(true)
+                    ->visibleOn('create'),
             ]);
     }
 }

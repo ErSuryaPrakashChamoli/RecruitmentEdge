@@ -4,6 +4,7 @@ use App\Filament\Resources\Interviewers\InterviewerResource;
 use App\Filament\Resources\Interviewers\Pages\ManageInterviewers;
 use App\Filament\Resources\Interviews\Pages\CreateInterview;
 use App\Filament\Resources\Interviews\Pages\EditInterview;
+use App\Models\AuditLog;
 use App\Models\Designation;
 use App\Models\Employee;
 use App\Models\Interview;
@@ -65,7 +66,7 @@ test('editing an interview keeps its current interviewer selectable after remova
         ->assertFormFieldExists('interviewer_id', fn (Select $field): bool => array_key_exists($interview->interviewer_id, $field->getOptions()));
 });
 
-test('an administrator imports interviewers from an excel sheet by emp id', function (): void {
+test('an administrator imports interviewers from an excel sheet by emp id, without reactivating deactivated ones', function (): void {
     $newEmployee = Employee::factory()->create(['employee_code' => 'EMP200']);
     $inactive = Interviewer::factory()->inactive()->create();
     $alreadyListed = Interviewer::factory()->create();
@@ -83,11 +84,14 @@ test('an administrator imports interviewers from an excel sheet by emp id', func
             ]),
         ])
         ->assertHasNoFormErrors()
-        ->assertNotified('2 interviewer(s) added');
+        ->assertNotified('1 interviewer(s) added');
 
+    // Phase 8.6 (D8.6-009): a deactivated interviewer is reported, never silently reactivated.
     expect(Interviewer::query()->where('employee_id', $newEmployee->id)->sole()->is_active)->toBeTrue()
-        ->and($inactive->refresh()->is_active)->toBeTrue()
-        ->and(Interviewer::query()->count())->toBe(3);
+        ->and($inactive->refresh()->is_active)->toBeFalse()
+        ->and(Interviewer::query()->count())->toBe(3)
+        ->and(AuditLog::query()->where('action', 'interviewers_imported')->sole()->changes)
+        ->toBe(['added' => 1, 'already_listed' => 1, 'inactive_not_reactivated' => 1, 'skipped' => 1]);
 });
 
 test('a sheet without an emp id column is rejected', function (): void {

@@ -31,13 +31,16 @@ class InterviewerPolicy
         return $user->can('settings.manage');
     }
 
+    /**
+     * Phase 8.6 (D8.6-009): never — an interviewer is deactivated, so interviews stay attributable.
+     */
     public function delete(User $user, Interviewer $interviewer): bool
     {
-        return $user->can('settings.manage');
+        return false;
     }
 
     public function deleteAny(User $user): bool
     {
-        return $user->can('settings.manage');
+        return false;
     }
 }

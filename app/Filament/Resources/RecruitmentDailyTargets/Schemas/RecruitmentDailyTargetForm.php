@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RecruitmentDailyTargets\Schemas;
 
 use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -31,14 +32,14 @@ class RecruitmentDailyTargetForm
                             ->prohibits(['department_id', 'designation_id'])
                             ->validationMessages(self::scopeValidationMessages()),
                         Select::make('department_id')
-                            ->relationship('department', 'name')
+                            ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                             ->searchable()
                             ->preload()
                             ->requiredWithoutAll(['employee_id', 'designation_id'])
                             ->prohibits(['employee_id', 'designation_id'])
                             ->validationMessages(self::scopeValidationMessages()),
                         Select::make('designation_id')
-                            ->relationship('designation', 'name')
+                            ->relationship('designation', 'name', ActiveMasterDataOptions::scope('designation_id'))
                             ->searchable()
                             ->preload()
                             ->requiredWithoutAll(['employee_id', 'department_id'])

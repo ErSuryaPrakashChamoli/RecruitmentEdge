@@ -8,6 +8,7 @@ use App\Enums\JoiningStatus;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Services\HierarchyService;
 use App\Services\Metrics\MetricPeriod;
 use Carbon\CarbonImmutable;
@@ -53,7 +54,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class RecruitmentRequisition extends Model
 {
     /** @use HasFactory<RecruitmentRequisitionFactory> */
-    use GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+    use GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * @return array<int, string>
@@ -93,7 +94,7 @@ class RecruitmentRequisition extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -101,7 +102,7 @@ class RecruitmentRequisition extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -109,7 +110,7 @@ class RecruitmentRequisition extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -350,5 +351,19 @@ class RecruitmentRequisition extends Model
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

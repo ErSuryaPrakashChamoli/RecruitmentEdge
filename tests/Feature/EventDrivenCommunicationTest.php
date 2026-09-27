@@ -17,6 +17,7 @@ use App\Models\CommunicationTemplate;
 use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\InterviewAvailabilitySlot;
+use App\Models\Interviewer;
 use App\Models\Offer;
 use App\Models\User;
 use App\Services\Communication\CommunicationTemplateService;
@@ -54,7 +55,7 @@ function eventApplication(): CandidateApplication
 }
 
 test('scheduling an interview sends exactly one confirmation, even if the event is replayed', function (): void {
-    $interview = app(InterviewService::class)->schedule(eventApplication(), ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
+    $interview = app(InterviewService::class)->schedule(eventApplication(), ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
 
     InterviewScheduled::dispatch($interview);
 
@@ -79,7 +80,7 @@ test('a self-scheduled booking sends one confirmation through the same path', fu
 
 test('each reschedule to a new time sends a new notice, and a cancellation sends one', function (): void {
     $service = app(InterviewService::class);
-    $interview = $service->schedule(eventApplication(), ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
+    $interview = $service->schedule(eventApplication(), ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
 
     $service->reschedule($interview, now()->addDays(4));
     $service->reschedule($interview->fresh(), now()->addDays(5));
@@ -107,7 +108,7 @@ test('releasing an offer notifies the candidate', function (): void {
 test('without an active template nothing is sent automatically', function (): void {
     CommunicationTemplate::query()->update(['status' => TemplateStatus::Draft]);
 
-    app(InterviewService::class)->schedule(eventApplication(), ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'phone']);
+    app(InterviewService::class)->schedule(eventApplication(), ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'phone']);
 
     expect(CandidateCommunication::query()->count())->toBe(0);
 });

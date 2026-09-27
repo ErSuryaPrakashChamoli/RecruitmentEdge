@@ -35,7 +35,7 @@ use function Pest\Laravel\actingAs;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
-    CandidateSource::factory()->create(['name' => 'Employee Referral']);
+    CandidateSource::factory()->create(['name' => 'Employee Referral', 'code' => CandidateSource::CODE_EMPLOYEE_REFERRAL]);
     $this->referrals = app(ReferralService::class);
     $this->requisition = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
 });

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\TalentPools\Schemas;
 
 use App\Enums\TalentPoolVisibility;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
@@ -38,7 +39,7 @@ class TalentPoolForm
                             ->searchable()
                             ->preload(),
                         Select::make('department_id')
-                            ->relationship('department', 'name')
+                            ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                             ->searchable()
                             ->preload(),
                         TagsInput::make('tags')

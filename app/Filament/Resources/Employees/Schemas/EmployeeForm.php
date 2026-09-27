@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Employees\Schemas;
 
 use App\Enums\EmployeeStatus;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
@@ -37,17 +38,17 @@ class EmployeeForm
                     ->tel()
                     ->maxLength(20),
                 Select::make('department_id')
-                    ->relationship('department', 'name')
+                    ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                     ->required()
                     ->searchable()
                     ->preload(),
                 Select::make('designation_id')
-                    ->relationship('designation', 'name')
+                    ->relationship('designation', 'name', ActiveMasterDataOptions::scope('designation_id'))
                     ->required()
                     ->searchable()
                     ->preload(),
                 Select::make('location_id')
-                    ->relationship('location', 'name')
+                    ->relationship('location', 'name', ActiveMasterDataOptions::scope('location_id'))
                     ->searchable()
                     ->preload(),
                 // Phase 8.4: a plain option list — the page hands the choice to

@@ -89,7 +89,7 @@ class Interview extends Model
      */
     public function rejectionReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id')->withTrashed();
     }
 
     /**

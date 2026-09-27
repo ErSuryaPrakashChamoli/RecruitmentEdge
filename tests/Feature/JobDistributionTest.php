@@ -28,8 +28,8 @@ use Livewire\Livewire;
 use function Pest\Laravel\actingAs;
 
 beforeEach(function (): void {
-    CandidateSource::factory()->create(['name' => 'Website']);
-    CandidateSource::factory()->create(['name' => 'LinkedIn']);
+    CandidateSource::factory()->create(['name' => 'Website', 'code' => CandidateSource::CODE_WEBSITE]);
+    CandidateSource::factory()->create(['name' => 'LinkedIn', 'code' => 'SRC-003']);
     $this->distribution = app(JobDistributionService::class);
 });
 

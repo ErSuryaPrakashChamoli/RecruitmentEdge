@@ -38,19 +38,20 @@ use Illuminate\Support\Facades\DB;
 class CareerApplicationService
 {
     /**
-     * utm_source values mapped to existing candidate source names.
+     * utm_source values mapped to the seeded candidate source codes (Phase 8.6 D8.6-007: by code,
+     * never by name — a rename in Administration must not change attribution).
      *
      * @var array<string, string>
      */
-    public const array SOURCE_NAMES = [
-        'linkedin' => 'LinkedIn',
-        'naukri' => 'Naukri',
-        'indeed' => 'Indeed',
-        'apna' => 'Apna',
-        'workindia' => 'WorkIndia',
-        'facebook' => 'Facebook',
-        'instagram' => 'Instagram',
-        'whatsapp' => 'WhatsApp',
+    public const array SOURCE_CODES = [
+        'naukri' => 'SRC-001',
+        'indeed' => 'SRC-002',
+        'linkedin' => 'SRC-003',
+        'apna' => 'SRC-004',
+        'workindia' => 'SRC-005',
+        'whatsapp' => 'SRC-009',
+        'facebook' => 'SRC-010',
+        'instagram' => 'SRC-011',
     ];
 
     public function __construct(
@@ -157,9 +158,10 @@ class CareerApplicationService
      */
     private function createCandidate(array $data, array $attribution): Candidate
     {
-        $sourceName = self::SOURCE_NAMES[strtolower((string) ($attribution['source'] ?? ''))] ?? 'Website';
-        $source = CandidateSource::query()->where('name', $sourceName)->first()
-            ?? CandidateSource::query()->where('name', 'Website')->first()
+        // An inactive or archived mapped source falls back to Website, which can never be deactivated.
+        $code = self::SOURCE_CODES[strtolower((string) ($attribution['source'] ?? ''))] ?? CandidateSource::CODE_WEBSITE;
+        $source = CandidateSource::activeByCode($code)
+            ?? CandidateSource::activeByCode(CandidateSource::CODE_WEBSITE)
             ?? CandidateSource::query()->where('is_active', true)->orderBy('id')->firstOrFail();
 
         return Candidate::query()->create([

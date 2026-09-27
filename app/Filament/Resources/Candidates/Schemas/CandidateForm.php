@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Candidates\Schemas;
 
 use App\Filament\Resources\Candidates\Pages\CreateCandidate;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
@@ -88,7 +89,7 @@ class CandidateForm
                     ->columns(2)
                     ->schema([
                         Select::make('source_id')
-                            ->relationship('source', 'name')
+                            ->relationship('source', 'name', ActiveMasterDataOptions::scope('source_id'))
                             ->required()
                             ->searchable()
                             ->preload(),

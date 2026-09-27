@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\CandidateObserver;
 use App\Services\CandidateIdentityNormalizer;
 use App\Services\HierarchyService;
@@ -47,7 +48,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Candidate extends Model
 {
     /** @use HasFactory<CandidateFactory> */
-    use Auditable, HasFactory, SoftDeletes;
+    use Auditable, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * Derived duplicate-detection keys: kept out of serialisation and (via getHidden()) out of
@@ -56,6 +57,16 @@ class Candidate extends Model
      * @var array<int, string>
      */
     protected $hidden = ['mobile_normalized', 'alternate_mobile_normalized', 'email_normalized', 'name_normalized'];
+
+    /**
+     * The duplicate-detection keys are recomputed from audited fields, so their changes are noise.
+     *
+     * @return array<int, string>
+     */
+    public function auditDerivedAttributes(): array
+    {
+        return $this->hidden;
+    }
 
     protected static function booted(): void
     {
@@ -110,7 +121,7 @@ class Candidate extends Model
      */
     public function source(): BelongsTo
     {
-        return $this->belongsTo(CandidateSource::class, 'source_id');
+        return $this->belongsTo(CandidateSource::class, 'source_id')->withTrashed();
     }
 
     /**
@@ -216,5 +227,17 @@ class Candidate extends Model
     public function employee(): HasOne
     {
         return $this->hasOne(Employee::class);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'source_id' => CandidateSource::class,
+        ];
     }
 }

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TalentPoolStatus;
 use App\Enums\TalentPoolVisibility;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Services\HierarchyService;
 use Database\Factories\TalentPoolFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -25,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class TalentPool extends Model
 {
     /** @use HasFactory<TalentPoolFactory> */
-    use Auditable, HasFactory;
+    use Auditable, HasFactory, ReferencesActiveMasterData;
 
     protected function casts(): array
     {
@@ -80,7 +81,7 @@ class TalentPool extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -129,5 +130,17 @@ class TalentPool extends Model
     protected function active(Builder $query): void
     {
         $query->where('status', TalentPoolStatus::Active);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+        ];
     }
 }

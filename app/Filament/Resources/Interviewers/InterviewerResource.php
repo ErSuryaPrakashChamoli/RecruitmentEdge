@@ -3,20 +3,20 @@
 namespace App\Filament\Resources\Interviewers;
 
 use App\Filament\Resources\Interviewers\Pages\ManageInterviewers;
+use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\Interviewer;
 use BackedEnum;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
+use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -72,22 +72,40 @@ class InterviewerResource extends Resource
                 TextColumn::make('employee.designation.name')
                     ->label('Designation')
                     ->placeholder('—'),
-                ToggleColumn::make('is_active')
-                    ->label('Active'),
+                IconColumn::make('is_active')
+                    ->label('Active')
+                    ->boolean(),
             ])
             ->filters([
                 TernaryFilter::make('is_active')
                     ->label('Active'),
             ])
+            // Phase 8.6 (D8.6-009): deactivate (with a reason) instead of delete; no bulk actions.
             ->recordActions([
-                EditAction::make(),
-                DeleteAction::make(),
+                Action::make('deactivateInterviewer')
+                    ->label('Deactivate')
+                    ->icon('heroicon-o-pause-circle')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalDescription('They stay on their existing interviews but can no longer be given new ones.')
+                    ->schema([Textarea::make('reason')->label('Reason')->required()->maxLength(1000)])
+                    ->visible(fn (Interviewer $record): bool => $record->is_active && (bool) auth()->user()?->can('update', $record))
+                    ->action(function (Interviewer $record, array $data): void {
+                        AuditLog::withReason($data['reason'], fn () => $record->update(['is_active' => false]));
+                        Notification::make()->title('Interviewer deactivated')->success()->send();
+                    }),
+                Action::make('activateInterviewer')
+                    ->label('Activate')
+                    ->icon('heroicon-o-play-circle')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->visible(fn (Interviewer $record): bool => ! $record->is_active && (bool) auth()->user()?->can('update', $record))
+                    ->action(function (Interviewer $record): void {
+                        $record->update(['is_active' => true]);
+                        Notification::make()->title('Interviewer activated')->success()->send();
+                    }),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->toolbarActions([]);
     }
 
     public static function getPages(): array

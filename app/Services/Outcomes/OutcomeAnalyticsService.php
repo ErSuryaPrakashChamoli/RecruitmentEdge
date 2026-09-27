@@ -345,8 +345,9 @@ class OutcomeAnalyticsService
             // (no snapshot) use the candidate's current source.
             ->leftJoin('hiring_outcome_snapshots', 'hiring_outcome_snapshots.candidate_joining_id', '=', 'hiring_outcomes.candidate_joining_id')
             ->leftJoin('candidate_sources', 'candidate_sources.id', '=', DB::raw('coalesce(hiring_outcome_snapshots.source_id, candidates.source_id)'))
-            ->selectRaw('candidate_sources.name as source_name, hiring_outcomes.outcome_type as type, count(*) as total')
-            ->groupBy('candidate_sources.name', 'hiring_outcomes.outcome_type')
+            // Phase 8.6 (hiring-snapshot/3): the source name frozen with the snapshot wins over a later rename.
+            ->selectRaw('coalesce(hiring_outcome_snapshots.source_name, candidate_sources.name) as source_name, hiring_outcomes.outcome_type as type, count(*) as total')
+            ->groupBy(DB::raw('coalesce(hiring_outcome_snapshots.source_name, candidate_sources.name)'), 'hiring_outcomes.outcome_type')
             ->get();
 
         $sources = $rows->groupBy(fn ($row) => $row->source_name ?? 'Not recorded')

@@ -8,6 +8,7 @@ use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
+use App\Models\Interviewer;
 use App\Models\OwnershipHandoff;
 use App\Models\RecruiterAction;
 use App\Models\Role;
@@ -38,7 +39,7 @@ beforeEach(function (): void {
 function handoffInterview(Employee $recruiter): void
 {
     $application = CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id, 'current_stage' => CandidateStage::Shortlisted]);
-    app(InterviewService::class)->schedule($application, ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
+    app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
 }
 
 test('automation owned by someone who loses access is paused; its owner of record is kept', function (): void {

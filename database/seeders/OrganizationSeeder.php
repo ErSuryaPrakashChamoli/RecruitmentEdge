@@ -10,17 +10,18 @@ use Illuminate\Database\Seeder;
 /**
  * Baseline organizational reference data so Administration screens and demo employees have
  * something real to select from. Not exhaustive — HR can add more from Administration.
+ * Matched by code including archived rows (Phase 8.6), so an archived record is never recreated.
  */
 class OrganizationSeeder extends Seeder
 {
     public function run(): void
     {
-        Location::query()->firstOrCreate(
+        Location::withTrashed()->firstOrCreate(
             ['code' => 'HO'],
             ['name' => 'Head Office', 'city' => 'Bengaluru', 'state' => 'Karnataka', 'country' => 'India', 'is_active' => true],
         );
 
-        $department = Department::query()->firstOrCreate(
+        $department = Department::withTrashed()->firstOrCreate(
             ['code' => 'TA'],
             ['name' => 'Talent Acquisition', 'is_active' => true],
         );
@@ -34,7 +35,7 @@ class OrganizationSeeder extends Seeder
         ];
 
         foreach ($designations as $name => $code) {
-            Designation::query()->firstOrCreate(
+            Designation::withTrashed()->firstOrCreate(
                 ['code' => $code],
                 ['name' => $name, 'department_id' => $department->id, 'is_active' => true],
             );

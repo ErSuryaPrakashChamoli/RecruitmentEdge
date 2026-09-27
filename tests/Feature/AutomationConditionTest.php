@@ -8,8 +8,8 @@ use App\Enums\OfferStatus;
 use App\Enums\PreferenceStatus;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
-use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\Offer;
 use App\Models\RecruitmentRequisition;
 use App\Services\Automation\AutomationContext;
@@ -87,7 +87,7 @@ test('date operators handle relative durations, business days and fixed dates', 
 });
 
 test('interview conditions read the interview and its confirmation', function (): void {
-    $interview = Interview::factory()->create(['candidate_application_id' => $this->application->id, 'status' => InterviewStatus::Scheduled, 'scheduled_at' => now()->addHours(10), 'interviewer_id' => Employee::factory()->create()->id]);
+    $interview = Interview::factory()->create(['candidate_application_id' => $this->application->id, 'status' => InterviewStatus::Scheduled, 'scheduled_at' => now()->addHours(10), 'interviewer_id' => Interviewer::factory()->create()->employee_id]);
     $context = AutomationContext::for($interview, 'interview.upcoming');
 
     expect(conditionsPass(['rules' => [conditionLeaf('interview.scheduled_at', 'within', null, ['amount' => 24, 'unit' => 'hours'])]], $context))->toBeTrue()

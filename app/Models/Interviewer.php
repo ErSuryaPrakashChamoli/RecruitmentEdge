@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Database\Factories\InterviewerFactory;
+use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,12 +13,31 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * The administrator-maintained list of employees who may be picked as an interview's interviewer.
+ *
+ * Phase 8.6 (D8.6-009): an interviewer is deactivated, never deleted (their interviews and
+ * feedback stay attributable); every change is audited; a new interview needs an active listed
+ * interviewer (InterviewService::schedule).
  */
 #[Fillable(['employee_id', 'is_active'])]
 class Interviewer extends Model
 {
     /** @use HasFactory<InterviewerFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
+
+    protected static function booted(): void
+    {
+        static::deleting(function (): void {
+            throw new DomainException('Interviewers are deactivated, never deleted — their interviews and feedback stay attributable.');
+        });
+    }
+
+    /**
+     * Whether the employee is on the active interviewer list.
+     */
+    public static function isActiveInterviewer(int $employeeId): bool
+    {
+        return static::query()->where('employee_id', $employeeId)->where('is_active', true)->exists();
+    }
 
     protected function casts(): array
     {

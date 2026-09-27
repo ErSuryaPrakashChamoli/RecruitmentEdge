@@ -3,12 +3,8 @@
 namespace App\Filament\Resources\RecruitmentRejectionReasons\Tables;
 
 use App\Enums\RejectionCategory;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
+use App\Filament\Actions\MasterDataLifecycleActions;
 use Filament\Actions\EditAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use Filament\Actions\RestoreBulkAction;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -29,9 +25,15 @@ class RecruitmentRejectionReasonsTable
                 TextColumn::make('category')
                     ->badge()
                     ->formatStateUsing(fn (RejectionCategory $state) => $state->label()),
-                IconColumn::make('is_active')
-                    ->boolean()
-                    ->sortable(),
+                TextColumn::make('lifecycle_state')
+                    ->label('Status')
+                    ->badge()
+                    ->state(fn ($record): string => $record->lifecycleState())
+                    ->color(fn (string $state): string => match ($state) {
+                        'Active' => 'success',
+                        'Inactive' => 'warning',
+                        default => 'gray',
+                    }),
             ])
             ->filters([
                 SelectFilter::make('category')
@@ -40,13 +42,9 @@ class RecruitmentRejectionReasonsTable
             ])
             ->recordActions([
                 EditAction::make(),
+                ...MasterDataLifecycleActions::all(),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                ]),
-            ]);
+            // Phase 8.6: no bulk archive/restore/delete — each change needs its own reason and in-use check.
+            ->toolbarActions([]);
     }
 }

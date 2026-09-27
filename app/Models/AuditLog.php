@@ -22,10 +22,16 @@ use Illuminate\Support\Facades\Context;
  *
  * `old_values` holds the previous values and `changes` the new values of the same keys.
  */
-#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'changes', 'old_values', 'ip_address', 'request_id'])]
+#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'reason', 'changes', 'old_values', 'ip_address', 'request_id'])]
 class AuditLog extends Model
 {
     public const ?string UPDATED_AT = null;
+
+    /**
+     * Phase 8.6 (D8.6-003/024): the reason given for the change currently being made — set by
+     * withReason() so the rows the Auditable trait writes for that change carry it too.
+     */
+    private static ?string $pendingReason = null;
 
     protected function casts(): array
     {
@@ -39,11 +45,15 @@ class AuditLog extends Model
      * @param  array<string, mixed>|null  $oldValues
      * @param  array<string, mixed>|null  $newValues
      */
-    public static function record(Model $subject, string $action, ?array $oldValues, ?array $newValues): self
+    public static function record(Model $subject, string $action, ?array $oldValues, ?array $newValues, ?string $reason = null): self
     {
         // The default guard is whichever guard authenticated the request (the candidate portal
         // switches it to `candidate`), so only a staff User may fill user_id.
         $actor = auth()->user();
+
+        // Phase 8.6 (D8.6-024): an explicit record() is redacted like an Auditable diff — a
+        // subject's redacted attributes (e.g. offer compensation) never reach the audit trail.
+        [$oldValues, $newValues] = [self::redact($subject, $oldValues), self::redact($subject, $newValues)];
 
         return self::query()->create([
             'user_id' => $actor instanceof User ? $actor->getKey() : null,
@@ -52,12 +62,52 @@ class AuditLog extends Model
             'auditable_type' => $subject::class,
             'auditable_id' => $subject->getKey(),
             'action' => $action,
+            'reason' => filled($reason) ? $reason : self::$pendingReason,
             'changes' => $newValues,
             'old_values' => $oldValues,
             'ip_address' => request()?->ip(),
             // Phase 8.4: the request / job correlation id (AssignRequestId).
             'request_id' => Context::get('request_id'),
         ]);
+    }
+
+    /**
+     * Run a change with a reason: every audit row written inside the callback (the Auditable
+     * trait's created/updated/deleted/restored rows included) records it. Nested calls keep the
+     * innermost reason for their own duration.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult
+     */
+    public static function withReason(?string $reason, callable $callback): mixed
+    {
+        $previous = self::$pendingReason;
+        self::$pendingReason = filled($reason) ? trim((string) $reason) : $previous;
+
+        try {
+            return $callback();
+        } finally {
+            self::$pendingReason = $previous;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $values
+     * @return array<string, mixed>|null
+     */
+    private static function redact(Model $subject, ?array $values): ?array
+    {
+        if ($values === null || ! method_exists($subject, 'auditRedactedAttributes')) {
+            return $values;
+        }
+
+        $redacted = $subject->auditRedactedAttributes();
+
+        return collect($values)
+            ->map(fn (mixed $value, string|int $key) => in_array($key, $redacted, true) && $value !== null && $value !== '[redacted]' ? '[redacted]' : $value)
+            ->all();
     }
 
     /**

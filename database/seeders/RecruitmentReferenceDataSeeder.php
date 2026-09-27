@@ -25,7 +25,8 @@ use Illuminate\Database\Seeder;
 /**
  * Seeds the candidate sources (Section 33), rejection/dropout reasons (Section 14), and default
  * recruitment settings (RecruitmentSetting::DEFINITIONS) named in the product spec, as editable
- * starting points from Administration. Idempotent.
+ * starting points from Administration. Idempotent. Phase 8.6 (D8.6-007): master data is matched by
+ * code including archived rows, and an existing row is never restored or overwritten.
  */
 class RecruitmentReferenceDataSeeder extends Seeder
 {
@@ -37,7 +38,7 @@ class RecruitmentReferenceDataSeeder extends Seeder
         ];
 
         foreach ($sources as $index => $name) {
-            CandidateSource::query()->firstOrCreate(
+            CandidateSource::withTrashed()->firstOrCreate(
                 ['code' => 'SRC-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT)],
                 ['name' => $name, 'is_active' => true],
             );
@@ -61,7 +62,7 @@ class RecruitmentReferenceDataSeeder extends Seeder
         ];
 
         foreach ($reasons as $index => [$name, $category]) {
-            RecruitmentRejectionReason::query()->firstOrCreate(
+            RecruitmentRejectionReason::withTrashed()->firstOrCreate(
                 ['code' => 'RSN-'.str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT)],
                 ['name' => $name, 'category' => $category, 'is_active' => true],
             );

@@ -55,7 +55,7 @@ class ManageInterviewers extends ManageRecords
     private function performImport(string $storedPath): void
     {
         try {
-            $result = app(InterviewerImportService::class)->import(Storage::disk('local')->path($storedPath));
+            $result = app(InterviewerImportService::class)->import(Storage::disk('local')->path($storedPath), auth()->user());
         } catch (DomainException $exception) {
             Notification::make()->danger()->title('Import failed')->body($exception->getMessage())->send();
 
@@ -65,14 +65,16 @@ class ManageInterviewers extends ManageRecords
         }
 
         $skipped = collect($result['skipped']);
+        $inactive = collect($result['inactive_not_reactivated']);
 
         Notification::make()
             ->title("{$result['added']} interviewer(s) added")
             ->body(collect([
                 $result['already_listed'] > 0 ? "{$result['already_listed']} already on the list." : null,
+                $inactive->isNotEmpty() ? "{$inactive->count()} deactivated, not reactivated: ".$inactive->take(10)->implode('; ') : null,
                 $skipped->isNotEmpty() ? "{$skipped->count()} skipped: ".$skipped->take(10)->implode('; ') : null,
             ])->filter()->implode(' '))
-            ->when($skipped->isNotEmpty(), fn (Notification $notification) => $notification->warning(), fn (Notification $notification) => $notification->success())
+            ->when($skipped->isNotEmpty() || $inactive->isNotEmpty(), fn (Notification $notification) => $notification->warning(), fn (Notification $notification) => $notification->success())
             ->send();
     }
 }

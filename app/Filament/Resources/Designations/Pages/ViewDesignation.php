@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Designations\Pages;
 
+use App\Filament\Actions\MasterDataLifecycleActions;
 use App\Filament\Resources\Designations\DesignationResource;
 use Filament\Actions\EditAction;
 use Filament\Resources\Pages\ViewRecord;
@@ -14,6 +15,7 @@ class ViewDesignation extends ViewRecord
     {
         return [
             EditAction::make(),
+            ...MasterDataLifecycleActions::all(),
         ];
     }
 }

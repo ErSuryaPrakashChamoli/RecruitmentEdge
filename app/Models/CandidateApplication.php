@@ -145,7 +145,7 @@ class CandidateApplication extends Model
      */
     public function rejectionReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id')->withTrashed();
     }
 
     /**
@@ -153,7 +153,7 @@ class CandidateApplication extends Model
      */
     public function dropoutReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id')->withTrashed();
     }
 
     /**

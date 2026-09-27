@@ -10,6 +10,7 @@ use App\Models\CalendarConnection;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\User;
 use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\Integrations\Calendar\CalendarSyncService;
@@ -165,7 +166,7 @@ test('scheduling an interview queues the calendar sync after commit', function (
     Queue::fake();
     $application = CandidateApplication::factory()->create();
 
-    $interview = app(InterviewService::class)->schedule($application, ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDay(), 'mode' => 'video_call']);
+    $interview = app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDay(), 'mode' => 'video_call']);
 
     Queue::assertPushed(SyncInterviewCalendarJob::class, fn ($job) => $job->interviewId === $interview->id && $job->action === 'create' && $job->queue === 'integrations');
 });

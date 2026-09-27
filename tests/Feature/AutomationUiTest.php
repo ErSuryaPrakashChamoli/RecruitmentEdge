@@ -25,6 +25,7 @@ use App\Models\AutomationRule;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruiterAction;
 use App\Models\User;
 use App\Services\InterviewService;
@@ -282,6 +283,7 @@ test('a completed run shows its condition trace, action results and escalations'
         'conditions' => ['match' => 'all', 'rules' => [['field' => 'interview.confirmed', 'operator' => 'equals', 'value' => '0']]],
         'escalation' => ['steps' => [['after' => 0, 'unit' => 'hours', 'target' => 'reports_to']]],
     ]);
+    Interviewer::factory()->create(['employee_id' => $manager->id]);
     app(InterviewService::class)->schedule(CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id]), ['interviewer_id' => $manager->id, 'scheduled_at' => now()->addDay(), 'mode' => 'video_call']);
     $this->artisan('recruitment:automation:process');
 

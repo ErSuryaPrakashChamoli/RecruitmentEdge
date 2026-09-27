@@ -7,6 +7,7 @@ use App\Enums\InterviewStatus;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\InterviewFeedback;
 use App\Models\User;
 use App\Services\InterviewService;
@@ -18,7 +19,7 @@ beforeEach(function (): void {
 function scheduleData(array $overrides = []): array
 {
     return [
-        'interviewer_id' => Employee::factory()->create()->id,
+        'interviewer_id' => Interviewer::factory()->create()->employee_id,
         'scheduled_at' => now()->addDay(),
         'mode' => 'video_call',
         ...$overrides,
@@ -68,6 +69,7 @@ test('scheduling an interview for an inactive application is rejected', function
 
 test('scheduling notifies both the interviewer and the recruiter, once each', function (): void {
     $interviewer = Employee::factory()->create();
+    Interviewer::factory()->create(['employee_id' => $interviewer->id]);
     $interviewerUser = User::factory()->create(['employee_id' => $interviewer->id]);
     $recruiter = Employee::factory()->create();
     $recruiterUser = User::factory()->create(['employee_id' => $recruiter->id]);

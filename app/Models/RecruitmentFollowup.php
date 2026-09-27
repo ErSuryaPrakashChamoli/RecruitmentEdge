@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\FollowupStatus;
 use App\Enums\FollowupType;
+use App\Models\Concerns\Auditable;
 use Database\Factories\RecruitmentFollowupFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentFollowup extends Model
 {
     /** @use HasFactory<RecruitmentFollowupFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     protected function casts(): array
     {
@@ -63,5 +64,15 @@ class RecruitmentFollowup extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-025): free-text remarks are recorded as changed, never copied into the audit trail.
+     *
+     * @return array<int, string>
+     */
+    public function auditRedactedAttributes(): array
+    {
+        return ['remarks'];
     }
 }

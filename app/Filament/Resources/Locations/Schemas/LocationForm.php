@@ -15,19 +15,23 @@ class LocationForm
                 TextInput::make('name')
                     ->required()
                     ->maxLength(255),
+                // Phase 8.6 (D8.6-007): the code identifies the record in history — set once.
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true)
+                    ->disabledOn('edit'),
                 TextInput::make('city')
                     ->maxLength(255),
                 TextInput::make('state')
                     ->maxLength(255),
                 TextInput::make('country')
                     ->maxLength(255),
+                // Status changes after creation are the Deactivate/Activate/Archive actions (with a reason).
                 Toggle::make('is_active')
                     ->required()
-                    ->default(true),
+                    ->default(true)
+                    ->visibleOn('create'),
             ]);
     }
 }

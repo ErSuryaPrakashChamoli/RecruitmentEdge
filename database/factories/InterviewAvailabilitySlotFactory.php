@@ -4,8 +4,8 @@ namespace Database\Factories;
 
 use App\Enums\InterviewMode;
 use App\Enums\InterviewSlotStatus;
-use App\Models\Employee;
 use App\Models\InterviewAvailabilitySlot;
+use App\Models\Interviewer;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -26,7 +26,8 @@ class InterviewAvailabilitySlotFactory extends Factory
         $start = now()->addDays(2)->setTime(10, 0);
 
         return [
-            'interviewer_id' => Employee::factory(),
+            // Slots belong to listed interviewers (the slot form offers only those; Phase 8.6 D8.6-009).
+            'interviewer_id' => fn (): int => Interviewer::factory()->create()->employee_id,
             'starts_at' => $start,
             'ends_at' => $start->copy()->addMinutes(45),
             'timezone' => 'Asia/Kolkata',

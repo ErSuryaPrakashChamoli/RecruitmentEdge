@@ -16,6 +16,7 @@ use App\Models\CandidateTimelineEvent;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruiterAction;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
@@ -41,7 +42,7 @@ function engineApplication(Employee $recruiter, array $attributes = []): Candida
 
 function engineInterview(CandidateApplication $application, array $data = []): Interview
 {
-    return app(InterviewService::class)->schedule($application, ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call', ...$data]);
+    return app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call', ...$data]);
 }
 
 test('an interview scheduled event runs an active rule and records what happened, against the rule version', function (): void {

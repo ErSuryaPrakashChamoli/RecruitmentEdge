@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\EmployeeStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\EmployeeObserver;
 use Carbon\CarbonInterface;
 use Database\Factories\EmployeeFactory;
@@ -40,7 +41,7 @@ use Illuminate\Support\Facades\Storage;
 class Employee extends Model
 {
     /** @use HasFactory<EmployeeFactory> */
-    use Auditable, GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+    use Auditable, GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * Phase 8.4: employment state changes only through EmployeeLifecycleService, and the reporting
@@ -81,7 +82,7 @@ class Employee extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -89,7 +90,7 @@ class Employee extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -97,7 +98,7 @@ class Employee extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -201,5 +202,19 @@ class Employee extends Model
     public function referrals(): HasMany
     {
         return $this->hasMany(EmployeeReferral::class, 'referrer_id');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

@@ -12,6 +12,7 @@ use App\Models\AutomationRule;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\User;
 use App\Services\Automation\AutomationRuleService;
 use App\Services\Automation\AutomationTemplateCatalog;
@@ -127,7 +128,7 @@ test('an active rule cannot be edited into an invalid state, and archived rules 
 test('lifecycle changes are audited and archiving cancels pending runs', function (): void {
     $rule = AutomationRule::factory()->active()->create(['timing' => ['mode' => 'delay', 'amount' => 2, 'unit' => 'hours', 'anchor' => 'event']]);
     $application = CandidateApplication::factory()->create();
-    app(InterviewService::class)->schedule($application, ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(2), 'mode' => 'video_call']);
+    app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(2), 'mode' => 'video_call']);
 
     $this->rules->pause($rule, $this->admin);
     $this->rules->activate($rule, $this->admin);

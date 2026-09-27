@@ -88,7 +88,7 @@ class EmployeeReferral extends Model
      */
     public function source(): BelongsTo
     {
-        return $this->belongsTo(CandidateSource::class, 'source_id');
+        return $this->belongsTo(CandidateSource::class, 'source_id')->withTrashed();
     }
 
     /**
@@ -96,7 +96,7 @@ class EmployeeReferral extends Model
      */
     public function rejectionReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'rejection_reason_id')->withTrashed();
     }
 
     /**

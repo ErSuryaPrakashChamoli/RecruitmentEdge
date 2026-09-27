@@ -26,7 +26,7 @@ use function Pest\Laravel\actingAs;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
-    CandidateSource::factory()->create(['name' => 'Employee Referral']);
+    CandidateSource::factory()->create(['name' => 'Employee Referral', 'code' => CandidateSource::CODE_EMPLOYEE_REFERRAL]);
     $this->referralRule = RecruitmentIncentiveRule::factory()->fixed(5000)->create(['trigger_event' => IncentiveTriggerEvent::ReferralJoining]);
     $this->joiningRule = RecruitmentIncentiveRule::factory()->fixed(1500)->create(['trigger_event' => IncentiveTriggerEvent::Joining]);
     $this->requisition = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);

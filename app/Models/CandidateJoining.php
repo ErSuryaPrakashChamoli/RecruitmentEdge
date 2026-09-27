@@ -117,7 +117,7 @@ class CandidateJoining extends Model
      */
     public function dropoutReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id')->withTrashed();
     }
 
     /**

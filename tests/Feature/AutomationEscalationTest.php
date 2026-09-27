@@ -13,6 +13,7 @@ use App\Models\AutomationRule;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruiterAction;
 use App\Models\User;
 use App\Services\Automation\AutomationContext;
@@ -40,7 +41,7 @@ beforeEach(function (): void {
 
 function escalationInterview(CandidateApplication $application): Interview
 {
-    return app(InterviewService::class)->schedule($application, ['interviewer_id' => Employee::factory()->create()->id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
+    return app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(3), 'mode' => 'video_call']);
 }
 
 /**

@@ -73,7 +73,7 @@ class ReferralService
             throw new DomainException("{$existing->full_name} has already been referred".($requisition !== null ? " for {$requisition->code}" : '').'.');
         }
 
-        $source = CandidateSource::query()->where('name', 'Employee Referral')->first();
+        $source = CandidateSource::activeByCode(CandidateSource::CODE_EMPLOYEE_REFERRAL);
 
         $referral = DB::transaction(function () use ($referrer, $candidateData, $referralData, $requisition, $existing, $matches, $duplicateJustification, $source): EmployeeReferral {
             $candidate = $existing ?? $this->createCandidate($referrer, $candidateData, $source);

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\OfferStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\OfferFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,7 +35,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 ])]
 class Offer extends Model
 {
-    use Auditable, GuardsLifecycleAttributes;
+    use Auditable, GuardsLifecycleAttributes, ReferencesActiveMasterData;
 
     /** @use HasFactory<OfferFactory> */
     use HasFactory;
@@ -125,7 +126,7 @@ class Offer extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -133,7 +134,7 @@ class Offer extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -169,5 +170,18 @@ class Offer extends Model
     public function joining(): HasOne
     {
         return $this->hasOne(CandidateJoining::class);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

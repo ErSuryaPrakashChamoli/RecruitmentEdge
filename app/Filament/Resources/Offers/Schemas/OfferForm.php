@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Offers\Schemas;
 
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\CandidateApplication;
 use App\Models\Offer;
 use App\Services\OfferService;
@@ -45,11 +46,11 @@ class OfferForm
                     ->description(fn (?Offer $record): ?string => $record !== null && ! $record->termsAreEditable() ? 'Released terms are locked. Use "Request revision" to change them.' : null)
                     ->schema([
                         Select::make('designation_id')
-                            ->relationship('designation', 'name')
+                            ->relationship('designation', 'name', ActiveMasterDataOptions::scope('designation_id'))
                             ->searchable()
                             ->preload(),
                         Select::make('location_id')
-                            ->relationship('location', 'name')
+                            ->relationship('location', 'name', ActiveMasterDataOptions::scope('location_id'))
                             ->searchable()
                             ->preload(),
                         TextInput::make('offered_ctc')

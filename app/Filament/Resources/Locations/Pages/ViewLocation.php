@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Locations\Pages;
 
+use App\Filament\Actions\MasterDataLifecycleActions;
 use App\Filament\Resources\Locations\LocationResource;
 use Filament\Actions\EditAction;
 use Filament\Resources\Pages\ViewRecord;
@@ -14,6 +15,7 @@ class ViewLocation extends ViewRecord
     {
         return [
             EditAction::make(),
+            ...MasterDataLifecycleActions::all(),
         ];
     }
 }

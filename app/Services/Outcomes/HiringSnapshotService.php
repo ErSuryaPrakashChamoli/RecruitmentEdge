@@ -20,8 +20,9 @@ use Illuminate\Support\Facades\DB;
  *
  * Stored: references, job-relevant categories (experience band, location fit, skills matched,
  * qualification, source), stage durations, time to hire (the configured start point), interview and
- * offer summaries, the Role DNA / pipeline versions in force. Never stored: names, contact details,
- * pay, remarks or feedback text. The snapshot is immutable; one per joining.
+ * offer summaries, the Role DNA / pipeline versions in force, and (hiring-snapshot/3) the department,
+ * designation, location and source names. Never stored: people's names, contact details, pay,
+ * remarks or feedback text. The snapshot is immutable; one per joining.
  */
 class HiringSnapshotService
 {
@@ -39,7 +40,7 @@ class HiringSnapshotService
             return $existing;
         }
 
-        $joining->loadMissing(['offer.statusHistory', 'candidateApplication.candidate.source', 'candidateApplication.requisition.designation', 'candidateApplication.requisition.location', 'candidateApplication.interviews.feedback']);
+        $joining->loadMissing(['offer.statusHistory', 'candidateApplication.candidate.source', 'candidateApplication.requisition.department', 'candidateApplication.requisition.designation', 'candidateApplication.requisition.location', 'candidateApplication.interviews.feedback']);
         $application = $joining->candidateApplication;
         $candidate = $application->candidate;
         $requisition = $application->requisition;
@@ -88,6 +89,12 @@ class HiringSnapshotService
             'department_id' => $requisition?->department_id,
             'location_id' => $requisition?->location_id,
             'source_id' => $candidate->source_id,
+            // hiring-snapshot/3 (Phase 8.6): names frozen as they are now, so a later rename or archive
+            // never changes how this hire is reported.
+            'department_name' => $requisition?->department?->name,
+            'designation_name' => $requisition?->designation?->name,
+            'location_name' => $requisition?->location?->name,
+            'source_name' => $candidate->source?->name,
             // The Role DNA in force when the snapshot is taken. A backfill cannot know the version that
             // applied at the time, so it records none rather than a later one.
             'role_dna_version_id' => $mode === OutcomeCaptureMode::BackfilledDeterministic || $requisition === null ? null : RoleDnaProfile::query()->where('requisition_id', $requisition->id)->first()?->currentVersion?->id,

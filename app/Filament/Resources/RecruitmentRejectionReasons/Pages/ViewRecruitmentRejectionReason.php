@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruitmentRejectionReasons\Pages;
 
+use App\Filament\Actions\MasterDataLifecycleActions;
 use App\Filament\Resources\RecruitmentRejectionReasons\RecruitmentRejectionReasonResource;
 use Filament\Actions\EditAction;
 use Filament\Resources\Pages\ViewRecord;
@@ -14,6 +15,7 @@ class ViewRecruitmentRejectionReason extends ViewRecord
     {
         return [
             EditAction::make(),
+            ...MasterDataLifecycleActions::all(),
         ];
     }
 }
