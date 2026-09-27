@@ -127,7 +127,7 @@ test('editing through the builder round-trips and versions the rule', function (
 
     Livewire::test(EditAutomationRule::class, ['record' => $rule->id])
         ->assertFormSet(['condition_match' => 'any'])
-        ->fillForm(['name' => 'Renamed', 'cooldown_minutes' => 30])
+        ->fillForm(['name' => 'Renamed', 'cooldown_minutes' => 30, 'change_reason' => 'Clearer name, fewer repeats'])
         ->call('save')
         ->assertHasNoFormErrors();
 
@@ -143,10 +143,10 @@ test('activate and pause from the rule page', function (): void {
     automationUiUser('vp_hr');
     $rule = AutomationRule::factory()->create();
 
-    Livewire::test(ViewAutomationRule::class, ['record' => $rule->id])->callAction('activate')->assertNotified('Rule activated');
+    Livewire::test(ViewAutomationRule::class, ['record' => $rule->id])->callAction('activate', ['reason' => 'Reviewed'])->assertNotified('Rule activated');
     expect($rule->fresh()->status)->toBe(AutomationRuleStatus::Active);
 
-    Livewire::test(ViewAutomationRule::class, ['record' => $rule->id])->callAction('pause')->assertNotified('Rule paused');
+    Livewire::test(ViewAutomationRule::class, ['record' => $rule->id])->callAction('pause', ['reason' => 'Holiday period'])->assertNotified('Rule paused');
     expect($rule->fresh()->status)->toBe(AutomationRuleStatus::Paused);
 });
 

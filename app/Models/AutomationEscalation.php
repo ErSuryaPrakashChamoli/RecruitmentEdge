@@ -6,6 +6,7 @@ use App\Enums\EscalationStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use LogicException;
 
 /**
  * One scheduled escalation step of an automation execution. The recipient is resolved through
@@ -27,6 +28,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 ])]
 class AutomationEscalation extends Model
 {
+    /**
+     * Phase 8.6 (D8.6-021): the record of what automation did is never deleted one by one (the
+     * scheduled cleanup prunes only skipped runs, in bulk).
+     */
+    protected static function booted(): void
+    {
+        static::deleting(fn () => throw new LogicException('An automation escalation is part of the automation history and cannot be deleted.'));
+    }
+
     /**
      * @var array<string, mixed>
      */

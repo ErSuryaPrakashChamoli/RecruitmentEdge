@@ -223,12 +223,12 @@ test('chains of different rules stop at the maximum chain depth', function (): v
 test('a run keeps using the rule version it was created with after the rule is edited', function (): void {
     $admin = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
     $rule = AutomationRule::factory()->create(['timing' => ['mode' => 'delay', 'amount' => 2, 'unit' => 'hours', 'anchor' => 'event']]);
-    app(AutomationRuleService::class)->activate($rule, $admin);
+    app(AutomationRuleService::class)->activate($rule, $admin, 'Reviewed and approved');
 
     engineInterview(engineApplication($this->recruiter));
     $execution = AutomationExecution::query()->sole();
 
-    app(AutomationRuleService::class)->update($rule, ['actions' => [['type' => 'add_audit_event', 'note' => 'changed']]], $admin);
+    app(AutomationRuleService::class)->update($rule, ['actions' => [['type' => 'add_audit_event', 'note' => 'changed']]], $admin, 'Record differently');
     $this->travel(3)->hours();
     $this->artisan('recruitment:automation:process')->assertSuccessful();
 
@@ -260,7 +260,7 @@ test('pausing a rule cancels its runs that have not happened yet', function (): 
     $rule = AutomationRule::factory()->active()->create(['timing' => ['mode' => 'delay', 'amount' => 1, 'unit' => 'hours', 'anchor' => 'event']]);
     engineInterview(engineApplication($this->recruiter));
 
-    app(AutomationRuleService::class)->pause($rule, $admin);
+    app(AutomationRuleService::class)->pause($rule, $admin, 'Paused for review');
     $this->travel(2)->hours();
     $this->artisan('recruitment:automation:process')->assertSuccessful();
 

@@ -60,7 +60,7 @@ test('editing the configuration creates a new version; editing only the name doe
     $this->rules->update($rule, ['description' => 'Just words'], $this->admin);
     expect($rule->fresh()->version)->toBe(1);
 
-    $this->rules->update($rule, ['cooldown_minutes' => 60], $this->admin);
+    $this->rules->update($rule, ['cooldown_minutes' => 60], $this->admin, 'Throttle repeat runs');
     expect($rule->fresh()->version)->toBe(2)
         ->and($rule->versions()->orderBy('version')->pluck('snapshot')->map(fn ($s) => $s['cooldown_minutes'])->all())->toBe([null, 60]);
 });
@@ -85,9 +85,19 @@ test('only users with the organization permission can create or activate organiz
     expect(fn () => $this->rules->create(ruleData(), $this->manager))->toThrow(DomainException::class, 'automation.organization');
 
     $teamRule = $this->rules->create(ruleData(['scope_type' => AutomationScope::Team->value, 'scope_id' => $this->managerEmployee->id]), $this->manager);
-    $this->rules->activate($teamRule, $this->manager);
+    expect($teamRule->status)->toBe(AutomationRuleStatus::Draft);
 
-    expect($teamRule->fresh()->status)->toBe(AutomationRuleStatus::Active);
+    // Phase 8.6 (D8.6-020): a manager cannot activate their own change — their own manager (who also
+    // holds automation.activate for that team) reviews and activates it.
+    $junior = Employee::factory()->reportingTo($this->managerEmployee)->create();
+    $juniorUser = User::factory()->create(['employee_id' => $junior->id])->assignRole('manager');
+    $juniorRule = $this->rules->create(ruleData(['scope_type' => AutomationScope::Team->value, 'scope_id' => $junior->id]), $juniorUser);
+
+    expect(fn () => $this->rules->activate($juniorRule, $juniorUser, 'Self review'))->toThrow(DomainException::class, 'someone else');
+
+    $this->rules->activate($juniorRule, $this->manager, 'Reviewed and approved');
+
+    expect($juniorRule->fresh()->status)->toBe(AutomationRuleStatus::Active);
 });
 
 test('a manager cannot scope a rule to someone outside their team', function (): void {
@@ -101,26 +111,26 @@ test('users without the activate permission cannot activate', function (): void 
     $rule = $this->rules->create(ruleData(), $this->admin);
     $assistant = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('assistant_manager');
 
-    expect(fn () => $this->rules->activate($rule, $assistant))->toThrow(DomainException::class, 'permission to activate');
+    expect(fn () => $this->rules->activate($rule, $assistant, 'Reviewed and approved'))->toThrow(DomainException::class, 'permission to activate');
 });
 
 test('activation requires an active template and a configured provider for chosen channels', function (): void {
     $rule = $this->rules->create(ruleData(['actions' => [['type' => 'send_communication', 'template_key' => 'candidate_checkin', 'channels' => ['whatsapp']]]]), $this->admin);
 
-    expect(fn () => $this->rules->activate($rule, $this->admin))->toThrow(DomainException::class, 'no active "candidate_checkin" template');
+    expect(fn () => $this->rules->activate($rule, $this->admin, 'Reviewed and approved'))->toThrow(DomainException::class, 'no active "candidate_checkin" template');
 
     app(CommunicationTemplateService::class)->create(['key' => 'candidate_checkin', 'name' => 'Check-in', 'channel' => 'whatsapp', 'body' => 'Hi {{candidate.first_name}}', 'status' => TemplateStatus::Active, 'provider_template' => 'checkin']);
 
-    expect(fn () => $this->rules->activate($rule, $this->admin))->toThrow(DomainException::class, 'provider is not configured');
+    expect(fn () => $this->rules->activate($rule, $this->admin, 'Reviewed and approved'))->toThrow(DomainException::class, 'provider is not configured');
 });
 
 test('an active rule cannot be edited into an invalid state, and archived rules cannot be edited', function (): void {
     $rule = $this->rules->create(ruleData(), $this->admin);
-    $this->rules->activate($rule, $this->admin);
+    $this->rules->activate($rule, $this->admin, 'Reviewed and approved');
 
     expect(fn () => $this->rules->update($rule, ['actions' => []], $this->admin))->toThrow(DomainException::class, 'Add at least one action');
 
-    $this->rules->archive($rule, $this->admin);
+    $this->rules->archive($rule, $this->admin, 'No longer needed');
 
     expect(fn () => $this->rules->update($rule, ['name' => 'x'], $this->admin))->toThrow(DomainException::class, 'Archived');
 });
@@ -130,9 +140,9 @@ test('lifecycle changes are audited and archiving cancels pending runs', functio
     $application = CandidateApplication::factory()->create();
     app(InterviewService::class)->schedule($application, ['interviewer_id' => Interviewer::factory()->create()->employee_id, 'scheduled_at' => now()->addDays(2), 'mode' => 'video_call']);
 
-    $this->rules->pause($rule, $this->admin);
-    $this->rules->activate($rule, $this->admin);
-    $this->rules->archive($rule, $this->admin);
+    $this->rules->pause($rule, $this->admin, 'Paused for review');
+    $this->rules->activate($rule, $this->admin, 'Reviewed and approved');
+    $this->rules->archive($rule, $this->admin, 'No longer needed');
 
     expect(AuditLog::query()->whereIn('action', ['automation_rule_paused', 'automation_rule_activated', 'automation_rule_archived'])->count())->toBe(3)
         ->and(AutomationExecution::query()->sole()->status)->toBe(AutomationExecutionStatus::Cancelled);
@@ -181,7 +191,7 @@ test('an active template rule replaces its built-in alert so nobody is alerted t
     $this->artisan('notifications:dispatch-alerts');
     expect($recruiter->user->notifications()->where('data->title', 'like', '%not yet confirmed%')->count())->toBe(1);
 
-    $this->rules->activate($rule, $this->admin);
+    $this->rules->activate($rule, $this->admin, 'Reviewed and approved');
     $recruiter->user->notifications()->delete();
 
     $this->artisan('notifications:dispatch-alerts')->expectsOutputToContain('Skipped unconfirmed_interviews');

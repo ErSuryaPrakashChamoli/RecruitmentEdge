@@ -30,7 +30,7 @@ class EditAutomationRule extends EditRecord
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var AutomationRule $record */
-        return AutomationRuleActions::guarded('The rule could not be saved', fn () => app(AutomationRuleService::class)->update($record, AutomationRuleFormData::fromForm($data), auth()->user()));
+        return AutomationRuleActions::guarded('The rule could not be saved', fn () => app(AutomationRuleService::class)->update($record, AutomationRuleFormData::fromForm($data), auth()->user(), $data['change_reason'] ?? null));
     }
 
     protected function getHeaderActions(): array

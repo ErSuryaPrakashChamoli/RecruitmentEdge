@@ -109,6 +109,9 @@ class AutomationRule extends Model
     {
         return [
             'name' => $this->name,
+            // Phase 8.6 (D8.6-021): who is accountable and in which order it runs are part of what the rule is.
+            'priority' => $this->priority,
+            'owner_id' => $this->owner_id,
             'trigger' => $this->trigger,
             'conditions' => $this->conditions ?? ['match' => 'all', 'rules' => []],
             'actions' => $this->actions ?? [],

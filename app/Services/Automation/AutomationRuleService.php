@@ -24,6 +24,13 @@ use Illuminate\Support\Str;
  */
 class AutomationRuleService
 {
+    /**
+     * Role keys that may activate their own rule changes (D8.6-020: CHRO and VP HR).
+     *
+     * @var array<int, string>
+     */
+    public const array SEPARATION_OF_DUTIES_EXEMPT_ROLES = ['chro', 'vp_hr'];
+
     public function __construct(
         private readonly AutomationRuleValidator $validator,
         private readonly AutomationScopeResolver $scopes,
@@ -54,13 +61,15 @@ class AutomationRuleService
     /**
      * @param  array<string, mixed>  $data
      */
-    public function update(AutomationRule $rule, array $data, User $actor, ?string $changeSummary = null): AutomationRule
+    public function update(AutomationRule $rule, array $data, User $actor, ?string $reason = null): AutomationRule
     {
         if ($rule->status === AutomationRuleStatus::Archived) {
             throw new DomainException('Archived rules cannot be edited — duplicate it instead.');
         }
 
-        $before = $rule->configuration();
+        // Compared with what is stored, not the in-memory model — an earlier refused save must not
+        // make a real change look like no change (and skip its version and reason).
+        $before = (AutomationRule::query()->find($rule->getKey()) ?? $rule)->configuration();
         $rule->fill($this->normalize($data));
 
         $this->guardScope($rule, $actor);
@@ -70,21 +79,32 @@ class AutomationRuleService
             throw new DomainException('This rule is active, so the change must keep it valid: '.implode(' ', $errors));
         }
 
-        return DB::transaction(function () use ($rule, $actor, $before, $changeSummary): AutomationRule {
-            $rule->save();
+        // Phase 8.6 (D8.6-021): a change to what the rule does needs a reason; it becomes the version's summary.
+        if ($rule->configuration() !== $before) {
+            $reason = $this->requireReason($reason, 'changing');
+        }
+
+        return DB::transaction(function () use ($rule, $actor, $before, $reason): AutomationRule {
+            AuditLog::withReason($reason, fn () => $rule->save());
 
             if ($rule->configuration() !== $before) {
-                $this->snapshot($rule, $actor, $changeSummary ?? 'Edited');
+                $this->snapshot($rule, $actor, (string) $reason);
             }
 
             return $rule;
         });
     }
 
-    public function activate(AutomationRule $rule, User $actor): AutomationRule
+    public function activate(AutomationRule $rule, User $actor, ?string $reason = null): AutomationRule
     {
         if ($rule->status === AutomationRuleStatus::Archived) {
             throw new DomainException('Archived rules cannot be activated.');
+        }
+
+        // Phase 8.6 (D8.6-020): the person who last changed what the rule does cannot also switch
+        // it on — another automation.activate holder reviews it (CHRO and VP HR are exempt).
+        if (($problem = $this->separationOfDutiesProblem($rule, $actor)) !== null) {
+            throw new DomainException($problem);
         }
 
         $errors = $this->validator->activationErrors($rule, $actor);
@@ -93,14 +113,20 @@ class AutomationRuleService
             throw new DomainException('This rule cannot be activated yet: '.implode(' ', $errors));
         }
 
-        // Phase 8.4: a rule whose owner can no longer run it becomes the activator's responsibility.
-        if ($rule->owner_id !== $actor->id && $this->ownerAuthorityProblem($rule) !== null) {
-            $previousOwner = $rule->owner_id;
-            $rule->forceFill(['owner_id' => $actor->id]);
-            AuditLog::record($rule, 'automation_rule_owner_transferred', ['owner_id' => $previousOwner], ['owner_id' => $actor->id, 'by_user_id' => $actor->id]);
-        }
+        $reason = $this->requireReason($reason, 'activating');
 
-        return $this->transition($rule, AutomationRuleStatus::Active, $actor, 'automation_rule_activated', ['activated_at' => now(), 'activated_by' => $actor->id]);
+        // Phase 8.4: a rule whose owner can no longer run it becomes the activator's responsibility.
+        return DB::transaction(function () use ($rule, $actor, $reason): AutomationRule {
+            if ($rule->owner_id !== $actor->id && $this->ownerAuthorityProblem($rule) !== null) {
+                $previousOwner = $rule->owner_id;
+                $rule->forceFill(['owner_id' => $actor->id]);
+                AuditLog::record($rule, 'automation_rule_owner_transferred', ['owner_id' => $previousOwner], ['owner_id' => $actor->id, 'by_user_id' => $actor->id], $reason);
+                // The owner is part of the version (D8.6-021): the transfer is a new version.
+                $this->snapshot($rule, $actor, "Ownership transferred on activation: {$reason}");
+            }
+
+            return $this->transition($rule, AutomationRuleStatus::Active, $actor, 'automation_rule_activated', ['activated_at' => now(), 'activated_by' => $actor->id], $reason);
+        });
     }
 
     /**
@@ -139,34 +165,41 @@ class AutomationRuleService
         return $rule;
     }
 
-    public function pause(AutomationRule $rule, User $actor): AutomationRule
+    public function pause(AutomationRule $rule, User $actor, ?string $reason = null): AutomationRule
     {
         if (! $rule->isActive()) {
             throw new DomainException('Only an active rule can be paused.');
         }
 
-        return $this->transition($rule, AutomationRuleStatus::Paused, $actor, 'automation_rule_paused');
+        return $this->transition($rule, AutomationRuleStatus::Paused, $actor, 'automation_rule_paused', [], $this->requireReason($reason, 'pausing'));
     }
 
     /**
      * Archiving also cancels the rule's pending runs and escalations.
      */
-    public function archive(AutomationRule $rule, User $actor): AutomationRule
+    public function archive(AutomationRule $rule, User $actor, ?string $reason = null): AutomationRule
     {
         if ($rule->status === AutomationRuleStatus::Archived) {
             return $rule;
         }
 
-        $rule = $this->transition($rule, AutomationRuleStatus::Archived, $actor, 'automation_rule_archived');
+        $reason = $this->requireReason($reason, 'archiving');
 
-        AutomationExecution::query()
-            ->where('automation_rule_id', $rule->id)
-            ->where('status', AutomationExecutionStatus::Pending)
-            ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => 'Rule archived.', 'completed_at' => now()]);
+        return DB::transaction(function () use ($rule, $actor, $reason): AutomationRule {
+            $rule = $this->transition($rule, AutomationRuleStatus::Archived, $actor, 'automation_rule_archived', [], $reason);
 
-        $rule->escalations()->where('status', 'pending')->update(['status' => 'cancelled', 'outcome' => 'Rule archived.', 'processed_at' => now()]);
+            $runs = AutomationExecution::query()
+                ->where('automation_rule_id', $rule->id)
+                ->where('status', AutomationExecutionStatus::Pending)
+                ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => 'Rule archived.', 'completed_at' => now()]);
 
-        return $rule;
+            $escalations = $rule->escalations()->where('status', 'pending')->update(['status' => 'cancelled', 'outcome' => 'Rule archived.', 'processed_at' => now()]);
+
+            // Phase 8.6 (D8.6-021): the bulk cancellation is on record with its counts.
+            AuditLog::record($rule, 'automation_rule_pending_cancelled', null, ['pending_runs_cancelled' => $runs, 'escalations_cancelled' => $escalations], $reason);
+
+            return $rule;
+        });
     }
 
     public function duplicate(AutomationRule $rule, User $actor): AutomationRule
@@ -286,14 +319,43 @@ class AutomationRuleService
     /**
      * @param  array<string, mixed>  $extra
      */
-    private function transition(AutomationRule $rule, AutomationRuleStatus $status, User $actor, string $auditAction, array $extra = []): AutomationRule
+    private function transition(AutomationRule $rule, AutomationRuleStatus $status, User $actor, string $auditAction, array $extra = [], ?string $reason = null): AutomationRule
     {
         $previous = $rule->status;
         $rule->forceFill(['status' => $status, ...$extra])->save();
 
-        AuditLog::record($rule, $auditAction, ['status' => $previous->value], ['status' => $status->value, 'version' => $rule->version, 'by_user_id' => $actor->id]);
+        AuditLog::record($rule, $auditAction, ['status' => $previous->value], ['status' => $status->value, 'version' => $rule->version, 'by_user_id' => $actor->id], $reason);
 
         return $rule;
+    }
+
+    /**
+     * Phase 8.6 (D8.6-020): why $actor may not activate $rule themselves, or null. The author of
+     * the rule's current version (the last change to what it does) needs someone else to switch it
+     * on, unless they hold an exempt role.
+     */
+    public function separationOfDutiesProblem(AutomationRule $rule, User $actor): ?string
+    {
+        if ($actor->roles->contains(fn ($role) => in_array($role->key, self::SEPARATION_OF_DUTIES_EXEMPT_ROLES, true))) {
+            return null;
+        }
+
+        $author = $rule->versions()->orderByDesc('version')->value('created_by');
+
+        return $author !== null && (int) $author === (int) $actor->id
+            ? 'You made the latest change to this rule, so someone else with automation.activate must review and activate it.'
+            : null;
+    }
+
+    private function requireReason(?string $reason, string $doing): string
+    {
+        $reason = trim((string) $reason);
+
+        if ($reason === '') {
+            throw new DomainException("A reason is required for {$doing} an automation rule.");
+        }
+
+        return mb_substr($reason, 0, 1000);
     }
 
     private function snapshot(AutomationRule $rule, User $actor, string $summary): AutomationRuleVersion

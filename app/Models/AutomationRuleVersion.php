@@ -19,6 +19,8 @@ class AutomationRuleVersion extends Model
     protected static function booted(): void
     {
         static::updating(fn () => throw new LogicException('Automation rule versions are immutable.'));
+        // Phase 8.6 (D8.6-021): executions run from and record their version — it is never removed.
+        static::deleting(fn () => throw new LogicException('Automation rule versions are never deleted.'));
     }
 
     protected function casts(): array

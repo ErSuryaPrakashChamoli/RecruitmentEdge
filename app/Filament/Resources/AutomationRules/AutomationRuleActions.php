@@ -7,11 +7,13 @@ use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Models\AutomationRule;
 use App\Services\Automation\AutomationRuleService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 
 /**
  * Lifecycle actions shared by the rules table and the rule pages. AutomationRuleService validates
- * and audits; a rule that cannot be activated says exactly why.
+ * and audits; a rule that cannot be activated says exactly why (including the Phase 8.6
+ * separation-of-duties rule). Each needs a reason.
  */
 class AutomationRuleActions
 {
@@ -25,8 +27,9 @@ class AutomationRuleActions
             ->requiresConfirmation()
             ->modalDescription('The rule is validated first (conditions, actions, templates, providers and your permission for its scope). Try a dry run before activating an important rule.')
             ->visible(fn (AutomationRule $record) => in_array($record->status, [AutomationRuleStatus::Draft, AutomationRuleStatus::Paused], true) && (auth()->user()?->can('activate', $record) ?? false))
-            ->action(function (AutomationRule $record): void {
-                self::guarded('The rule cannot be activated', fn () => app(AutomationRuleService::class)->activate($record, auth()->user()));
+            ->schema([self::reasonField()])
+            ->action(function (AutomationRule $record, array $data): void {
+                self::guarded('The rule cannot be activated', fn () => app(AutomationRuleService::class)->activate($record, auth()->user(), $data['reason'] ?? null));
                 Notification::make()->title('Rule activated')->success()->send();
             });
     }
@@ -38,8 +41,9 @@ class AutomationRuleActions
             ->color('warning')
             ->requiresConfirmation()
             ->visible(fn (AutomationRule $record) => $record->isActive() && (auth()->user()?->can('activate', $record) ?? false))
-            ->action(function (AutomationRule $record): void {
-                self::guarded('The rule could not be paused', fn () => app(AutomationRuleService::class)->pause($record, auth()->user()));
+            ->schema([self::reasonField()])
+            ->action(function (AutomationRule $record, array $data): void {
+                self::guarded('The rule could not be paused', fn () => app(AutomationRuleService::class)->pause($record, auth()->user(), $data['reason'] ?? null));
                 Notification::make()->title('Rule paused')->success()->send();
             });
     }
@@ -52,10 +56,19 @@ class AutomationRuleActions
             ->requiresConfirmation()
             ->modalDescription('Archived rules stop running, their pending runs and escalations are cancelled, and they can no longer be edited. History is kept.')
             ->visible(fn (AutomationRule $record) => $record->status !== AutomationRuleStatus::Archived && (auth()->user()?->can('activate', $record) ?? false))
-            ->action(function (AutomationRule $record): void {
-                self::guarded('The rule could not be archived', fn () => app(AutomationRuleService::class)->archive($record, auth()->user()));
+            ->schema([self::reasonField()])
+            ->action(function (AutomationRule $record, array $data): void {
+                self::guarded('The rule could not be archived', fn () => app(AutomationRuleService::class)->archive($record, auth()->user(), $data['reason'] ?? null));
                 Notification::make()->title('Rule archived')->success()->send();
             });
+    }
+
+    /**
+     * Phase 8.6 (D8.6-021): every lifecycle change of a rule records why.
+     */
+    private static function reasonField(): Textarea
+    {
+        return Textarea::make('reason')->label('Reason')->required()->maxLength(1000);
     }
 
     public static function duplicate(): Action

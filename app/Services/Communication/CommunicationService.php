@@ -116,6 +116,8 @@ class CommunicationService
                 'direction' => 'outbound',
                 'communication_template_id' => $template?->id,
                 'template_version' => $template?->version,
+                // Phase 8.6 (D8.6-023): the exact version row the message was rendered from.
+                'communication_template_version_id' => $template?->currentVersionId(),
                 'subject' => $renderedSubject,
                 'body' => $renderedBody,
                 'recipient' => $recipient ?? '',

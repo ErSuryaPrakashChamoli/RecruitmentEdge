@@ -50,6 +50,17 @@ class AutomationRuleForm
         $events = app(AutomationEventRegistry::class);
 
         return $schema->columns(1)->components([
+            // Phase 8.6 (D8.6-021): a change to what an existing rule does is saved as a new version
+            // with this reason as its summary.
+            Section::make('Reason for this change')
+                ->visibleOn('edit')
+                ->schema([
+                    Textarea::make('change_reason')
+                        ->label('Reason')
+                        ->helperText('Required when the change affects what the rule does. Recorded on the new version and in the audit log.')
+                        ->maxLength(1000)
+                        ->dehydrated(),
+                ]),
             Section::make('Rule')
                 ->columns(2)
                 ->schema([

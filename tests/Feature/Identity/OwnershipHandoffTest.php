@@ -68,7 +68,7 @@ test('re-activating a paused rule makes the activator its accountable owner', fu
     $rule = AutomationRule::factory()->active()->create(['owner_id' => $this->manager->id, 'scope_type' => 'team', 'scope_id' => $this->managerEmployee->id]);
     app(StaffAccessService::class)->revoke($this->manager, $this->vp, 'Left');
 
-    app(AutomationRuleService::class)->activate($rule->fresh(), $this->vp);
+    app(AutomationRuleService::class)->activate($rule->fresh(), $this->vp, 'Reviewed and approved');
 
     expect($rule->fresh()->status)->toBe(AutomationRuleStatus::Active)
         ->and($rule->fresh()->owner_id)->toBe($this->vp->id)

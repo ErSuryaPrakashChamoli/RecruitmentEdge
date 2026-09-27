@@ -82,4 +82,15 @@ class CommunicationTemplate extends Model
             ->orderByRaw('case when language = ? then 0 else 1 end', [$language])
             ->first();
     }
+
+    /**
+     * The id of the version row matching the template's current version, or null.
+     */
+    public function currentVersionId(): ?int
+    {
+        return CommunicationTemplateVersion::query()
+            ->where('communication_template_id', $this->id)
+            ->where('version', $this->version)
+            ->value('id');
+    }
 }

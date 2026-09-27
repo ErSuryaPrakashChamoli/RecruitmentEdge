@@ -27,6 +27,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'direction',
     'communication_template_id',
     'template_version',
+    'communication_template_version_id',
     'subject',
     'body',
     'recipient',
