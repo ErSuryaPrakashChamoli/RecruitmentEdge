@@ -12,7 +12,11 @@ class RecruitmentSetting extends Model
 {
     use Auditable;
 
-    public const string CACHE_PREFIX = 'recruitment_setting:';
+    /**
+     * v2 (Phase 8.6): entries are ['value' => …] / ['missing' => true]; the prefix changed so a
+     * deploy never reads a pre-8.6 entry in the old shape.
+     */
+    public const string CACHE_PREFIX = 'recruitment_setting:v2:';
 
     /**
      * Allowed values for `time_to_hire_start_point` — the start points
@@ -63,17 +67,22 @@ class RecruitmentSetting extends Model
 
     /**
      * Resolve a setting value by key, cast to its configured type.
+     *
+     * Phase 8.6: only the stored setting is cached (or the fact that it is missing) — never the
+     * caller's fallback, so two callers with different defaults each get their own.
      */
     public static function get(string $key, mixed $default = null): mixed
     {
-        return Cache::rememberForever(
+        $cached = Cache::rememberForever(
             self::CACHE_PREFIX.$key,
-            function () use ($key, $default) {
+            function () use ($key): array {
                 $setting = self::query()->where('key', $key)->first();
 
-                return $setting === null ? $default : $setting->castValue();
+                return $setting === null ? ['missing' => true] : ['value' => $setting->castValue()];
             },
         );
+
+        return is_array($cached) && array_key_exists('value', $cached) ? $cached['value'] : $default;
     }
 
     /**
@@ -96,12 +105,17 @@ class RecruitmentSetting extends Model
 
     protected function castValue(): mixed
     {
-        return match ($this->type) {
-            'int', 'integer' => (int) $this->value,
-            'float', 'decimal' => (float) $this->value,
-            'bool', 'boolean' => filter_var($this->value, FILTER_VALIDATE_BOOLEAN),
-            'json' => json_decode((string) $this->value, true),
-            default => $this->value,
+        return self::cast($this->value, (string) $this->type);
+    }
+
+    public static function cast(?string $value, string $type): mixed
+    {
+        return match ($type) {
+            'int', 'integer' => (int) $value,
+            'float', 'decimal' => (float) $value,
+            'bool', 'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            'json' => json_decode((string) $value, true),
+            default => $value,
         };
     }
 }

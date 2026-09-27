@@ -27,6 +27,7 @@ test('the configuration page loads defaults and saves typed values, invalidating
         ->assertSet('data.interviewer_daily_capacity', 4)
         ->set('data.candidate_stall_days', 10)
         ->set('data.time_to_hire_start_point', 'requisition_opened')
+        ->set('data.change_reason', 'Quarterly review')
         ->call('save')
         ->assertHasNoFormErrors();
 

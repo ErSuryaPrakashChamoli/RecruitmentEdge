@@ -21,18 +21,22 @@ class RecruitmentSettingPolicy
         return $user->can('settings.manage');
     }
 
+    /**
+     * Phase 8.6 (D8.6-013): never through the raw resource — the typed Configure page (and
+     * RecruitmentSettingService) is the only editor, with a reason and history.
+     */
     public function create(User $user): bool
     {
-        return $user->can('settings.manage');
+        return false;
     }
 
     public function update(User $user, RecruitmentSetting $recruitmentSetting): bool
     {
-        return $user->can('settings.manage');
+        return false;
     }
 
     public function delete(User $user, RecruitmentSetting $recruitmentSetting): bool
     {
-        return $user->can('settings.manage');
+        return false;
     }
 }

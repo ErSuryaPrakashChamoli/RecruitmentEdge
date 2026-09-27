@@ -72,14 +72,17 @@ class RecruitmentSlaService
 
     /**
      * Time to hire against its target: the governed median (hiring.time_to_hire) compared with
-     * `sla_days_time_to_hire_target`. A 0-day median is a real value, not "no data".
+     * `sla_days_time_to_hire_target` as it was at the end of the period. A 0-day median is a real
+     * value, not "no data".
      *
      * @return array{median_days: float|null, target_days: int, status: string, sample_size: int}
      */
     public function timeToHireSummary(CarbonInterface $start, CarbonInterface $end, ?User $user = null): array
     {
         $result = $this->metrics->get('hiring.time_to_hire', MetricQuery::make(MetricPeriod::between($start, $end), $user));
-        $target = (int) RecruitmentSetting::get('sla_days_time_to_hire_target', 30);
+        // Phase 8.6 (D8.6-012): the target in force at the end of the period (or now, for a
+        // period still running) — a later target change never re-grades a past period.
+        $target = (int) app(RecruitmentSettingService::class)->valueAt('sla_days_time_to_hire_target', $end->lessThan(now()) ? $end : now(), 30);
 
         return [
             'median_days' => $result->isAvailable() ? $result->value : null,

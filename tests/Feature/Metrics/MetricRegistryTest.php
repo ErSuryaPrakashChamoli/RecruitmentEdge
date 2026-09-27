@@ -49,7 +49,7 @@ function registeredMetricFingerprints(): array
         'recruiter.outcomes@v1' => '812006d0771d',
         'requisition.ageing@v1' => '5ee988559ff8',
         'requisition.hiring_health@v1' => 'f0109aafdbd3',
-        'sla.leg_compliance@v1' => '227225df0a81',
+        'sla.leg_compliance@v2' => '719425940c00',
         'source.source_to_join@v1' => 'c18f4cfb8eaa',
         'team.outcomes@v1' => 'a440243f9f4f',
     ];

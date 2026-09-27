@@ -9,13 +9,13 @@ use App\Enums\MetricMaterialization;
 use App\Enums\MetricScopeModel;
 use App\Enums\MetricUnit;
 use App\Models\CandidateStageHistory;
-use App\Models\RecruitmentSetting;
 use App\Services\Metrics\Concerns\QueriesHires;
 use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricPeriod;
 use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
+use App\Services\RecruitmentSettingService;
 use App\Services\RecruitmentSlaService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -24,6 +24,10 @@ use Illuminate\Support\Facades\DB;
 /**
  * sla.leg_compliance (SLA decision): the share of completed pipeline legs that finished within
  * their SLA target — higher is better — from genuine stage entries only.
+ *
+ * v2 (Phase 8.6, D8.6-012): each leg is judged against the target that was in force when it
+ * completed (RecruitmentSettingService::valueAt), so changing a target never rewrites past
+ * compliance. v1 read the current target for every period.
  */
 class SlaLegCompliance extends MetricDefinition
 {
@@ -33,7 +37,7 @@ class SlaLegCompliance extends MetricDefinition
     {
         return new MetricSpec(
             key: 'sla.leg_compliance',
-            version: 1,
+            version: 2,
             effectiveFrom: '2026-09-27',
             name: 'SLA Compliance',
             description: 'Share of pipeline legs completed in the period within their SLA target (higher is better), with the average and median duration of each leg.',
@@ -55,23 +59,29 @@ class SlaLegCompliance extends MetricDefinition
             unobservedRule: 'Legs still in progress are not in the population (see the open-breach alerts).',
             invalidRule: 'Not possible: stage entries are forward-only.',
             unit: MetricUnit::Percent,
-            source: 'candidate_stage_histories, candidate_applications, candidate_joinings, recruitment_settings (targets)',
+            source: 'candidate_stage_histories, candidate_applications, candidate_joinings, recruitment_setting_changes (targets as of each leg\'s end)',
             materialization: MetricMaterialization::Cached,
-            reproducibility: 'Reproducible from the stage history; targets are read from the current settings.',
+            reproducibility: 'Reproducible from the stage history and the setting history: each leg uses the target in force at its end instant. Before the first recorded change of a target, the value it replaced is used; changes made before Phase 8.6 are not reconstructed.',
             supersedes: 'RecruitmentSlaService::stageTat sla_percent (average ÷ target, higher = worse)',
         );
     }
 
     protected function evaluate(MetricQuery $query): MetricResult
     {
-        $legs = collect(RecruitmentSlaService::LEGS)->map(function (array $leg) use ($query) {
-            $target = (int) RecruitmentSetting::get($leg['setting_key'], $leg['default_days']);
-            [$durations, $skipped] = $this->legDurations($leg['from'], $leg['to'], $query);
-            $within = $durations->filter(fn (float $days) => $days <= $target)->count();
+        $settings = app(RecruitmentSettingService::class);
+        $periodEnd = CarbonImmutable::createFromTimestamp(min($query->requirePeriod()->lastInstant()->getTimestamp(), now()->getTimestamp()));
+
+        $legs = collect(RecruitmentSlaService::LEGS)->map(function (array $leg) use ($query, $settings, $periodEnd) {
+            $targetAt = fn (int $end): int => (int) $settings->valueAt($leg['setting_key'], CarbonImmutable::createFromTimestamp($end), $leg['default_days']);
+            [$legs, $skipped] = $this->legDurations($leg['from'], $leg['to'], $query);
+            $durations = $legs->pluck('days');
+            $applied = $legs->map(fn (array $completed) => $targetAt($completed['end']));
+            $within = $legs->filter(fn (array $completed, int $index) => $completed['days'] <= $applied[$index])->count();
 
             return [
                 'label' => $leg['label'],
-                'target_days' => $target,
+                'target_days' => $targetAt($periodEnd->getTimestamp()),
+                'targets_applied' => $applied->unique()->sort()->values()->all(),
                 'measured' => $durations->count(),
                 'within_target' => $within,
                 'breaches' => $durations->count() - $within,
@@ -88,9 +98,10 @@ class SlaLegCompliance extends MetricDefinition
     }
 
     /**
-     * Durations (days) of the legs completed in the period, from plain rows and integer timestamps.
+     * The legs completed in the period — duration in days and end instant (timestamp) — from plain
+     * rows and integer timestamps, plus how many were skipped for a missing start.
      *
-     * @return array{0: Collection<int, float>, 1: int}
+     * @return array{0: Collection<int, array{days: float, end: int}>, 1: int}
      */
     private function legDurations(CandidateStage $from, CandidateStage $to, MetricQuery $query): array
     {
@@ -137,8 +148,8 @@ class SlaLegCompliance extends MetricDefinition
             }
         }
 
-        $durations = $ends->map(fn (int $end, int $id) => isset($starts[$id]) ? max(0, $end - $starts[$id]) / 86400 : null);
+        $legs = $ends->map(fn (int $end, int $id) => isset($starts[$id]) ? ['days' => max(0, $end - $starts[$id]) / 86400, 'end' => $end] : null);
 
-        return [$durations->filter(fn (?float $d) => $d !== null)->values(), $durations->filter(fn (?float $d) => $d === null)->count()];
+        return [$legs->filter()->values(), $legs->filter(fn (?array $leg) => $leg === null)->count()];
     }
 }
