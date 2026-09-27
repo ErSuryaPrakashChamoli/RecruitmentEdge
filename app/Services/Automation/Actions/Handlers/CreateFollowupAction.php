@@ -57,13 +57,21 @@ class CreateFollowupAction implements AutomationAction
             return ActionOutcome::skipped('No application with a recruiter to follow up.');
         }
 
+        // Phase 8.7 (DQ-87-11): the run reference makes a re-run of the same action (after a worker
+        // died mid-run) find the follow-up it already created instead of adding a second one.
+        $marker = "[Automation: {$execution->rule?->name}, run {$execution->id}.{$position}]";
+
+        if ($existing = RecruitmentFollowup::query()->where('candidate_application_id', $application->id)->where('remarks', 'like', '%'.$marker)->first()) {
+            return ActionOutcome::completed("Follow-up already scheduled for {$existing->followup_date->toDayDateTimeString()}", $existing);
+        }
+
         $followup = RecruitmentFollowup::query()->create([
             'candidate_application_id' => $application->id,
             'recruiter_id' => $application->recruiter_id,
             'followup_type' => FollowupType::from((string) $config['followup_type']),
             'followup_date' => now()->addHours((int) $config['due_in_hours']),
             'status' => FollowupStatus::Pending,
-            'remarks' => trim(($config['remarks'] ?? '').' [Automation: '.$execution->rule?->name.']'),
+            'remarks' => trim(($config['remarks'] ?? '').' '.$marker),
         ]);
 
         return ActionOutcome::completed("Follow-up scheduled for {$followup->followup_date->toDayDateTimeString()}", $followup);

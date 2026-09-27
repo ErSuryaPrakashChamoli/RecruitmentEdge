@@ -6,6 +6,7 @@ use App\Enums\TimelineEventType;
 use App\Enums\TimelineSource;
 use App\Enums\TimelineVisibility;
 use App\Models\AutomationExecution;
+use App\Models\CandidateTimelineEvent;
 use App\Services\Automation\Actions\ActionOutcome;
 use App\Services\Automation\Actions\Contracts\AutomationAction;
 use App\Services\Automation\AutomationContext;
@@ -46,6 +47,17 @@ class AddTimelineEventAction implements AutomationAction
             return ActionOutcome::skipped('No candidate timeline for this record.');
         }
 
+        // Phase 8.7 (DQ-87-11): a re-run of the same action finds the note it already added.
+        $existing = CandidateTimelineEvent::query()
+            ->where('candidate_id', $candidate->id)
+            ->where('metadata->automation_execution_id', $execution->id)
+            ->where('metadata->automation_position', $position)
+            ->first();
+
+        if ($existing !== null) {
+            return ActionOutcome::completed('Timeline note already added', $existing);
+        }
+
         $event = $this->timeline->record(
             $candidate,
             TimelineEventType::SystemEvent,
@@ -54,7 +66,7 @@ class AddTimelineEventAction implements AutomationAction
             TimelineSource::System,
             TimelineVisibility::Internal,
             related: ['application' => $context->application(), 'subject' => $context->subject],
-            metadata: ['automation_rule_id' => $execution->automation_rule_id, 'automation_execution_id' => $execution->id],
+            metadata: ['automation_rule_id' => $execution->automation_rule_id, 'automation_execution_id' => $execution->id, 'automation_position' => $position],
         );
 
         return ActionOutcome::completed('Timeline note added', $event);

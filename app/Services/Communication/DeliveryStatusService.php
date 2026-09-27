@@ -12,7 +12,10 @@ use App\Models\CandidateCommunication;
 use App\Models\CommunicationWebhookEvent;
 use App\Services\CandidateIdentityNormalizer;
 use App\Services\Communication\Data\WebhookStatusUpdate;
+use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -66,14 +69,54 @@ class DeliveryStatusService
             ->first();
 
         if ($communication === null) {
-            return 'unknown message';
+            // Phase 8.7 (DQ-87-08): a fast provider can report delivery before the worker has saved
+            // the message id. The status is held for an hour and applied when the id is recorded
+            // (applyHeld) instead of being lost. Status, time and error only.
+            $held = Cache::get($this->heldKey($provider, $update->providerMessageId), []);
+            $held[] = ['status' => $update->status->value, 'occurred_at' => $update->occurredAt->toIso8601String(), 'error' => $update->error];
+            Cache::put($this->heldKey($provider, $update->providerMessageId), $held, now()->addHour());
+
+            return 'unknown message (held for an hour)';
         }
 
-        if ($update->status->rank() <= $communication->status->rank()) {
+        return $this->applyTo($communication, $provider, $update->status, $update->occurredAt, $update->error);
+    }
+
+    /**
+     * Phase 8.7 (DQ-87-08): applies statuses reported before the message id was saved. Called by
+     * SendCommunicationJob right after it records the provider's message id.
+     */
+    public function applyHeld(CandidateCommunication $communication): void
+    {
+        if ($communication->provider === null || $communication->provider_message_id === null) {
+            return;
+        }
+
+        $held = Cache::pull($this->heldKey($communication->provider, $communication->provider_message_id), []);
+
+        foreach ($held as $update) {
+            DB::transaction(function () use ($communication, $update): void {
+                $locked = CandidateCommunication::query()->lockForUpdate()->find($communication->id);
+
+                if ($locked !== null && ($status = CommunicationStatus::tryFrom((string) $update['status'])) !== null) {
+                    $this->applyTo($locked, (string) $communication->provider, $status, Carbon::parse($update['occurred_at']), $update['error'] ?? null);
+                }
+            });
+        }
+    }
+
+    private function heldKey(string $provider, string $providerMessageId): string
+    {
+        return 'communications:held-status:'.$provider.':'.sha1($providerMessageId);
+    }
+
+    private function applyTo(CandidateCommunication $communication, string $provider, CommunicationStatus $status, CarbonInterface $occurredAt, ?string $error): ?string
+    {
+        if ($status->rank() <= $communication->status->rank()) {
             return 'stale status';
         }
 
-        $timestamp = match ($update->status) {
+        $timestamp = match ($status) {
             CommunicationStatus::Sent => 'sent_at',
             CommunicationStatus::Delivered => 'delivered_at',
             CommunicationStatus::Read => 'read_at',
@@ -82,13 +125,13 @@ class DeliveryStatusService
         };
 
         $communication->forceFill(array_filter([
-            'status' => $update->status,
-            $timestamp => $update->occurredAt,
-            'error' => $update->error,
+            'status' => $status,
+            $timestamp => $occurredAt,
+            'error' => $error,
         ], fn ($value) => $value !== null))->save();
 
-        if (in_array($update->status, [CommunicationStatus::Failed, CommunicationStatus::Bounced], true)) {
-            AuditLog::record($communication, 'communication_failed', null, ['provider' => $provider, 'status' => $update->status->value, 'error' => $update->error, 'source' => 'webhook']);
+        if (in_array($status, [CommunicationStatus::Failed, CommunicationStatus::Bounced], true)) {
+            AuditLog::record($communication, 'communication_failed', null, ['provider' => $provider, 'status' => $status->value, 'error' => $error, 'source' => 'webhook']);
             CommunicationFailed::dispatch($communication);
         }
 

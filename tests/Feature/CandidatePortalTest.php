@@ -141,7 +141,7 @@ describe('password links', function (): void {
         $this->post(route('portal.password.email'), ['email' => 'nobody@example.com'])->assertSessionHas('status');
         $this->post(route('portal.password.email'), ['email' => $account->email])->assertSessionHas('status');
 
-        Mail::assertSent(CandidatePortalLink::class, 1);
+        Mail::assertQueued(CandidatePortalLink::class, 1);
     });
 });
 
@@ -355,7 +355,7 @@ describe('recruiter controls', function (): void {
 
         expect($candidate->portalAccount->email)->toBe('priya@example.com')
             ->and($candidate->portalAccount->password)->toBeNull();
-        Mail::assertSent(CandidatePortalLink::class, fn (CandidatePortalLink $mail) => $mail->hasTo('priya@example.com'));
+        Mail::assertQueued(CandidatePortalLink::class, fn (CandidatePortalLink $mail) => $mail->hasTo('priya@example.com'));
     });
 
     test('a recruiter invites an application to self-schedule', function (): void {

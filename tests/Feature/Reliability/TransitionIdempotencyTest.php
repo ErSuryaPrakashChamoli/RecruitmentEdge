@@ -1,22 +1,32 @@
 <?php
 
+use App\Enums\ApplicationStatus;
+use App\Enums\AutomationActionStatus;
 use App\Enums\CandidateStage;
+use App\Enums\FollowupType;
 use App\Enums\InterviewStatus;
 use App\Enums\OfferStatus;
 use App\Enums\RequisitionStatus;
 use App\Jobs\PublishJobDistributionJob;
 use App\Jobs\SyncInterviewCalendarJob;
+use App\Models\AutomationExecution;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\CandidateTimelineEvent;
 use App\Models\Employee;
 use App\Models\HiringMemoryRecord;
 use App\Models\Interview;
 use App\Models\Interviewer;
 use App\Models\Offer;
 use App\Models\OfferStatusHistory;
+use App\Models\RecruitmentFollowup;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
+use App\Services\Automation\Actions\Handlers\AddTimelineEventAction;
+use App\Services\Automation\Actions\Handlers\CreateFollowupAction;
+use App\Services\Automation\Actions\Handlers\HoldApplicationAction;
+use App\Services\Automation\AutomationContext;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Distribution\JobDistributionService;
 use App\Services\Integrations\Calendar\CalendarSyncService;
@@ -129,4 +139,24 @@ test('a Hiring Memory capture interrupted part-way leaves nothing, so the retry 
 
     expect($record)->not->toBeNull()
         ->and($record->evidence()->count())->toBeGreaterThan(0);
+});
+
+test('re-running an automation action after a crash neither duplicates its follow-up or note nor fails a hold that happened', function (): void {
+    $application = CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id, 'status' => ApplicationStatus::Active]);
+    $execution = AutomationExecution::factory()->create();
+    $context = AutomationContext::for($application, 'candidate.stage_changed');
+    $run = fn (string $handler, array $config, int $position) => app($handler)->execute($config, AutomationContext::for($application->fresh(), 'candidate.stage_changed'), $execution, $position);
+
+    foreach ([1, 2] as $attempt) {
+        $followup = $run(CreateFollowupAction::class, ['followup_type' => FollowupType::cases()[0]->value, 'due_in_hours' => 4, 'remarks' => 'Call back'], 0);
+        $note = $run(AddTimelineEventAction::class, ['title' => 'Checked by automation'], 1);
+        $hold = $run(HoldApplicationAction::class, ['remarks' => 'Waiting for budget'], 2);
+    }
+
+    expect(RecruitmentFollowup::query()->where('candidate_application_id', $application->id)->count())->toBe(1)
+        ->and(CandidateTimelineEvent::query()->where('title', 'Checked by automation')->count())->toBe(1)
+        ->and($hold->status)->toBe(AutomationActionStatus::Completed)
+        ->and($followup->status)->toBe(AutomationActionStatus::Completed)
+        ->and($note->status)->toBe(AutomationActionStatus::Completed)
+        ->and($context->application()->fresh()->status)->toBe(ApplicationStatus::OnHold);
 });

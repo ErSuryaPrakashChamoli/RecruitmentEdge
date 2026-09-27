@@ -23,9 +23,12 @@ use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\User;
+use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\Communication\CommunicationService;
 use App\Services\Communication\CommunicationTemplateService;
+use App\Services\Communication\Data\WebhookStatusUpdate;
+use App\Services\Communication\DeliveryStatusService;
 use App\Services\Communication\MessageContext;
 use App\Services\Communication\ProviderCircuitBreaker;
 use Database\Seeders\RolePermissionSeeder;
@@ -262,4 +265,32 @@ test('an AI action interrupted while running is marked failed with an honest not
         ->and($stuck->result->error)->toContain('may have partly completed')
         ->and($running->fresh()->status)->toBe(AiToolCallStatus::Approved)
         ->and(AuditLog::query()->where('action', 'ai_action_interrupted')->where('auditable_id', $stuck->id)->exists())->toBeTrue();
+});
+
+test('the candidate portal timeline shows a message only once it has actually gone out', function (): void {
+    $context = deliveryContext();
+    $sent = $this->communications->send(CommunicationChannel::Email, $context, deliveryTemplate('interview_scheduled'), trigger: CommunicationTrigger::Event, idempotencyKey: 'portal-1');
+    $suppressed = $this->communications->send(CommunicationChannel::Email, $context, deliveryTemplate('application_received', body: 'We received your application.'), trigger: CommunicationTrigger::Event, idempotencyKey: 'portal-2');
+    $waiting = $this->communications->send(CommunicationChannel::Email, $context, deliveryTemplate('document_request', body: 'Please upload your documents.'), trigger: CommunicationTrigger::Event, idempotencyKey: 'portal-3');
+
+    deliverNow($sent);
+    CommunicationTemplate::query()->where('key', 'application_received')->update(['status' => TemplateStatus::Archived->value]);
+    deliverNow($suppressed);
+
+    $titles = app(CandidateTimelineService::class)->forPortal($context->candidate)->pluck('title')->implode(' | ');
+
+    expect($titles)->toContain($sent->fresh()->subject)
+        ->and(substr_count($titles, 'Email:'))->toBe(1)
+        ->and($waiting->fresh()->status)->toBe(CommunicationStatus::Queued);
+});
+
+test('a delivery report that arrives before the message id is saved is held and applied, not lost', function (): void {
+    Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SM-EARLY-1'], 201)]);
+    $message = $this->communications->send(CommunicationChannel::Sms, deliveryContext(), deliveryTemplate('interview_scheduled', CommunicationChannel::Sms, 'Interview {{interview.date}}'), trigger: CommunicationTrigger::Event, idempotencyKey: 'early-1');
+
+    $outcome = app(DeliveryStatusService::class)->apply('twilio', new WebhookStatusUpdate('evt-early-1', 'SM-EARLY-1', CommunicationStatus::Delivered, now()), 'hash-early-1', CommunicationChannel::Sms);
+
+    expect($outcome)->toBe('ignored')
+        ->and(deliverNow($message)->status)->toBe(CommunicationStatus::Delivered)
+        ->and($message->fresh()->delivered_at)->not->toBeNull();
 });

@@ -2,6 +2,7 @@
 
 namespace App\Services\Automation\Actions\Handlers;
 
+use App\Enums\ApplicationStatus;
 use App\Models\AutomationExecution;
 use App\Services\Automation\Actions\ActionOutcome;
 use App\Services\Automation\Actions\Contracts\AutomationAction;
@@ -43,6 +44,12 @@ class HoldApplicationAction implements AutomationAction
 
         if ($application === null) {
             return ActionOutcome::skipped('No application to put on hold.');
+        }
+
+        // Phase 8.7 (DQ-87-11): a re-run after the hold already happened reports it as done,
+        // not as a failure.
+        if ($application->status === ApplicationStatus::OnHold) {
+            return ActionOutcome::completed('Application already on hold', $application);
         }
 
         try {

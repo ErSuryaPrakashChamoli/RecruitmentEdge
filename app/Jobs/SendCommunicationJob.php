@@ -11,6 +11,7 @@ use App\Models\CandidateCommunication;
 use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Communication\Data\OutboundMessage;
+use App\Services\Communication\DeliveryStatusService;
 use App\Services\Communication\ProviderCircuitBreaker;
 use App\Services\Communication\SendTimeGuard;
 use Illuminate\Bus\Queueable;
@@ -121,6 +122,7 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
             ])->save();
 
             AuditLog::record($communication, 'communication_sent', null, ['provider' => $provider->key(), 'provider_message_id' => $result->providerMessageId, 'external_delivery' => $provider->deliversExternally()]);
+            app(DeliveryStatusService::class)->applyHeld($communication);
 
             return;
         }

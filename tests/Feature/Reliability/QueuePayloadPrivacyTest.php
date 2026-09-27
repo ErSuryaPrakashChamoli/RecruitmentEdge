@@ -4,8 +4,10 @@ use App\Enums\CandidateStage;
 use App\Enums\OfferStatus;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
+use App\Models\CandidatePortalAccount;
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\CandidatePortalService;
 use App\Services\NotificationDispatchService;
 use App\Services\OfferService;
 use Database\Seeders\RolePermissionSeeder;
@@ -98,4 +100,16 @@ test('every queued listener, notification and mailable of the application encryp
     }
 
     expect($missing)->toBe([]);
+});
+
+test('the candidate portal password link is queued encrypted, so neither its token nor response time gives an account away', function (): void {
+    $account = CandidatePortalAccount::factory()->create(['email' => 'portal.person@example.test']);
+
+    app(CandidatePortalService::class)->sendPasswordLink('portal.person@example.test');
+    app(CandidatePortalService::class)->sendPasswordLink('nobody@example.test');
+
+    expect(DB::table('jobs')->where('queue', 'notifications')->count())->toBe(1)
+        ->and(str_contains(queuedPayloads(), 'portal.person@example.test'))->toBeFalse()
+        ->and(str_contains(queuedPayloads(), 'signature='))->toBeFalse()
+        ->and($account->fresh()->email)->toBe('portal.person@example.test');
 });

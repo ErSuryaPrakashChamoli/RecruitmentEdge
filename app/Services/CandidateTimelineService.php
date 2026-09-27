@@ -2,17 +2,20 @@
 
 namespace App\Services;
 
+use App\Enums\CommunicationStatus;
 use App\Enums\TimelineEventType;
 use App\Enums\TimelineSource;
 use App\Enums\TimelineVisibility;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
+use App\Models\CandidateCommunication;
 use App\Models\CandidateJoining;
 use App\Models\CandidateStageHistory;
 use App\Models\CandidateTimelineEvent;
 use App\Models\Interview;
 use App\Models\Offer;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -134,6 +137,17 @@ class CandidateTimelineService
         $events = CandidateTimelineEvent::query()
             ->where('candidate_id', $candidate->id)
             ->where('visibility', TimelineVisibility::Candidate)
+            // Phase 8.7 (DQ-87-05): a message's event is recorded when it is queued; the candidate
+            // sees it only once the message actually went out — never one that was later
+            // suppressed, failed or is still waiting. (Events are append-only, so this is decided
+            // when reading.)
+            ->where(fn (Builder $query) => $query
+                ->whereNull('subject_type')
+                ->orWhere('subject_type', '!=', (new CandidateCommunication)->getMorphClass())
+                ->orWhereIn('subject_id', CandidateCommunication::query()
+                    ->where('candidate_id', $candidate->id)
+                    ->whereIn('status', [CommunicationStatus::Sent, CommunicationStatus::Delivered, CommunicationStatus::Read])
+                    ->select('id')))
             ->with('candidateApplication:id,application_code')
             ->latest('occurred_at')
             ->limit($limit)
