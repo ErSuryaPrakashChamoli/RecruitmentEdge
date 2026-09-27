@@ -314,13 +314,15 @@ class HiringMemoryService
     }
 
     /**
-     * Days spent in each stage (from the immutable stage history).
+     * Days spent in each stage (from the immutable stage history). Phase 8.5 (DF-9,
+     * hiring-snapshot/2): only genuine stage entries mark a stage boundary, so a hold or
+     * reactivation no longer splits a stage. A stage visited more than once keeps its last visit.
      *
      * @return array<string, float>
      */
     public function stageDurations(CandidateApplication $application): array
     {
-        $history = $application->stageHistory()->orderBy('created_at')->get(['new_stage', 'created_at']);
+        $history = $application->stageHistory()->milestoneEntries()->orderBy('created_at')->get(['new_stage', 'created_at']);
 
         return $history->values()->mapWithKeys(function (CandidateStageHistory $row, int $index) use ($history) {
             $next = $history->get($index + 1);
@@ -339,7 +341,7 @@ class HiringMemoryService
     {
         $durations = [];
 
-        CandidateStageHistory::query()
+        CandidateStageHistory::query()->milestoneEntries()
             ->whereIn('candidate_application_id', $applicationIds)
             ->orderBy('candidate_application_id')
             ->orderBy('created_at')

@@ -8,6 +8,7 @@ use App\Enums\InterviewStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\RequisitionStatus;
+use App\Enums\StageHistoryEvent;
 use App\Events\ApplicationMovedToRequisition;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
@@ -85,6 +86,7 @@ class ApplicationAssignmentService
             $application->stageHistory()->create([
                 'previous_stage' => $application->current_stage,
                 'new_stage' => $application->current_stage,
+                'event' => StageHistoryEvent::MovedRequisition,
                 'previous_pipeline_stage_id' => $previousPipelineStageId,
                 'new_pipeline_stage_id' => $pipelineStage?->id,
                 'changed_by' => $actor->employee_id,

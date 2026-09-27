@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
+use App\Enums\StageHistoryEvent;
 use App\Enums\StageRequirement;
 use App\Events\CandidateStageChanged;
 use App\Models\AuditLog;
@@ -325,6 +326,7 @@ class StageTransitionService
             $application->stageHistory()->create([
                 'previous_stage' => $previousStage,
                 'new_stage' => $stage,
+                'event' => StageHistoryEvent::StageEntered,
                 'previous_pipeline_stage_id' => $previousPipelineStageId,
                 'new_pipeline_stage_id' => $newPipelineStageId,
                 'changed_by' => $actor?->id,
@@ -369,6 +371,7 @@ class StageTransitionService
             $application->stageHistory()->create([
                 'previous_stage' => $application->current_stage,
                 'new_stage' => $application->current_stage,
+                'event' => StageHistoryEvent::forStatus($status),
                 'previous_pipeline_stage_id' => $application->pipeline_stage_id,
                 'new_pipeline_stage_id' => $application->pipeline_stage_id,
                 'changed_by' => $actor?->id,
