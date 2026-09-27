@@ -72,7 +72,7 @@ class SlaLegCompliance extends MetricDefinition
         $periodEnd = CarbonImmutable::createFromTimestamp(min($query->requirePeriod()->lastInstant()->getTimestamp(), now()->getTimestamp()));
 
         $legs = collect(RecruitmentSlaService::LEGS)->map(function (array $leg) use ($query, $settings, $periodEnd) {
-            $targetAt = fn (int $end): int => (int) $settings->valueAt($leg['setting_key'], CarbonImmutable::createFromTimestamp($end), $leg['default_days']);
+            $targetAt = fn (int $end): int => (int) $settings->valueAtTimestamp($leg['setting_key'], $end, $leg['default_days']);
             [$legs, $skipped] = $this->legDurations($leg['from'], $leg['to'], $query);
             $durations = $legs->pluck('days');
             $applied = $legs->map(fn (array $completed) => $targetAt($completed['end']));

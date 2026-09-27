@@ -9,7 +9,6 @@ use App\Models\User;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +27,9 @@ use Illuminate\Support\Facades\DB;
 class RecruitmentSettingService
 {
     /**
-     * @var array<string, Collection<int, RecruitmentSettingChange>>
+     * Per-key history timelines, loaded once per service instance.
+     *
+     * @var array<string, array{times: array<int, int>, values: array<int, mixed>, before: mixed, current: mixed}>
      */
     private array $history = [];
 
@@ -89,20 +90,56 @@ class RecruitmentSettingService
      */
     public function valueAt(string $key, CarbonInterface $at, mixed $default = null): mixed
     {
-        $changes = $this->history[$key] ??= RecruitmentSettingChange::query()
+        return $this->valueAtTimestamp($key, $at->getTimestamp(), $default);
+    }
+
+    /**
+     * valueAt() for a Unix timestamp — the form hot loops use (a metric resolving thousands of
+     * completed legs). The key's history is loaded once per service instance and searched with a
+     * binary search.
+     */
+    public function valueAtTimestamp(string $key, int $timestamp, mixed $default = null): mixed
+    {
+        $timeline = $this->history[$key] ??= $this->timeline($key, $default);
+
+        if ($timeline['times'] === []) {
+            return $timeline['current'];
+        }
+
+        [$low, $high, $found] = [0, count($timeline['times']) - 1, -1];
+
+        while ($low <= $high) {
+            $middle = intdiv($low + $high, 2);
+
+            if ($timeline['times'][$middle] <= $timestamp) {
+                [$found, $low] = [$middle, $middle + 1];
+            } else {
+                $high = $middle - 1;
+            }
+        }
+
+        return $found >= 0 ? $timeline['values'][$found] : $timeline['before'];
+    }
+
+    /**
+     * @return array{times: array<int, int>, values: array<int, mixed>, before: mixed, current: mixed}
+     */
+    private function timeline(string $key, mixed $default): array
+    {
+        $type = RecruitmentSetting::DEFINITIONS[$key]['type'] ?? 'string';
+        $cast = fn (?string $raw): mixed => $raw === null ? $default : RecruitmentSetting::cast($raw, $type);
+        $changes = RecruitmentSettingChange::query()
             ->where('key', $key)
             ->orderBy('effective_from')
             ->orderBy('id')
-            ->get(['id', 'key', 'old_value', 'new_value', 'effective_from']);
+            ->get(['id', 'old_value', 'new_value', 'effective_from']);
 
-        if ($changes->isEmpty()) {
-            return RecruitmentSetting::get($key, $default);
-        }
-
-        $inForce = $changes->last(fn (RecruitmentSettingChange $change) => $change->effective_from->lte($at));
-        $raw = $inForce !== null ? $inForce->new_value : $changes->first()->old_value;
-
-        return $raw === null ? $default : RecruitmentSetting::cast($raw, RecruitmentSetting::DEFINITIONS[$key]['type'] ?? 'string');
+        return [
+            'times' => $changes->map(fn (RecruitmentSettingChange $change) => $change->effective_from->getTimestamp())->all(),
+            'values' => $changes->map(fn (RecruitmentSettingChange $change) => $cast($change->new_value))->all(),
+            'before' => $changes->isNotEmpty() ? $cast($changes->first()->old_value) : null,
+            'current' => $changes->isEmpty() ? RecruitmentSetting::get($key, $default) : null,
+        ];
     }
 
     /**
