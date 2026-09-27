@@ -3,6 +3,7 @@
 use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
 use App\Enums\JoiningStatus;
+use App\Enums\OutcomeResult;
 use App\Enums\OutcomeState;
 use App\Events\UserProvisioned;
 use App\Mail\StaffAccessInvitation;
@@ -181,7 +182,7 @@ test('cancelling an effective separation restores employment but never silently 
         ->and(AuditLog::query()->where('action', 'separation_cancelled')->sole()->getAttribute('changes'))->toMatchArray(['was_effective' => true, 'access_review_required' => true]);
 });
 
-test('outcomes recorded from a cancelled separation are voided, keeping the original version', function (): void {
+test('outcomes recorded from a cancelled separation are voided, keeping the original version, then observed again', function (): void {
     $employee = Employee::factory()->reportingTo($this->managerEmployee)->create();
     $snapshot = HiringOutcomeSnapshot::factory()->create(['employee_id' => $employee->id, 'joined_on' => now()->subDays(40)->toDateString(), 'captured_at' => now()->subDays(40)]);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(20)->toDateString(), 'separation_reason' => 'resignation']);
@@ -189,10 +190,15 @@ test('outcomes recorded from a cancelled separation are voided, keeping the orig
 
     app(EmployeeLifecycleService::class)->cancelSeparation($separation, $this->vp, 'Recorded in error');
 
+    // Phase 8.5 (DF-11): the void is kept in history and the checkpoint is observed again as a new
+    // version — it no longer sits in "awaiting evaluation" forever.
+    $void = HiringOutcome::query()->where('dedupe_key', $recorded->dedupe_key)->where('supersedes_id', $recorded->id)->sole();
     $current = HiringOutcome::query()->where('dedupe_key', $recorded->dedupe_key)->current()->sole();
 
-    expect($current->state)->toBe(OutcomeState::Void)
-        ->and($current->supersedes_id)->toBe($recorded->id)
+    expect($void->state)->toBe(OutcomeState::Void)
+        ->and($void->is_current)->toBeFalse()
+        ->and($current->supersedes_id)->toBe($void->id)
+        ->and($current->result)->toBe(OutcomeResult::Active)
         ->and($recorded->fresh()->is_current)->toBeFalse()
         ->and($snapshot->fresh())->not->toBeNull();
 });

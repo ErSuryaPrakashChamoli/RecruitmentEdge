@@ -8,6 +8,7 @@ use App\Enums\OutcomeResult;
 use App\Enums\OutcomeState;
 use App\Enums\OutcomeType;
 use App\Models\AuditLog;
+use App\Models\EmployeeSeparation;
 use App\Models\HiringOutcome;
 use App\Models\User;
 use DomainException;
@@ -20,7 +21,9 @@ use Illuminate\Support\Facades\DB;
  * - record() is idempotent: the same dedupe key with the same result is a no-op, so evaluating or
  *   backfilling twice changes nothing. A different automatic result supersedes the current version
  *   (kept, is_current = false) — never an in-place overwrite.
- * - A human correction is never overridden by a later automatic recalculation.
+ * - A human correction is never overridden by a later automatic recalculation — with one narrow
+ *   exception (Phase 8.5, DF-11): an outcome voided because the separation it cited was cancelled
+ *   is observed again. The void stays in history; the new observation is a new, audited version.
  * - correct(), void() and confirm() need an authorized person (and a reason where it changes the
  *   result) and are audited with previous and new values — ids and labels only, no personal data.
  */
@@ -37,7 +40,9 @@ class OutcomeService
             $current = HiringOutcome::query()->where('dedupe_key', $dedupeKey)->current()->lockForUpdate()->first();
             $attributes = $this->attributes($type, $dedupeKey, $data, $mode);
 
-            if ($current !== null && ($current->capture_mode === OutcomeCaptureMode::ManualCorrection || $this->sameOutcome($current, $attributes))) {
+            $reobserving = $current !== null && $this->isReobservable($current);
+
+            if ($current !== null && ! $reobserving && ($current->capture_mode === OutcomeCaptureMode::ManualCorrection || $this->sameOutcome($current, $attributes))) {
                 return $current;
             }
 
@@ -47,10 +52,24 @@ class OutcomeService
 
             $current->update(['is_current' => false]);
             $next = HiringOutcome::query()->create([...$attributes, 'version' => $current->version + 1, 'supersedes_id' => $current->id]);
-            AuditLog::record($next, 'outcome_superseded', ['version' => $current->version, 'result' => $current->result->value], ['version' => $next->version, 'result' => $next->result->value, 'rule_version' => $next->rule_version]);
+            AuditLog::record($next, $reobserving ? 'outcome_reobserved' : 'outcome_superseded', ['version' => $current->version, 'state' => $current->state->value, 'result' => $current->result->value], ['version' => $next->version, 'result' => $next->result->value, 'rule_version' => $next->rule_version]);
 
             return $next;
         });
+    }
+
+    /**
+     * Phase 8.5 (DF-11): whether a current outcome is a void caused by a cancelled separation — the
+     * only human correction a later observation may supersede. Manual voids and corrections for any
+     * other reason are never overridden.
+     */
+    public function isReobservable(HiringOutcome $outcome): bool
+    {
+        if ($outcome->state !== OutcomeState::Void || $outcome->source_type !== (new EmployeeSeparation)->getMorphClass() || $outcome->source_id === null) {
+            return false;
+        }
+
+        return EmployeeSeparation::query()->whereKey($outcome->source_id)->whereNotNull('cancelled_at')->exists();
     }
 
     public function correct(HiringOutcome $outcome, OutcomeResult $result, ?float $value, string $reason, User $actor): HiringOutcome

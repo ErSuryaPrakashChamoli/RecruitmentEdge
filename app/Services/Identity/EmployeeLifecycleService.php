@@ -14,6 +14,7 @@ use App\Models\HiringOutcome;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Outcomes\OutcomeEvaluator;
 use App\Services\Outcomes\OutcomeService;
 use Closure;
 use DomainException;
@@ -227,11 +228,12 @@ class EmployeeLifecycleService
      * Cancels a separation (withdrawn resignation, recorded in error). Needs
      * employees.separation.cancel in scope and a reason; the record is kept, marked cancelled.
      *
-     * - Not yet effective: nothing else changes — the person never lost anything.
+     * - Not yet effective: employment and access are unchanged — the person never lost anything.
      * - Already effective: employment is Active again, but access is NOT restored automatically
      *   (it stays Revoked; an administrator restores it deliberately, which grants the base role
-     *   only); paused automation stays paused; outcomes recorded from this separation are voided
-     *   through OutcomeService (history kept) and re-evaluated.
+     *   only); paused automation stays paused.
+     * - Either way (Phase 8.5, DF-11): outcomes recorded from this separation are voided through
+     *   OutcomeService (history kept), and the employee's checkpoints are then observed again.
      * - A separation followed by a rehire can no longer be cancelled.
      */
     public function cancelSeparation(EmployeeSeparation $separation, User $actor, string $reason): EmployeeSeparation
@@ -271,8 +273,12 @@ class EmployeeLifecycleService
 
             if ($wasEffective) {
                 $this->setStatus($employee, EmployeeStatus::Active, 'Separation cancelled: '.$reason, $actor);
-                $this->voidOutcomesFrom($locked, $actor, $reason);
             }
+
+            // Phase 8.5 (DF-11): a status observation may cite a separation before it takes effect,
+            // so its outcomes are voided whether or not it was effective, then re-observed.
+            $this->voidOutcomesFrom($locked, $actor, $reason);
+            app(OutcomeEvaluator::class)->evaluateEmployee($employee->id);
 
             $user = $this->userOf($employee);
 

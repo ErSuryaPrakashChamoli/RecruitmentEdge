@@ -5,9 +5,11 @@ namespace App\Services\Outcomes;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\OutcomeCategory;
+use App\Enums\OutcomeState;
 use App\Enums\OutcomeType;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
+use App\Models\EmployeeSeparation;
 use App\Models\HiringOutcomeSnapshot;
 use App\Models\Offer;
 use Carbon\CarbonInterface;
@@ -88,12 +90,19 @@ class OutcomeEvaluator
      */
     public function dueStatusObservations(OutcomeType $type): Builder
     {
+        // Phase 8.5 (DF-11): a checkpoint voided because its separation was cancelled is due again.
         return HiringOutcomeSnapshot::query()
             ->where('joined_on', '<=', now()->subDays($type->windowDays())->toDateString())
             ->whereNotExists(fn (QueryBuilder $q) => $q->from('hiring_outcomes')
                 ->whereColumn('hiring_outcomes.hiring_outcome_snapshot_id', 'hiring_outcome_snapshots.id')
                 ->where('hiring_outcomes.outcome_type', $type->value)
-                ->where('hiring_outcomes.is_current', true));
+                ->where('hiring_outcomes.is_current', true)
+                ->whereNot(fn (QueryBuilder $void) => $void
+                    ->where('hiring_outcomes.state', OutcomeState::Void->value)
+                    ->where('hiring_outcomes.source_type', (new EmployeeSeparation)->getMorphClass())
+                    ->whereExists(fn (QueryBuilder $cancelled) => $cancelled->from('employee_separations')
+                        ->whereColumn('employee_separations.id', 'hiring_outcomes.source_id')
+                        ->whereNotNull('employee_separations.cancelled_at'))));
     }
 
     /**

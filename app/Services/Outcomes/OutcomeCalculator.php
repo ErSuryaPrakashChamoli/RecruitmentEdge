@@ -192,7 +192,9 @@ class OutcomeCalculator
             ]);
         }
 
-        if ($existing = HiringOutcome::query()->where('dedupe_key', $key)->current()->first()) {
+        // Phase 8.5 (DF-11): a checkpoint whose outcome was voided because its separation was
+        // cancelled is observed again (a new version); any other existing observation stands.
+        if (($existing = HiringOutcome::query()->where('dedupe_key', $key)->current()->first()) && ! $this->outcomes->isReobservable($existing)) {
             return $existing;
         }
 
