@@ -30,6 +30,7 @@ class OffersRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('offer_code'),
                 TextColumn::make('offered_ctc')
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('compensation.view'))
                     ->money('INR'),
                 TextColumn::make('offer_date')
                     ->date(),

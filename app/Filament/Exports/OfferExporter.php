@@ -18,12 +18,19 @@ class OfferExporter extends Exporter
             ExportColumn::make('offer_code'),
             ExportColumn::make('candidateApplication.candidate.full_name')->label('Candidate'),
             ExportColumn::make('designation.name')->label('Designation'),
-            ExportColumn::make('offered_ctc'),
+            // Phase 8.5 (D22, SEC-2): compensation only for a requester allowed to see it.
+            ExportColumn::make('offered_ctc')
+                ->formatStateUsing(fn ($state, $exporter) => $exporter instanceof self && $exporter->requesterSeesCompensation() ? $state : 'Restricted'),
             ExportColumn::make('offer_date'),
             ExportColumn::make('offer_expiry'),
             ExportColumn::make('status')->formatStateUsing(fn ($state) => $state?->label()),
             ExportColumn::make('expected_joining_date'),
         ];
+    }
+
+    public function requesterSeesCompensation(): bool
+    {
+        return (bool) $this->export->user?->can('compensation.view');
     }
 
     public static function getCompletedNotificationBody(Export $export): string

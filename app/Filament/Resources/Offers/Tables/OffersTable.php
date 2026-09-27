@@ -63,6 +63,7 @@ class OffersTable
                     ]))
                     ->searchable(),
                 TextColumn::make('offered_ctc')
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('compensation.view'))
                     ->money('INR')
                     ->sortable(),
                 TextColumn::make('offer_date')

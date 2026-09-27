@@ -93,6 +93,7 @@ class RolePermissionSeeder extends Seeder
         'users.access.manage',
         'access.review',
         'employees.separation.cancel',
+        'compensation.view',
     ];
 
     /**
@@ -116,6 +117,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_8_2_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_3_ROLE_PERMISSIONS['vp_hr'],
             ...self::PHASE_8_4_ROLE_PERMISSIONS['vp_hr'],
+            ...self::PHASE_8_5_ROLE_PERMISSIONS['vp_hr'],
         ],
         'manager' => [
             'requisitions.viewAny', 'requisitions.create', 'requisitions.update',
@@ -128,6 +130,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_6_ROLE_PERMISSIONS['manager'],
             ...self::PHASE_7_ROLE_PERMISSIONS['manager'],
             ...self::PHASE_8_2_ROLE_PERMISSIONS['manager'],
+            ...self::PHASE_8_5_ROLE_PERMISSIONS['manager'],
         ],
         'assistant_manager' => [
             'requisitions.viewAny',
@@ -140,6 +143,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_6_ROLE_PERMISSIONS['assistant_manager'],
             ...self::PHASE_7_ROLE_PERMISSIONS['assistant_manager'],
             ...self::PHASE_8_2_ROLE_PERMISSIONS['assistant_manager'],
+            ...self::PHASE_8_5_ROLE_PERMISSIONS['assistant_manager'],
         ],
         'recruiter' => [
             'requisitions.viewAny',
@@ -151,6 +155,7 @@ class RolePermissionSeeder extends Seeder
             ...self::PHASE_5_ROLE_PERMISSIONS['recruiter'],
             ...self::PHASE_6_ROLE_PERMISSIONS['recruiter'],
             ...self::PHASE_7_ROLE_PERMISSIONS['recruiter'],
+            ...self::PHASE_8_5_ROLE_PERMISSIONS['recruiter'],
         ],
         'employee' => self::PHASE_4_ROLE_PERMISSIONS['employee'],
     ];
@@ -295,6 +300,19 @@ class RolePermissionSeeder extends Seeder
      */
     public const array PHASE_8_4_ROLE_PERMISSIONS = [
         'vp_hr' => ['users.access.manage', 'access.review', 'employees.separation.cancel'],
+    ];
+
+    /**
+     * Phase 8.5 (D22): compensation.view keeps offered CTC visible to exactly the roles that see it
+     * today (every staff role that manages offers and views performance).
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const array PHASE_8_5_ROLE_PERMISSIONS = [
+        'vp_hr' => ['compensation.view'],
+        'manager' => ['compensation.view'],
+        'assistant_manager' => ['compensation.view'],
+        'recruiter' => ['compensation.view'],
     ];
 
     public function run(): void

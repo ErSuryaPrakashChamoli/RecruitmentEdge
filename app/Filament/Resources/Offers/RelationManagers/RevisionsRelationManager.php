@@ -40,7 +40,7 @@ class RevisionsRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('revision')->prefix('#'),
                 TextColumn::make('status')->badge()->formatStateUsing(fn (OfferRevisionStatus $state) => $state->label())->color(fn (OfferRevisionStatus $state) => $state->color()),
-                TextColumn::make('offered_ctc')->label('Offered CTC')->numeric(),
+                TextColumn::make('offered_ctc')->label('Offered CTC')->numeric()->visible(fn (): bool => (bool) auth()->user()?->can('compensation.view')),
                 TextColumn::make('fixed_salary')->numeric()->toggleable(),
                 TextColumn::make('expected_joining_date')->date()->toggleable(),
                 TextColumn::make('reason')->wrap(),
