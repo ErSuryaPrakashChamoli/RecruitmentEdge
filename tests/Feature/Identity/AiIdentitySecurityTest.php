@@ -16,6 +16,7 @@ use App\Services\Identity\HierarchyIntegrityService;
 use App\Services\Identity\RoleAssignmentService;
 use App\Services\Identity\StaffAccessService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
@@ -90,7 +91,11 @@ test('a tampered tool-call id never reaches another user\'s pending action throu
     $call = aiProposal($this->manager, $this->application);
     actingAs($this->otherManager);
 
+    // The page itself never finds the call — it does not even reach ActionExecutor (which would
+    // refuse as well, logging the denial).
+    Log::spy();
     Livewire::test(AiCopilot::class)->call('approveToolCall', $call->id);
+    Log::shouldNotHaveReceived('warning', fn (string $message) => $message === 'identity.ai_authorization_denied');
 
     expect($call->fresh()->status)->toBe(AiToolCallStatus::Pending)
         ->and($this->application->fresh()->status)->toBe(ApplicationStatus::Active);
@@ -142,13 +147,32 @@ test('a demoted requester\'s pending actions are invalidated', function (): void
         ->and($call->fresh()->invalidation_reason)->toBe('requester_roles_changed');
 });
 
-test('an action proposed before the requester\'s hierarchy scope changed is invalidated at approval', function (): void {
+test('an action proposed before the requester moved in the hierarchy is invalidated at approval', function (): void {
     $call = aiProposal($this->manager, $this->application);
-    app(HierarchyIntegrityService::class)->reassign($this->recruiter, $this->vpEmployee->id, $this->chro);
+    app(HierarchyIntegrityService::class)->reassign($this->managerEmployee, $this->chroEmployee->id, $this->chro);
 
     expect(fn () => app(ActionExecutor::class)->approve($call, $this->manager))->toThrow(DomainException::class, 'access has changed')
         ->and($call->fresh()->status)->toBe(AiToolCallStatus::Invalidated)
         ->and($this->application->fresh()->status)->toBe(ApplicationStatus::Active);
+});
+
+test('a target that left the requester\'s scope is refused by the tool at execution', function (): void {
+    $call = aiProposal($this->manager, $this->application);
+    app(HierarchyIntegrityService::class)->reassign($this->recruiter, $this->vpEmployee->id, $this->chro);
+
+    $result = app(ActionExecutor::class)->approve($call, $this->manager);
+
+    expect($result->data['entity_ids'])->toBe([])
+        ->and($this->application->fresh()->status)->toBe(ApplicationStatus::Active);
+});
+
+test('growth of the requester\'s team does not invalidate their pending action', function (): void {
+    $call = aiProposal($this->manager, $this->application);
+    Employee::factory()->reportingTo($this->managerEmployee)->create();
+
+    app(ActionExecutor::class)->approve($call, $this->manager);
+
+    expect($call->fresh()->status)->toBe(AiToolCallStatus::Executed);
 });
 
 test('an approved action still runs exactly once', function (): void {

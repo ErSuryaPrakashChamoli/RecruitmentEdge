@@ -193,3 +193,11 @@ test('a tampered permission list on a protected role is refused by the service',
 
     expect($chroRole->fresh()->permissions()->count())->toBe($before);
 });
+
+test('holding every CHRO permission still does not let you grant the protected CHRO role', function (): void {
+    $superAdmin = User::factory()->create(['employee_id' => Employee::factory()->reportingTo($this->rootEmployee)->create()->id])
+        ->assignRole(Role::create(['name' => 'all_but_chro'])->givePermissionTo(Role::byKeyOrFail('chro')->permissions));
+
+    expect(fn () => $this->roles->syncUserRoles($this->teamMember, [guardrailRoleId('chro')], $superAdmin))->toThrow(DomainException::class, 'Only a holder')
+        ->and($this->teamMember->fresh()->hasRole('chro'))->toBeFalse();
+});
