@@ -38,7 +38,7 @@ class StaffAccessService
     private static int $generation = 0;
 
     /**
-     * @var WeakMap<User, array{0: int, 1: bool}>
+     * @var WeakMap<User, array{0: string, 1: bool}>
      */
     private WeakMap $memo;
 
@@ -68,14 +68,17 @@ class StaffAccessService
             return false;
         }
 
+        // A decision holds until an identity change in this process or until the date changes (a
+        // separation takes effect at midnight without any write).
+        $stamp = self::$generation.'@'.now()->toDateString();
         $cached = $this->memo[$user] ?? null;
 
-        if ($cached !== null && $cached[0] === self::$generation) {
+        if ($cached !== null && $cached[0] === $stamp) {
             return $cached[1];
         }
 
         $permitted = ! $this->employmentBlocks($user);
-        $this->memo[$user] = [self::$generation, $permitted];
+        $this->memo[$user] = [$stamp, $permitted];
 
         return $permitted;
     }

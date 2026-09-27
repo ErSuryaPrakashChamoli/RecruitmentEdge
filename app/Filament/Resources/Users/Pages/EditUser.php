@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Users\Pages;
 
+use App\Filament\Resources\Users\Actions\UserAccessActions;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
 use App\Services\Identity\CredentialService;
@@ -24,7 +25,7 @@ class EditUser extends EditRecord
      */
     protected function getHeaderActions(): array
     {
-        return [];
+        return UserAccessActions::all();
     }
 
     /**

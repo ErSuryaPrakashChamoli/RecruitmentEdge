@@ -38,7 +38,7 @@ class MfaService
      */
     public function isRequiredFor(User $user): bool
     {
-        $roleKeys = $user->roles()->pluck('key')->filter()->all();
+        $roleKeys = $user->roles->pluck('key')->filter()->all();
 
         if (array_intersect($roleKeys, (array) config('identity.mfa.required_roles', [])) !== []) {
             return true;

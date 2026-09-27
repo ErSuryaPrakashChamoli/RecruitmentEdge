@@ -42,6 +42,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(AutomationEventRegistry::class);
         $this->app->singleton(AutomationFieldRegistry::class);
         $this->app->singleton(AutomationActionRegistry::class);
+        // Phase 8.4: one access gate per process, so its per-user decisions are memoised for the
+        // request (every identity change invalidates them — StaffAccessService::invalidateDecisions).
+        $this->app->singleton(StaffAccessService::class);
 
         $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
             $registry = new IntegrationRegistry;
