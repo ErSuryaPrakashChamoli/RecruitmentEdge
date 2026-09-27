@@ -5,6 +5,7 @@ paths:
   - app/Services/RecruitmentSlaService.php
   - app/Services/OfferService.php
   - app/Services/StageTransitionService.php
+  - app/Services/RecruitmentActivityService.php
 ---
 
 # App Services
@@ -25,3 +26,6 @@ OfferService::offerBlocker()/eligibleApplications() is the only offer-eligibilit
 
 ## User-initiated stage moves use advance(); closures cascade
 UI/Copilot/automation canonical moves must call StageTransitionService::advance() (routes through the configured pipeline's rules); transitionTo() is only for domain services recording facts (interview scheduled, offer released, joining). reject()/dropout() run ApplicationClosureCascade in the same transaction: open interviews cancelled (InterviewCancelled with a cause — no candidate message), open offers withdrawn, pending joining Cancelled (rejection) or Dropout. Cascade services must never move the application again (no recursion). Changing requisition/candidate/recruiter goes through ApplicationAssignmentService.
+
+## Recruiter activity is created only through RecruitmentActivityService
+Phase 8.5 (SEC-4): activities feed call targets, scores and incentive slabs. RecruitmentActivityService::log/update/delete is the only writer (arch test): actor needs activities.log; recruiter must be self or in the actor's hierarchy; activity_datetime not in the future and at most activity_backdate_days (setting, default 7) back in the business timezone; created_by is always the actor's employee; edits/deletes are refused once the recruiter has an Approved/Payable/Paid incentive calculation covering that day (correct via incentive adjustment); every write is audited (activity_logged/corrected/deleted). Filament create/edit/delete/bulk-delete call the service.

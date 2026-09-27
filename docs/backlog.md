@@ -1,7 +1,7 @@
 # Backlog
 
 Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
-updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop) and Phase 8.3 (Lifecycle Integrity). None of these block production. Items are not scheduled
+updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop), Phase 8.3 (Lifecycle Integrity), Phase 8.4 (Access & Identity) and Phase 8.5 (Metric Governance). None of these block production. Items are not scheduled
 into a phase yet unless stated.
 
 Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
@@ -272,13 +272,67 @@ See `docs/phase-8-4-access-identity-lifecycle.md`.
 
 ### P84-BACKLOG-010 — Metric catalogue
 
-- **Status:** Planned (Phase 8.5)
-- Only the three confirmed defects were fixed in 8.4 (D12). The metric catalogue (distinct keys per implementation, labels from the catalogue, canonical definitions) remains.
+- **Status:** Closed (Phase 8.5)
+- The metric registry (`app/Services/Metrics`) holds one governed, versioned definition per metric; every consumer reads it through `MetricService`. See `docs/phase-8-5-metric-governance.md`.
 
 ### P84-BACKLOG-011 — Role DNA suggestions with an unreachable provider
 
-- **Status:** To verify
-- In the Phase 7 smoke with a configured but unreachable provider, `GenerateRoleDnaSuggestionsJob` fails on the connection error and the page does not show the request as failed. Phase 8.4 did not touch this code; not yet verified against the 8.3 baseline. With no provider (its original configuration) the smoke passes 20/20.
+- **Status:** Expected behavior (closed in Phase 8.5, D38)
+- Verified on both the 8.3 and the 8.4 code (identical): the job is retried once after 60 seconds (`tries = 2`, `backoff = [60]`) and the request is marked failed after the second attempt. The smoke simply looked within the back-off window. With no provider the request is marked unavailable at once and the smoke passes 20/20.
+
+## Metric Governance (Phase 8.5)
+
+See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/workstream in brackets.
+
+### P85-BACKLOG-001 — No-show and dropout dated by the joining's last change
+
+- **Status:** Open (low) [8.6 data governance]
+- The joining record has no status timestamp; like the Outcome Loop, no-show and dropout are dated by `updated_at`, so a later edit of the record moves the outcome's date. Fix: a `status_changed_at` set by `CandidateJoiningService`.
+
+### P85-BACKLOG-002 — Attribution is current, not date-effective
+
+- **Status:** Open (medium) [future]
+- Metrics follow the current owner and the current reporting line (D7, D8). Reassignment moves history. A date-effective hierarchy needs a hierarchy history table.
+
+### P85-BACKLOG-003 — Metric cache invalidation by expiry only
+
+- **Status:** Open (low) [8.9]
+- A cached period metric can lag an edit by up to `metrics.cache_ttl` (600 s). Event-driven invalidation (or materialised facts) belongs with 8.9 materialisation.
+
+### P85-BACKLOG-004 — Incentive pricing treats "no target" as 0% achievement
+
+- **Status:** Open (medium) [8.6 incentive governance]
+- Deliberately unchanged in 8.5 (D49): pay rules change only under incentive governance with versioned rules and effective dates.
+
+### P85-BACKLOG-005 — Joining risk colours for Joined / No-show / Dropout
+
+- **Status:** Open (low) [8.6]
+- DF-8 was narrowed to Cancelled (`closed`). Joined stays green and No-show / Dropout red because automation conditions (`joining.risk`) and the joinings table rely on those values; changing them needs a migration of configured automation rules.
+
+### P85-BACKLOG-006 — SLA breach sweep returns every breaching application
+
+- **Status:** Open (medium) [8.9]
+- Set-based since 8.5 (24 queries instead of 78,100 at 100k), but it still loads every breaching application (≈ 10 s / 585 MB for a view-all sweep at 100k). Stream or chunk the alert dispatch.
+
+### P85-BACKLOG-007 — Stage-entry fact table
+
+- **Status:** Open (medium) [8.9] (D15 deferred)
+- Time in stage and stage activity read the stage history directly (≈ 5.6 s and 1.8 s for view-all at 100k over 90 days). An event-maintained stage-entry table would make them constant-time.
+
+### P85-BACKLOG-008 — Outcome filters use live requisition attributes
+
+- **Status:** Open (low) [8.6]
+- Department / designation / location filters on outcome metrics use the requisition's current values, not those frozen in the snapshot.
+
+### P85-BACKLOG-009 — Recruitment plan does not narrow the historical rate by role or location
+
+- **Status:** Open (low) [future]
+- `build_recruitment_plan` states this in its output (`conversion_basis`).
+
+### P85-BACKLOG-010 — No browsable metric catalogue page
+
+- **Status:** Open (low) [8.12 or later]
+- Definitions show as hover text on every governed number and live in code; a read-only catalogue page listing `MetricSpec`s would help auditors.
 
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 
