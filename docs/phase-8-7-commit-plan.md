@@ -24,7 +24,7 @@
 | 14 | `e1c9144` | security | redacted exception text on runs and messages |
 | 15 | `5c92f79` | fixes from the browser smoke | schedule in web requests, rule-editor default |
 | 16 | `991617f` | 15 tests | sweeper idempotency, knowledge reindex skip |
-| 17 | (documentation commit) | 16 documentation / runbook | implementation, security, performance, commit plan, runbook, `.ai/rules`, backlog |
+| 17 | `f2c0691` | 16 documentation / runbook | implementation, security, performance, commit plan, runbook, `.ai/rules`, backlog |
 | 18 | (this commit) | 17 freeze | `phase-8-7-freeze.md` |
 
 ## Grouping notes
