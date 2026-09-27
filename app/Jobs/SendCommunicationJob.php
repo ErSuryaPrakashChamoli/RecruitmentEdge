@@ -3,11 +3,16 @@
 namespace App\Jobs;
 
 use App\Enums\CommunicationStatus;
+use App\Enums\TimelineSource;
+use App\Enums\TimelineVisibility;
 use App\Events\CommunicationFailed;
 use App\Models\AuditLog;
 use App\Models\CandidateCommunication;
+use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Communication\Data\OutboundMessage;
+use App\Services\Communication\ProviderCircuitBreaker;
+use App\Services\Communication\SendTimeGuard;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,6 +21,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -28,6 +34,15 @@ use Throwable;
  *   the result) is NOT resent — its delivery state is unknown, so it is marked Failed for a human
  *   to check rather than risk a duplicate to the candidate;
  * - temporary provider failures return it to Queued and retry with backoff; permanent ones fail.
+ *
+ * Phase 8.7:
+ * - at claim time the message is re-checked against the world it describes (SendTimeGuard:
+ *   consent, closed application, interview or offer no longer current, candidate joined, template
+ *   archived). A message that no longer applies is suppressed — Blocked with a reason and audited
+ *   as communication_suppressed. That is a policy outcome, not a provider failure;
+ * - while its provider's circuit is open (ProviderCircuitBreaker) the message stays Queued without
+ *   using an attempt; reliability:sweep re-queues it when the provider is back;
+ * - the row records whether the accepting provider delivers outside this server.
  */
 class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
 {
@@ -56,9 +71,21 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
         return config('communications.backoff', [30, 120, 600, 1800]);
     }
 
-    public function handle(CommunicationProviderManager $providers): void
+    public function handle(CommunicationProviderManager $providers, SendTimeGuard $guard, ProviderCircuitBreaker $circuit, CandidateTimelineService $timeline): void
     {
-        $communication = $this->claim();
+        $pending = CandidateCommunication::query()->find($this->communicationId);
+
+        if ($pending === null) {
+            return;
+        }
+
+        if ($pending->status === CommunicationStatus::Queued && $pending->provider !== null && $circuit->isOpen($pending->provider)) {
+            Log::info('communications.held_while_provider_paused', ['communication_id' => $pending->id, 'provider' => $pending->provider]);
+
+            return;
+        }
+
+        $communication = $this->claim($guard, $timeline);
 
         if ($communication === null) {
             return;
@@ -84,14 +111,23 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
         ));
 
         if ($result->accepted) {
+            $circuit->recordSuccess($provider->key());
             $communication->forceFill([
                 'status' => CommunicationStatus::Sent,
                 'provider_message_id' => $result->providerMessageId,
+                'delivered_externally' => $provider->deliversExternally(),
                 'sent_at' => now(),
                 'error' => null,
             ])->save();
 
             AuditLog::record($communication, 'communication_sent', null, ['provider' => $provider->key(), 'provider_message_id' => $result->providerMessageId, 'external_delivery' => $provider->deliversExternally()]);
+
+            return;
+        }
+
+        if ($result->retryable && $circuit->recordFailure($provider->key())) {
+            // This failure paused the provider: hold the message rather than spend its retries.
+            $communication->forceFill(['status' => CommunicationStatus::Queued, 'error' => $result->error])->save();
 
             return;
         }
@@ -117,9 +153,9 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
         }
     }
 
-    private function claim(): ?CandidateCommunication
+    private function claim(SendTimeGuard $guard, CandidateTimelineService $timeline): ?CandidateCommunication
     {
-        return DB::transaction(function (): ?CandidateCommunication {
+        return DB::transaction(function () use ($guard, $timeline): ?CandidateCommunication {
             $communication = CandidateCommunication::query()->lockForUpdate()->find($this->communicationId);
 
             if ($communication === null) {
@@ -136,10 +172,34 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
                 return null;
             }
 
+            if ($reason = $guard->suppressionReason($communication)) {
+                $this->suppress($communication, $reason, $timeline);
+
+                return null;
+            }
+
             $communication->forceFill(['status' => CommunicationStatus::Sending, 'attempts' => $communication->attempts + 1])->save();
 
             return $communication;
         });
+    }
+
+    private function suppress(CandidateCommunication $communication, string $reason, CandidateTimelineService $timeline): void
+    {
+        $communication->forceFill(['status' => CommunicationStatus::Blocked, 'blocked_reason' => mb_substr($reason, 0, 250)])->save();
+
+        AuditLog::record($communication, 'communication_suppressed', null, ['channel' => $communication->channel->value, 'reason' => $reason]);
+
+        $timeline->record(
+            $communication->candidate_id,
+            $communication->channel->timelineType(),
+            "{$communication->channel->label()} not sent: ".($communication->subject ?? Str::limit($communication->body, 60)),
+            $reason,
+            TimelineSource::System,
+            TimelineVisibility::Internal,
+            related: ['application' => $communication->candidateApplication, 'interview' => $communication->interview, 'subject' => $communication],
+            metadata: ['communication' => $communication->public_id, 'channel' => $communication->channel->value, 'suppressed' => true],
+        );
     }
 
     private function markFailed(CandidateCommunication $communication, string $error): void

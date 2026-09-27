@@ -58,6 +58,7 @@ class CandidateCommunication extends Model
             'status' => CommunicationStatus::class,
             'trigger' => CommunicationTrigger::class,
             'candidate_visible' => 'boolean',
+            'delivered_externally' => 'boolean',
             'metadata' => 'array',
             'attempts' => 'integer',
             'queued_at' => 'datetime',

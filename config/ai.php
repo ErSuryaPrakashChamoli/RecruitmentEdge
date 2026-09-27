@@ -175,6 +175,9 @@ return [
         'rate_limit_per_minute' => (int) env('AI_RATE_LIMIT_PER_MINUTE', 20),
         'action_rate_limit_per_minute' => (int) env('AI_ACTION_RATE_LIMIT_PER_MINUTE', 10),
         'max_bulk_action_size' => (int) env('AI_MAX_BULK_ACTION_SIZE', 50),
+        // Phase 8.7 (D8.7-013): an approved action still running after this long was interrupted;
+        // reliability:sweep marks it Failed.
+        'stuck_approved_minutes' => 30,
     ],
 
     /*

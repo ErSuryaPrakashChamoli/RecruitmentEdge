@@ -44,6 +44,15 @@ class CandidateCommunicationInfolist
                         TextEntry::make('provider')->placeholder('—'),
                         TextEntry::make('provider_message_id')->label('Provider message id')->placeholder('—'),
                         TextEntry::make('attempts'),
+                        // Phase 8.7 (D8.7-007 c): a log or array mailer accepts mail without sending it anywhere.
+                        TextEntry::make('delivered_externally')
+                            ->label('Left this server')
+                            ->state(fn (CandidateCommunication $record): string => match ($record->delivered_externally) {
+                                true => 'Yes',
+                                false => 'No — not delivered externally',
+                                null => '—',
+                            })
+                            ->color(fn (CandidateCommunication $record): string => $record->delivered_externally === false ? 'danger' : 'gray'),
                         TextEntry::make('blocked_reason')->placeholder('—')->columnSpan(2),
                         TextEntry::make('error')->placeholder('—')->columnSpan(2),
                         $reported('queued_at'),

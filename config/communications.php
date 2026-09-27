@@ -23,6 +23,21 @@ return [
     'tries' => 5,
     'backoff' => [30, 120, 600, 1800],
 
+    // Phase 8.7 (D8.7-019): after `threshold` temporary failures within `window` seconds a provider
+    // is paused for `cooldown` seconds; its messages stay Queued and are re-queued afterwards.
+    'circuit' => [
+        'threshold' => (int) env('COMMUNICATIONS_CIRCUIT_THRESHOLD', 5),
+        'window' => 300,
+        'cooldown' => (int) env('COMMUNICATIONS_CIRCUIT_COOLDOWN', 300),
+    ],
+
+    // Phase 8.7 (D8.7-013): reliability:sweep re-queues messages held Queued longer than
+    // `requeue_after_minutes` and fails messages stuck Sending longer than `stuck_sending_minutes`.
+    'recovery' => [
+        'requeue_after_minutes' => 10,
+        'stuck_sending_minutes' => 30,
+    ],
+
     // Default country calling code for mobile numbers stored without one (E.164 for SMS/WhatsApp).
     'default_country_code' => env('COMMUNICATIONS_DEFAULT_COUNTRY_CODE', '91'),
 

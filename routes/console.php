@@ -26,3 +26,5 @@ Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping(
 // Phase 8.7 (D8.7-012): failed jobs (payload and redacted exception) are kept for the retention
 // window only — the queue health page shows them until then.
 Schedule::command('queue:prune-failed', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:30');
+// Phase 8.7 (D8.7-013): re-queue lost messages; fail work a crashed worker or request left stuck.
+Schedule::command('reliability:sweep')->everyFiveMinutes()->withoutOverlapping();

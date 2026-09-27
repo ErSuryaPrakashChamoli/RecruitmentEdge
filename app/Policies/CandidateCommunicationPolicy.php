@@ -27,6 +27,15 @@ class CandidateCommunicationPolicy
         return $user->can('communications.send');
     }
 
+    /**
+     * Phase 8.7 (D8.7-007 a): sending a failed or bounced message again creates a new message —
+     * the same authority as sending one, on a candidate the user can see.
+     */
+    public function resend(User $user, CandidateCommunication $candidateCommunication): bool
+    {
+        return $user->can('communications.send') && $user->can('view', $candidateCommunication->candidate);
+    }
+
     public function update(User $user, CandidateCommunication $candidateCommunication): bool
     {
         return false;

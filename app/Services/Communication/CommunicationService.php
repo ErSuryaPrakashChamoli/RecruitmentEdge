@@ -41,6 +41,7 @@ class CommunicationService
         private readonly CommunicationPreferenceService $preferences,
         private readonly TemplateRenderer $renderer,
         private readonly CandidateTimelineService $timeline,
+        private readonly SendTimeGuard $guard,
     ) {}
 
     /**
@@ -65,10 +66,17 @@ class CommunicationService
             throw new DomainException("\"{$template->name}\" is not an active {$channel->label()} template.");
         }
 
-        $idempotencyKey ??= $trigger->value.':'.Str::uuid();
+        $derivedKey = $idempotencyKey === null;
+        $idempotencyKey ??= $this->deterministicKey($channel, $context, $template, $subject, $body, $actor, $trigger);
 
         if ($existing = CandidateCommunication::query()->where('idempotency_key', $idempotencyKey)->first()) {
-            return $existing;
+            // A derived key only absorbs a repeat of a message that went out; one that was blocked
+            // (no consent yet, no contact) may be tried again once that is fixed.
+            if (! $derivedKey || $existing->status !== CommunicationStatus::Blocked) {
+                return $existing;
+            }
+
+            $idempotencyKey .= ':'.Str::uuid();
         }
 
         $candidate = $context->candidate;
@@ -136,6 +144,9 @@ class CommunicationService
                     'provider_template' => $template?->provider_template,
                     'template_parameters' => $template?->provider_template ? $this->safeParameters($template->body, $context) : null,
                     'language' => $template?->language,
+                    // Phase 8.7 (D8.7-024): what the message was about when queued; SendTimeGuard
+                    // compares it with the current records before sending. Ids and statuses only.
+                    'queued_state' => $this->guard->snapshot($context, $template?->key),
                 ]),
             ]);
             $communication->forceFill([
@@ -169,6 +180,77 @@ class CommunicationService
                 'trigger' => $trigger->value,
                 'blocked_reason' => $blockedReason,
             ]));
+
+            return $communication;
+        });
+
+        if ($communication->status === CommunicationStatus::Queued) {
+            SendCommunicationJob::dispatch($communication->id)->afterCommit();
+        }
+
+        return $communication;
+    }
+
+    /**
+     * Phase 8.7 (D8.7-007 a): an operator sends a failed or bounced message again. The new message
+     * carries exactly the stored content (what was approved is what goes), goes to the candidate's
+     * current contact details, passes the same consent and send-time checks as any other message,
+     * and gets its own key (resend:{original}:{n}) — the original row is never re-used, so the
+     * history shows both attempts. Audited with the operator's reason.
+     */
+    public function resend(CandidateCommunication $original, Employee $actor, string $reason): CandidateCommunication
+    {
+        if (! in_array($original->status, [CommunicationStatus::Failed, CommunicationStatus::Bounced], true)) {
+            throw new DomainException('Only a failed or bounced message can be resent.');
+        }
+
+        if (blank(trim($reason))) {
+            throw new DomainException('A reason is required to resend a message.');
+        }
+
+        $original->loadMissing('candidate');
+        $resendPrefix = "resend:{$original->id}:";
+
+        if (CandidateCommunication::query()->where('idempotency_key', 'like', $resendPrefix.'%')->whereIn('status', [CommunicationStatus::Queued, CommunicationStatus::Sending])->exists()) {
+            throw new DomainException('A resend of this message is already waiting to be sent.');
+        }
+
+        $recipient = $this->recipientFor($original->candidate, $original->channel);
+        $provider = $this->providers->for($original->channel);
+
+        $blockedReason = match (true) {
+            $recipient === null => "The candidate has no {$original->channel->label()} contact on file.",
+            default => $this->guard->suppressionReason($original),
+        };
+
+        $blockedReason ??= $provider === null || ! $provider->isConfigured()
+            ? "No {$original->channel->label()} provider is configured."
+            : null;
+
+        $sequence = CandidateCommunication::query()->where('idempotency_key', 'like', $resendPrefix.'%')->count() + 1;
+
+        $communication = DB::transaction(function () use ($original, $actor, $reason, $recipient, $provider, $blockedReason, $resendPrefix, $sequence): CandidateCommunication {
+            $communication = new CandidateCommunication([
+                ...$original->only(['candidate_id', 'candidate_application_id', 'requisition_id', 'interview_id', 'channel', 'direction', 'communication_template_id', 'template_version', 'communication_template_version_id', 'subject', 'body']),
+                'recipient' => $recipient ?? '',
+                'trigger' => CommunicationTrigger::Manual,
+                'idempotency_key' => $resendPrefix.$sequence,
+                'origin_request_id' => Context::get('request_id'),
+                'sent_by' => $actor->id,
+                'metadata' => [...($original->metadata ?? []), 'resent_from' => $original->public_id],
+            ]);
+            $communication->forceFill([
+                'status' => $blockedReason !== null ? CommunicationStatus::Blocked : CommunicationStatus::Queued,
+                'blocked_reason' => $blockedReason !== null ? mb_substr($blockedReason, 0, 250) : null,
+                'provider' => $provider?->key(),
+                'queued_at' => $blockedReason === null ? now() : null,
+            ])->save();
+
+            AuditLog::record($communication, 'communication_resent', null, array_filter([
+                'resent_from' => $original->public_id,
+                'channel' => $original->channel->value,
+                'blocked_reason' => $blockedReason,
+            ]), $reason);
 
             return $communication;
         });
@@ -243,6 +325,22 @@ class CommunicationService
         }
 
         return '+'.(strlen($digits) === 10 ? config('communications.default_country_code').$digits : $digits);
+    }
+
+    /**
+     * Phase 8.7 (D8.7-005): a manual or AI send without a caller key gets one derived from who is
+     * sending what to whom, within a five-minute window — so a double-submitted form or a replayed
+     * AI tool call queues the message once. Other triggers always pass their own stable keys.
+     */
+    private function deterministicKey(CommunicationChannel $channel, MessageContext $context, ?CommunicationTemplate $template, ?string $subject, ?string $body, ?Employee $actor, CommunicationTrigger $trigger): string
+    {
+        if (! in_array($trigger, [CommunicationTrigger::Manual, CommunicationTrigger::Ai], true)) {
+            return $trigger->value.':'.Str::uuid();
+        }
+
+        $fingerprint = sha1(implode('|', [$actor?->id, $context->candidate->id, $context->application?->id, $channel->value, $template?->id, $subject, $body]));
+
+        return $trigger->value.':'.$fingerprint.':'.intdiv(now()->getTimestamp(), 300);
     }
 
     /**

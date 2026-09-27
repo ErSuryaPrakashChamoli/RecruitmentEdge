@@ -284,7 +284,7 @@ class ActionExecutor
             );
         } catch (Throwable $e) {
             Log::error('AI tool execution failed', ['tool' => $tool->name(), 'exception' => $e::class, 'message' => $this->sanitizer->sanitizeText($e->getMessage())['text']]);
-            $result = ToolResult::fail('Something went wrong while running this tool. The recruitment data itself was not affected.');
+            $result = ToolResult::fail('Something went wrong while running this tool. It may have partly completed — check the record before trying again.');
         }
 
         $result = $this->sanitized($result);
