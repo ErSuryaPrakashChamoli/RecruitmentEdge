@@ -69,6 +69,12 @@ class AppServiceProvider extends ServiceProvider
         // Phase 8.4: a suspended or revoked login may do nothing, whatever a policy would allow.
         Gate::before(fn (mixed $user): ?bool => $user instanceof User && ! app(StaffAccessService::class)->permits($user) ? false : null);
 
+        // Phase 8.6 (D8.6-027): fail closed. Outside strict mode Filament treats a policy that lacks
+        // the ability's method as "allowed" unless a before-callback denies it; this is that denial.
+        // It only applies when the model has a policy, the policy has no such method and no gate
+        // ability of that name is defined — every rule must be written down, never assumed.
+        Gate::before(fn (mixed $user, string $ability, array $arguments = []): ?bool => self::policyLacksAbility($ability, $arguments) ? false : null);
+
         $this->configureTables();
         $this->configurePortalRateLimits();
         $this->configurePasswordPolicy();
@@ -140,5 +146,23 @@ class AppServiceProvider extends ServiceProvider
         }
 
         return null;
+    }
+
+    /**
+     * Whether the first argument's policy exists but defines no method for the ability.
+     *
+     * @param  array<int, mixed>  $arguments
+     */
+    public static function policyLacksAbility(string $ability, array $arguments): bool
+    {
+        $target = $arguments[0] ?? null;
+
+        if (! ($target instanceof Model) && ! (is_string($target) && is_subclass_of($target, Model::class))) {
+            return false;
+        }
+
+        $policy = Gate::getPolicyFor($target);
+
+        return $policy !== null && ! method_exists($policy, $ability) && ! Gate::has($ability);
     }
 }

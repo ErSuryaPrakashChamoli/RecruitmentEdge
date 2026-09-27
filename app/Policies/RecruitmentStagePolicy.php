@@ -36,4 +36,13 @@ class RecruitmentStagePolicy
     {
         return false;
     }
+
+    /**
+     * Phase 8.6 (D8.6-027): the stage library order is changed by pipeline configurers (the table
+     * already offered reordering only to them).
+     */
+    public function reorder(User $user): bool
+    {
+        return $user->can('pipeline.configure');
+    }
 }

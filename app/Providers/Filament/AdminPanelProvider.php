@@ -44,6 +44,10 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             // Phase 8.4: per-account lockout on top of Filament's per-IP throttle; staff password
             // reset (single-use, expiring broker tokens); email changes apply only once verified.
+            // Phase 8.6 (D8.6-027): a Filament action without an explicit policy method throws in
+            // local and test runs, so a missing rule is caught before release. In production a
+            // missing method is denied by AppServiceProvider's Gate::before (fail closed, no error).
+            ->strictAuthorization(fn (): bool => app()->environment(['local', 'testing']))
             ->login(StaffLogin::class)
             ->passwordReset()
             ->emailChangeVerification()

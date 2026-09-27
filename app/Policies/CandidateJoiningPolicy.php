@@ -23,6 +23,16 @@ class CandidateJoiningPolicy
         return $user->can('joining.confirm') && $this->isInScope($user, $candidateJoining);
     }
 
+    /**
+     * Phase 8.6 (D8.6-027): explicit — before, the missing method let anyone reach the create page.
+     * A joining normally comes from the accepted offer; creating one by hand is for the same
+     * people who confirm joinings.
+     */
+    public function create(User $user): bool
+    {
+        return $user->can('joining.confirm');
+    }
+
     public function update(User $user, CandidateJoining $candidateJoining): bool
     {
         return $user->can('joining.confirm') && $this->isInScope($user, $candidateJoining);
