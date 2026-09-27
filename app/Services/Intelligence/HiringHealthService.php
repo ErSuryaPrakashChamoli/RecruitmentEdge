@@ -67,6 +67,10 @@ class HiringHealthService
         $status = $this->overall($metrics, $facts);
 
         $snapshot = DB::transaction(function () use ($requisition, $metrics, $evidence, $status, $facts): HiringHealthSnapshot {
+            // Phase 8.7 (D8.7-026): concurrent refreshes (the hourly command and a manual refresh)
+            // take turns on the requisition row, so only one snapshot is ever current.
+            RecruitmentRequisition::query()->whereKey($requisition->id)->lockForUpdate()->first();
+
             HiringHealthSnapshot::query()->where('requisition_id', $requisition->id)->where('is_current', true)->update(['is_current' => false]);
 
             $snapshot = HiringHealthSnapshot::query()->create([

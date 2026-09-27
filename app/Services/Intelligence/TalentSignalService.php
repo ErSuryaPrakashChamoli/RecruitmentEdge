@@ -49,6 +49,10 @@ class TalentSignalService
         $result = $this->calculator->calculate($application->candidate, $dna, $application->requisition, $application);
 
         $snapshot = DB::transaction(function () use ($application, $dna, $result): TalentSignalSnapshot {
+            // Phase 8.7 (D8.7-026): concurrent refreshes take turns on the application row, so only
+            // one signal is ever current.
+            CandidateApplication::query()->whereKey($application->id)->lockForUpdate()->first();
+
             TalentSignalSnapshot::query()
                 ->where('candidate_id', $application->candidate_id)
                 ->where('requisition_id', $application->requisition_id)

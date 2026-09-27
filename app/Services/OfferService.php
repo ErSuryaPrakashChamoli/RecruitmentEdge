@@ -142,12 +142,6 @@ class OfferService
         ?string $remarks = null,
         ?RecruitmentRejectionReason $rejectionReason = null,
     ): Offer {
-        $from = $offer->status;
-
-        if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
-            throw new DomainException("Cannot move an offer from {$from->label()} to {$to->label()}.");
-        }
-
         if ($to === OfferStatus::Released && ! $this->canRelease($actor)) {
             throw new DomainException('Releasing an offer requires the offers.release permission.');
         }
@@ -156,7 +150,18 @@ class OfferService
             throw new DomainException('A rejection reason is required to reject an offer.');
         }
 
-        return DB::transaction(fn (): Offer => LifecycleGuard::allow(function () use ($offer, $from, $to, $actor, $remarks, $rejectionReason): Offer {
+        return DB::transaction(fn (): Offer => LifecycleGuard::allow(function () use ($offer, $to, $actor, $remarks, $rejectionReason): Offer {
+            // Phase 8.7 (D8.7-005): decide on the offer's current status under its row lock, so two
+            // concurrent moves (a double click, the candidate portal and a recruiter) cannot both
+            // pass the transition check.
+            Offer::query()->whereKey($offer->getKey())->lockForUpdate()->first();
+            $offer->refresh();
+            $from = $offer->status;
+
+            if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
+                throw new DomainException("Cannot move an offer from {$from->label()} to {$to->label()}.");
+            }
+
             $offer->forceFill([
                 'status' => $to,
                 'accepted_at' => $to === OfferStatus::Accepted ? now() : $offer->accepted_at,
@@ -404,6 +409,9 @@ class OfferService
         $recruiter = $application->recruiter;
         $candidateName = $application->candidate->full_name;
         $url = OfferResource::getUrl('edit', ['record' => $offer]);
+        // Phase 8.7: one alert per transition — a retried request never repeats it, while a later
+        // release of a revised offer (a new history row) still alerts.
+        $transition = $offer->statusHistory()->count();
 
         match ($to) {
             OfferStatus::Released => $this->notifications->alert(
@@ -413,6 +421,7 @@ class OfferService
                 "The offer for {$candidateName} has been released and is awaiting a response.",
                 'info',
                 $url,
+                "offer-released-{$offer->id}-{$transition}",
             ),
             OfferStatus::Accepted => $this->notifications->alert(
                 $recruiter?->user,
@@ -421,6 +430,7 @@ class OfferService
                 "{$candidateName} has accepted their offer.",
                 'success',
                 $url,
+                "offer-accepted-{$offer->id}-{$transition}",
             ),
             OfferStatus::Rejected => $this->notifications->alert(
                 $recruiter?->user,
@@ -429,6 +439,7 @@ class OfferService
                 "{$candidateName} has rejected their offer.",
                 'danger',
                 $url,
+                "offer-rejected-{$offer->id}-{$transition}",
             ),
             default => null,
         };

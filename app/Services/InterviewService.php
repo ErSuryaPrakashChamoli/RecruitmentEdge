@@ -111,22 +111,26 @@ class InterviewService
      */
     public function reschedule(Interview $interview, CarbonInterface $scheduledAt, ?string $remarks = null, ?Employee $actor = null, array $changes = []): Interview
     {
-        $this->ensureNotTerminal($interview, 'reschedule');
+        DB::transaction(function () use ($interview, $scheduledAt, $remarks, $actor, $changes): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'reschedule');
 
-        LifecycleGuard::allow(fn () => $interview->forceFill([
-            ...array_filter(array_intersect_key($changes, array_flip(['interviewer_id', 'mode', 'location', 'meeting_link'])), fn ($value) => $value !== null),
-            'scheduled_at' => $scheduledAt,
-            'status' => InterviewStatus::Rescheduled,
-            'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
-        ])->save());
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                ...array_filter(array_intersect_key($changes, array_flip(['interviewer_id', 'mode', 'location', 'meeting_link'])), fn ($value) => $value !== null),
+                'scheduled_at' => $scheduledAt,
+                'status' => InterviewStatus::Rescheduled,
+                'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
+            ])->save());
 
-        InterviewRescheduled::dispatch($interview, $actor, now()->getTimestamp());
+            InterviewRescheduled::dispatch($interview, $actor, now()->getTimestamp());
+        });
 
         $this->notifyParticipants(
             $interview,
             'Interview rescheduled',
             "The interview for {$interview->candidateApplication->candidate->full_name} has been rescheduled to {$interview->scheduled_at->format('d M Y, h:i A')}.",
             'warning',
+            "interview-rescheduled-{$interview->id}-{$interview->scheduled_at->getTimestamp()}",
         );
 
         return $interview;
@@ -140,24 +144,28 @@ class InterviewService
      */
     public function cancel(Interview $interview, string $remarks, ?Employee $actor = null, ?string $cause = null): Interview
     {
-        $this->ensureNotTerminal($interview, 'cancel');
-
         if (blank($remarks)) {
             throw new DomainException('Remarks are required to cancel an interview.');
         }
 
-        LifecycleGuard::allow(fn () => $interview->forceFill([
-            'status' => InterviewStatus::Cancelled,
-            'remarks' => $this->appendRemarks($interview, 'Cancelled', $remarks, $actor),
-        ])->save());
+        DB::transaction(function () use ($interview, $remarks, $actor, $cause): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'cancel');
 
-        InterviewCancelled::dispatch($interview, $actor, $cause);
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::Cancelled,
+                'remarks' => $this->appendRemarks($interview, 'Cancelled', $remarks, $actor),
+            ])->save());
+
+            InterviewCancelled::dispatch($interview, $actor, $cause);
+        });
 
         $this->notifyParticipants(
             $interview,
             'Interview cancelled',
             "The interview for {$interview->candidateApplication->candidate->full_name} on {$interview->scheduled_at->format('d M Y, h:i A')} was cancelled.",
             'danger',
+            "interview-cancelled-{$interview->id}",
         );
 
         return $interview;
@@ -165,16 +173,19 @@ class InterviewService
 
     public function hold(Interview $interview, string $remarks, ?Employee $actor = null): Interview
     {
-        $this->ensureNotTerminal($interview, 'put on hold');
-
         if (blank($remarks)) {
             throw new DomainException('Remarks are required to put an interview on hold.');
         }
 
-        LifecycleGuard::allow(fn () => $interview->forceFill([
-            'status' => InterviewStatus::Hold,
-            'remarks' => $this->appendRemarks($interview, 'On hold', $remarks, $actor),
-        ])->save());
+        DB::transaction(function () use ($interview, $remarks, $actor): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'put on hold');
+
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::Hold,
+                'remarks' => $this->appendRemarks($interview, 'On hold', $remarks, $actor),
+            ])->save());
+        });
 
         return $interview;
     }
@@ -186,14 +197,17 @@ class InterviewService
      */
     public function markNoShow(Interview $interview, ?Employee $actor = null, ?string $remarks = null): Interview
     {
-        $this->ensureNotTerminal($interview, 'mark as a no-show');
+        DB::transaction(function () use ($interview, $actor, $remarks): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'mark as a no-show');
 
-        LifecycleGuard::allow(fn () => $interview->forceFill([
-            'status' => InterviewStatus::NoShow,
-            'remarks' => $this->appendRemarks($interview, 'No-show', $remarks ?? 'Candidate did not attend', $actor),
-        ])->save());
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::NoShow,
+                'remarks' => $this->appendRemarks($interview, 'No-show', $remarks ?? 'Candidate did not attend', $actor),
+            ])->save());
 
-        InterviewMarkedNoShow::dispatch($interview->id, $interview->candidate_application_id, $actor?->id);
+            InterviewMarkedNoShow::dispatch($interview->id, $interview->candidate_application_id, $actor?->id);
+        });
 
         $application = $interview->candidateApplication;
 
@@ -204,6 +218,7 @@ class InterviewService
             "{$application->candidate->full_name} did not show up for their interview.",
             'danger',
             InterviewResource::getUrl('edit', ['record' => $interview]),
+            "interview-no-show-{$interview->id}",
         );
 
         return $interview;
@@ -211,13 +226,17 @@ class InterviewService
 
     public function confirm(Interview $interview): Interview
     {
-        if (! $interview->status->awaitsConfirmation()) {
-            throw new DomainException("Only a scheduled or rescheduled interview can be confirmed (current status: {$interview->status->label()}).");
-        }
+        DB::transaction(function () use ($interview): void {
+            $this->lockFresh($interview);
 
-        LifecycleGuard::allow(fn () => $interview->forceFill(['status' => InterviewStatus::Confirmed])->save());
+            if (! $interview->status->awaitsConfirmation()) {
+                throw new DomainException("Only a scheduled or rescheduled interview can be confirmed (current status: {$interview->status->label()}).");
+            }
 
-        InterviewConfirmed::dispatch($interview);
+            LifecycleGuard::allow(fn () => $interview->forceFill(['status' => InterviewStatus::Confirmed])->save());
+
+            InterviewConfirmed::dispatch($interview);
+        });
 
         return $interview;
     }
@@ -241,6 +260,12 @@ class InterviewService
         }
 
         return DB::transaction(function () use ($interview, $result, $actor, $rejectionReason): Interview {
+            $this->lockFresh($interview);
+
+            if ($interview->status->isTerminal()) {
+                throw new DomainException("Cannot complete an interview that is already {$interview->status->label()}.");
+            }
+
             LifecycleGuard::allow(fn () => $interview->forceFill([
                 'status' => InterviewStatus::Completed,
                 'result' => $result,
@@ -283,6 +308,17 @@ class InterviewService
             && $interview->result !== InterviewResult::Rejected;
     }
 
+    /**
+     * Phase 8.7 (D8.7-005): a transition takes the interview's row lock and re-reads it inside its
+     * transaction, so two concurrent requests (a double click, the candidate portal and a recruiter)
+     * decide on the current status — the second sees the first one's result and is refused.
+     */
+    private function lockFresh(Interview $interview): void
+    {
+        Interview::query()->whereKey($interview->getKey())->lockForUpdate()->first();
+        $interview->refresh();
+    }
+
     private function ensureNotTerminal(Interview $interview, string $verb): void
     {
         if ($interview->status->isTerminal()) {
@@ -305,7 +341,7 @@ class InterviewService
      * Interviewer and recruiter are often the same person (a recruiter interviewing their own
      * candidate) — de-duplicated so nobody gets the same alert twice.
      */
-    private function notifyParticipants(Interview $interview, string $title, string $body, string $color): void
+    private function notifyParticipants(Interview $interview, string $title, string $body, string $color, ?string $dedupeKey = null): void
     {
         $url = InterviewResource::getUrl('edit', ['record' => $interview]);
 
@@ -315,7 +351,7 @@ class InterviewService
         ])
             ->filter()
             ->unique('id')
-            ->each(fn ($recipient) => $this->notifications->alert($recipient, 'Interviews', $title, $body, $color, $url));
+            ->each(fn ($recipient) => $this->notifications->alert($recipient, 'Interviews', $title, $body, $color, $url, $dedupeKey));
     }
 
     private function stageForRound(int $roundNumber): CandidateStage

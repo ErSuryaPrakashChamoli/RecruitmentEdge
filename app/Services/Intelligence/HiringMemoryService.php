@@ -268,34 +268,39 @@ class HiringMemoryService
             return null;
         }
 
+        // Phase 8.7 (D8.7-026): the record, its evidence and its audit row are one write — a worker
+        // that dies part-way leaves nothing, so the retried listener captures it completely instead
+        // of finding the key taken and leaving a record without evidence.
         try {
-            $record = HiringMemoryRecord::query()->create([
-                'memory_type' => $type,
-                'subject_type' => $subject->getMorphClass(),
-                'subject_id' => $subject->getKey(),
-                'requisition_id' => $requisition->id,
-                'designation_id' => $requisition->designation_id,
-                'department_id' => $requisition->department_id,
-                'candidate_application_id' => $application?->id,
-                'facts' => $facts,
-                'summary' => $summary,
-                'captured_at' => now(),
-                'source_event' => $sourceEvent,
-                'capture_key' => $key,
-            ]);
+            return DB::transaction(function () use ($type, $subject, $requisition, $application, $facts, $summary, $sourceEvent, $key): HiringMemoryRecord {
+                $record = HiringMemoryRecord::query()->create([
+                    'memory_type' => $type,
+                    'subject_type' => $subject->getMorphClass(),
+                    'subject_id' => $subject->getKey(),
+                    'requisition_id' => $requisition->id,
+                    'designation_id' => $requisition->designation_id,
+                    'department_id' => $requisition->department_id,
+                    'candidate_application_id' => $application?->id,
+                    'facts' => $facts,
+                    'summary' => $summary,
+                    'captured_at' => now(),
+                    'source_event' => $sourceEvent,
+                    'capture_key' => $key,
+                ]);
+
+                $this->evidence->record($record, array_filter([
+                    EvidenceItem::fact('source', 'Captured from '.class_basename($subject), $sourceEvent, $subject),
+                    $application !== null ? EvidenceItem::fact('source', 'Application', $application->application_code, $application) : null,
+                    EvidenceItem::fact('source', 'Requisition', $requisition->code, $requisition),
+                ]), self::GENERATOR, self::VERSION);
+
+                AuditLog::record($record, 'hiring_memory_captured', null, ['type' => $type->value, 'source_event' => $sourceEvent]);
+
+                return $record;
+            });
         } catch (UniqueConstraintViolationException) {
             return null;
         }
-
-        $this->evidence->record($record, array_filter([
-            EvidenceItem::fact('source', 'Captured from '.class_basename($subject), $sourceEvent, $subject),
-            $application !== null ? EvidenceItem::fact('source', 'Application', $application->application_code, $application) : null,
-            EvidenceItem::fact('source', 'Requisition', $requisition->code, $requisition),
-        ]), self::GENERATOR, self::VERSION);
-
-        AuditLog::record($record, 'hiring_memory_captured', null, ['type' => $type->value, 'source_event' => $sourceEvent]);
-
-        return $record;
     }
 
     /**
