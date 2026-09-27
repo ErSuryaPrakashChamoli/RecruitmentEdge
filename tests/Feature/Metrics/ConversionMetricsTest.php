@@ -18,6 +18,7 @@ use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricService;
 use App\Services\StageTransitionService;
+use Carbon\CarbonImmutable;
 
 /**
  * Phase 8.5: funnel (cohort), stage activity, offer acceptance (D4), join / no-show / dropout (D5,
@@ -128,6 +129,8 @@ test('offer-to-join links by application, so a re-linked offer never turns a hir
 });
 
 test('interview turn-up leaves out upcoming, cancelled and never-updated interviews (§17)', function (): void {
+    // Midday in the business timezone, so "two hours from now" is still inside today's period.
+    $this->travelTo(CarbonImmutable::parse('2026-09-24 12:00:00', 'Asia/Kolkata'));
     $application = CandidateApplication::factory()->create();
     $interview = fn (InterviewStatus $status, $at) => Interview::factory()->create(['candidate_application_id' => $application->id, 'status' => $status, 'scheduled_at' => $at]);
 
