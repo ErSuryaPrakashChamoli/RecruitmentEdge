@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\IntelligenceAiStatus;
+use App\Jobs\Concerns\RunsForRequester;
 use App\Models\OutcomeInsight;
 use App\Models\User;
 use App\Services\Intelligence\IntelligenceAiService;
@@ -19,7 +20,7 @@ use Throwable;
  */
 class SummarizeOutcomeInsightJob implements ShouldBeUnique, ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsForRequester, SerializesModels;
 
     public int $tries = 2;
 
@@ -51,12 +52,18 @@ class SummarizeOutcomeInsightJob implements ShouldBeUnique, ShouldQueue
         $insight = OutcomeInsight::query()->find($this->insightId);
 
         if ($insight !== null) {
-            $ai->summarizeInsight($insight, $this->userId !== null ? User::query()->find($this->userId) : null);
+            // Phase 8.7: re-checks the requester, runs as `ai` for them, and lets an unreachable
+            // provider be retried (D8.7-004/015/016).
+            $this->runForRequester($this->userId, $insight, fn (?User $requester) => $ai->summarizeInsight($insight, $requester, retryable: $this->attempts() < $this->tries));
         }
     }
 
     public function failed(?Throwable $exception): void
     {
         OutcomeInsight::query()->whereKey($this->insightId)->update(['ai_status' => IntelligenceAiStatus::Failed]);
+
+        if (($subject = OutcomeInsight::query()->find($this->insightId)) !== null) {
+            $this->recordAiFailure($subject, 'outcome_insight_ai_failed');
+        }
     }
 }

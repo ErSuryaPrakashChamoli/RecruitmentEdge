@@ -33,6 +33,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'recipient',
     'trigger',
     'idempotency_key',
+    'origin_request_id',
     'sent_by',
     'candidate_visible',
     'metadata',

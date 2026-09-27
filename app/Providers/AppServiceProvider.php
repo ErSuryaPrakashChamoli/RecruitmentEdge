@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Logging\RedactingFailedJobProvider;
+use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\RolePolicy;
@@ -23,11 +24,18 @@ use Filament\Facades\Filament;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
@@ -88,6 +96,8 @@ class AppServiceProvider extends ServiceProvider
         // here, once; constructing it runs no query.
         $failer = $this->app->make('queue.failer');
         $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
+
+        $this->configureAsyncContext();
 
         $this->configureTables();
         $this->configurePortalRateLimits();
@@ -178,5 +188,48 @@ class AppServiceProvider extends ServiceProvider
         $policy = Gate::getPolicyFor($target);
 
         return $policy !== null && ! method_exists($policy, $ability) && ! Gate::has($ability);
+    }
+
+    /**
+     * Phase 8.7 (D8.7-014/015): every unit of work carries a correlation id and an actor kind.
+     *
+     * - An artisan command without one gets `cmd:<uuid>`; jobs it dispatches carry it (Laravel
+     *   Context travels in the payload). A job that arrives without one gets `job:<uuid>`.
+     * - Audit rows written by a job record `queue`, by a scheduled command `scheduler` (a scheduled
+     *   command name run without a terminal), otherwise `console` — unless the work runs inside
+     *   AuditLog::asActor() (automation, AI).
+     */
+    private function configureAsyncContext(): void
+    {
+        Event::listen(CommandStarting::class, function (CommandStarting $event): void {
+            if (! Context::has('request_id')) {
+                Context::add('request_id', 'cmd:'.Str::uuid());
+            }
+
+            if ($event->command !== null && ! str_starts_with($event->command, 'queue:')) {
+                AuditLog::setDefaultActorKind(self::isScheduledRun($event->command) ? 'scheduler' : 'console');
+            }
+        });
+
+        Queue::before(function (JobProcessing $event): void {
+            if (! Context::has('request_id')) {
+                Context::add('request_id', 'job:'.($event->job->uuid() ?? Str::uuid()));
+            }
+
+            AuditLog::setDefaultActorKind('queue');
+        });
+
+        Queue::after(fn () => AuditLog::setDefaultActorKind(null));
+        Queue::failing(fn () => AuditLog::setDefaultActorKind(null));
+    }
+
+    private static function isScheduledRun(string $command): bool
+    {
+        if (defined('STDIN') && @stream_isatty(STDIN)) {
+            return false;
+        }
+
+        return collect(app(Schedule::class)->events())
+            ->contains(fn ($event) => is_string($event->command) && preg_match('/artisan[\'"]?\s+'.preg_quote($command, '/').'(\s|$)/', $event->command) === 1);
     }
 }

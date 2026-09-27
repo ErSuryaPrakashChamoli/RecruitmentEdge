@@ -202,7 +202,7 @@ class IntelligenceAiService
         return IntelligenceAiStatus::Processing;
     }
 
-    public function summarizeMemory(HiringMemoryRecord $record, ?User $actor = null): void
+    public function summarizeMemory(HiringMemoryRecord $record, ?User $actor = null, bool $retryable = false): void
     {
         $allowed = [...self::SUMMARY_REQUISITION_FACTS, ...(self::SUMMARY_FACTS[$record->memory_type->value] ?? [])];
         $facts = collect($record->facts)->only($allowed)->all();
@@ -212,6 +212,16 @@ class IntelligenceAiService
                 LlmMessage::system('You summarise recorded hiring facts for a recruitment team. Use only the facts given. Do not add, infer or estimate anything, do not judge any person, and do not mention protected characteristics. Two or three plain sentences.'),
                 LlmMessage::user("Hiring memory ({$record->memory_type->label()}):\n".json_encode($facts, JSON_PRETTY_PRINT | JSON_PARTIAL_OUTPUT_ON_ERROR)),
             ], [], self::SUMMARY_CATEGORY, $actor);
+        } catch (AiProviderUnavailableException $e) {
+            // Phase 8.7 (D8.7-004): an unreachable provider is retried by the job (P7-BACKLOG-005).
+            if ($retryable) {
+                throw $e;
+            }
+
+            report($e);
+            $record->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
+
+            return;
         } catch (Throwable $e) {
             report($e);
             $record->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
@@ -253,7 +263,7 @@ class IntelligenceAiService
         return IntelligenceAiStatus::Processing;
     }
 
-    public function summarizeInsight(OutcomeInsight $insight, ?User $actor = null): void
+    public function summarizeInsight(OutcomeInsight $insight, ?User $actor = null, bool $retryable = false): void
     {
         try {
             $response = $this->gateway->generate([
@@ -261,6 +271,16 @@ class IntelligenceAiService
                     .'Describe an association, never a cause or a prediction, and never recommend excluding anyone. Do not mention any person or protected characteristic. Two or three plain sentences.'),
                 LlmMessage::user("Outcome insight:\n".json_encode($this->insightFacts($insight), JSON_PRETTY_PRINT | JSON_PARTIAL_OUTPUT_ON_ERROR)),
             ], [], self::SUMMARY_CATEGORY, $actor);
+        } catch (AiProviderUnavailableException $e) {
+            // Phase 8.7 (D8.7-004): an unreachable provider is retried by the job (P82-BACKLOG-007).
+            if ($retryable) {
+                throw $e;
+            }
+
+            report($e);
+            $insight->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();
+
+            return;
         } catch (Throwable $e) {
             report($e);
             $insight->forceFill(['ai_status' => IntelligenceAiStatus::Failed])->save();

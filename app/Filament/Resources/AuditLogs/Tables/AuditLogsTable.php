@@ -29,6 +29,17 @@ class AuditLogsTable
                     ->label('By')
                     ->formatStateUsing(fn (?string $state) => $state ?? 'System')
                     ->searchable(),
+                // Phase 8.7 (D8.7-015): automation, scheduler, queue and AI work say what acted, and for whom.
+                TextColumn::make('actor_kind')
+                    ->label('Actor')
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('—')
+                    ->toggleable(),
+                TextColumn::make('onBehalfOf.name')
+                    ->label('On behalf of')
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('auditable_type')
                     ->label('Model')
                     ->formatStateUsing(fn (string $state) => Str::headline(class_basename($state))),
@@ -74,6 +85,9 @@ class AuditLogsTable
                         'permissions_updated' => 'Role Permissions Updated',
                     ]),
                 // Phase 8.6 (D8.6-024): who, when and which request — a change can be followed end to end.
+                SelectFilter::make('actor_kind')
+                    ->label('Actor kind')
+                    ->options(array_combine(AuditLog::ACTOR_KINDS, array_map('ucfirst', AuditLog::ACTOR_KINDS))),
                 SelectFilter::make('user_id')
                     ->label('By')
                     ->options(fn () => User::query()->orderBy('name')->pluck('name', 'id'))
@@ -112,6 +126,8 @@ class AuditLogsTable
                         TextEntry::make('auditable_id')->label('Record #'),
                         TextEntry::make('action')->badge()->formatStateUsing(fn (string $state) => Str::headline($state)),
                         TextEntry::make('reason')->placeholder('—')->columnSpanFull(),
+                        TextEntry::make('actor_kind')->label('Actor')->placeholder('—'),
+                        TextEntry::make('onBehalfOf.name')->label('On behalf of')->placeholder('—'),
                         TextEntry::make('ip_address')->placeholder('—'),
                         TextEntry::make('request_id')->label('Request')->placeholder('—'),
                         TextEntry::make('diff')

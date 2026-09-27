@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\IntelligenceAiStatus;
+use App\Jobs\Concerns\RunsForRequester;
 use App\Models\HiringMemoryRecord;
 use App\Models\User;
 use App\Services\Intelligence\IntelligenceAiService;
@@ -19,7 +20,7 @@ use Throwable;
  */
 class SummarizeHiringMemoryJob implements ShouldBeUnique, ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsForRequester, SerializesModels;
 
     public int $tries = 2;
 
@@ -51,12 +52,18 @@ class SummarizeHiringMemoryJob implements ShouldBeUnique, ShouldQueue
         $record = HiringMemoryRecord::query()->find($this->recordId);
 
         if ($record !== null) {
-            $ai->summarizeMemory($record, $this->userId !== null ? User::query()->find($this->userId) : null);
+            // Phase 8.7: re-checks the requester, runs as `ai` for them, and lets an unreachable
+            // provider be retried (D8.7-004/015/016).
+            $this->runForRequester($this->userId, $record, fn (?User $requester) => $ai->summarizeMemory($record, $requester, retryable: $this->attempts() < $this->tries));
         }
     }
 
     public function failed(?Throwable $exception): void
     {
         HiringMemoryRecord::query()->whereKey($this->recordId)->update(['ai_status' => IntelligenceAiStatus::Failed]);
+
+        if (($subject = HiringMemoryRecord::query()->find($this->recordId)) !== null) {
+            $this->recordAiFailure($subject, 'hiring_memory_ai_failed');
+        }
     }
 }

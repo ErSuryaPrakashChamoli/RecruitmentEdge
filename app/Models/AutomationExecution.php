@@ -27,6 +27,7 @@ use LogicException;
     'candidate_application_id',
     'recruiter_id',
     'idempotency_key',
+    'origin_request_id',
     'status',
     'scheduled_for',
     'triggered_at',

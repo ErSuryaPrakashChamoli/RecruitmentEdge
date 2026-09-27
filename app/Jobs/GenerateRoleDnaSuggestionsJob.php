@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\IntelligenceAiStatus;
+use App\Jobs\Concerns\RunsForRequester;
 use App\Models\RoleDnaProfile;
 use App\Models\User;
 use App\Services\Intelligence\IntelligenceAiService;
@@ -19,7 +20,7 @@ use Throwable;
  */
 class GenerateRoleDnaSuggestionsJob implements ShouldBeUnique, ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, RunsForRequester, SerializesModels;
 
     public int $tries = 2;
 
@@ -51,7 +52,8 @@ class GenerateRoleDnaSuggestionsJob implements ShouldBeUnique, ShouldQueue
         $profile = RoleDnaProfile::query()->find($this->profileId);
 
         if ($profile !== null) {
-            $ai->generateRoleDnaSuggestions($profile, $this->userId !== null ? User::query()->find($this->userId) : null, retryable: $this->attempts() < $this->tries);
+            // Phase 8.7: re-checks the requester and runs as `ai` for them (D8.7-015/016).
+            $this->runForRequester($this->userId, $profile, fn (?User $requester) => $ai->generateRoleDnaSuggestions($profile, $requester, retryable: $this->attempts() < $this->tries));
         }
     }
 

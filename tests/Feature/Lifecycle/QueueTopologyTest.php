@@ -36,6 +36,11 @@ function queueTopologyProduced(): array
     foreach ([...glob($root.'/app/Jobs/*.php'), ...glob($root.'/app/Jobs/*/*.php')] as $file) {
         $class = 'App\\'.str_replace(['/', '.php'], ['\\', ''], substr($file, strlen($root.'/app/')));
         $reflection = new ReflectionClass($class);
+
+        if (! $reflection->isInstantiable()) {
+            continue;
+        }
+
         $arguments = collect($reflection->getConstructor()?->getParameters() ?? [])
             ->map(fn (ReflectionParameter $parameter) => $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : ($parameter->getType()?->getName() === 'string' ? 'x' : 1))
             ->all();

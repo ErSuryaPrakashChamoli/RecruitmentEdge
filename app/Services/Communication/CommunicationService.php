@@ -17,6 +17,7 @@ use App\Services\CandidateIdentityNormalizer;
 use App\Services\CandidateTimelineService;
 use DomainException;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -128,6 +129,8 @@ class CommunicationService
                 'recipient' => $recipient ?? '',
                 'trigger' => $trigger,
                 'idempotency_key' => $idempotencyKey,
+                // Phase 8.7 (D8.7-014): the request, command or job that queued this message.
+                'origin_request_id' => Context::get('request_id'),
                 'sent_by' => $actor?->id,
                 'metadata' => array_filter([
                     'provider_template' => $template?->provider_template,

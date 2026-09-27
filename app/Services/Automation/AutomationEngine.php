@@ -21,6 +21,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -173,7 +174,9 @@ class AutomationEngine
         }
 
         try {
-            $this->perform($execution);
+            // Phase 8.7 (D8.7-015): the automation acts, on its owner's authority — audit rows name
+            // the owner as on_behalf_of, never as the actor (the same in sync and queued runs).
+            AuditLog::asActor('automation', $execution->rule?->owner_id, fn () => $this->perform($execution));
         } catch (Throwable $e) {
             report($e);
             $this->finish($execution, AutomationExecutionStatus::Failed, failure: mb_substr($e->getMessage(), 0, 500));
@@ -402,6 +405,8 @@ class AutomationEngine
                 'candidate_application_id' => $context->application()?->id,
                 'recruiter_id' => $context->application()?->recruiter_id,
                 'idempotency_key' => $unsafe !== null ? mb_substr($key.':'.sha1($unsafe), 0, 191) : mb_substr($key, 0, 191),
+                // Phase 8.7 (D8.7-014): the request, command or job that created this run.
+                'origin_request_id' => Context::get('request_id'),
                 'status' => $unsafe !== null ? AutomationExecutionStatus::Skipped : AutomationExecutionStatus::Pending,
                 'scheduled_for' => $runAt ?? now(),
                 'triggered_at' => $context->occurredAt,

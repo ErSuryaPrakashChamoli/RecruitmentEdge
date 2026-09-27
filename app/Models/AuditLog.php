@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Context;
  *
  * `old_values` holds the previous values and `changes` the new values of the same keys.
  */
-#[Fillable(['user_id', 'actor_type', 'actor_id', 'auditable_type', 'auditable_id', 'action', 'reason', 'changes', 'old_values', 'ip_address', 'request_id'])]
+#[Fillable(['user_id', 'actor_type', 'actor_id', 'actor_kind', 'on_behalf_of_user_id', 'auditable_type', 'auditable_id', 'action', 'reason', 'changes', 'old_values', 'ip_address', 'request_id'])]
 class AuditLog extends Model
 {
     public const ?string UPDATED_AT = null;
@@ -32,6 +32,22 @@ class AuditLog extends Model
      * withReason() so the rows the Auditable trait writes for that change carry it too.
      */
     private static ?string $pendingReason = null;
+
+    /**
+     * Phase 8.7 (D8.7-015): who is acting when no person is — set by asActor() around automation
+     * and AI work: ['kind' => 'automation'|'ai'|…, 'on_behalf_of' => user id or null].
+     *
+     * @var array{kind: string, on_behalf_of: int|null}|null
+     */
+    private static ?array $actorContext = null;
+
+    /**
+     * The kind recorded when nothing more specific applies: 'queue' while a job runs, 'scheduler'
+     * or 'console' in an artisan command (set by AppServiceProvider's listeners).
+     */
+    private static ?string $defaultActorKind = null;
+
+    public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system'];
 
     protected function casts(): array
     {
@@ -48,8 +64,16 @@ class AuditLog extends Model
     public static function record(Model $subject, string $action, ?array $oldValues, ?array $newValues, ?string $reason = null): self
     {
         // The default guard is whichever guard authenticated the request (the candidate portal
-        // switches it to `candidate`), so only a staff User may fill user_id.
-        $actor = auth()->user();
+        // switches it to `candidate`), so only a staff User may fill user_id. Inside asActor()
+        // (automation, AI) the work is not the signed-in person's: no user_id, the principal is
+        // recorded as on_behalf_of instead (Phase 8.7, D8.7-015).
+        $context = self::$actorContext;
+        $actor = $context === null ? auth()->user() : null;
+        $kind = $context['kind'] ?? match (true) {
+            $actor instanceof User => 'user',
+            $actor instanceof Model => 'candidate',
+            default => self::$defaultActorKind ?? 'system',
+        };
 
         // Phase 8.6 (D8.6-024): an explicit record() is redacted like an Auditable diff — a
         // subject's redacted attributes (e.g. offer compensation) never reach the audit trail.
@@ -59,6 +83,8 @@ class AuditLog extends Model
             'user_id' => $actor instanceof User ? $actor->getKey() : null,
             'actor_type' => $actor instanceof Model && ! $actor instanceof User ? $actor->getMorphClass() : null,
             'actor_id' => $actor instanceof Model && ! $actor instanceof User ? $actor->getKey() : null,
+            'actor_kind' => $kind,
+            'on_behalf_of_user_id' => $context['on_behalf_of'] ?? null,
             'auditable_type' => $subject::class,
             'auditable_id' => $subject->getKey(),
             'action' => $action,
@@ -91,6 +117,32 @@ class AuditLog extends Model
         } finally {
             self::$pendingReason = $previous;
         }
+    }
+
+    /**
+     * Run work as an actor other than the signed-in person — automation acting on its owner's
+     * authority, an AI job for its requester. Nested calls keep the innermost context.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult
+     */
+    public static function asActor(string $kind, ?int $onBehalfOfUserId, callable $callback): mixed
+    {
+        $previous = self::$actorContext;
+        self::$actorContext = ['kind' => $kind, 'on_behalf_of' => $onBehalfOfUserId];
+
+        try {
+            return $callback();
+        } finally {
+            self::$actorContext = $previous;
+        }
+    }
+
+    public static function setDefaultActorKind(?string $kind): void
+    {
+        self::$defaultActorKind = $kind;
     }
 
     /**
@@ -147,6 +199,14 @@ class AuditLog extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function onBehalfOf(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'on_behalf_of_user_id');
     }
 
     /**
