@@ -4,6 +4,7 @@ namespace App\Events;
 
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Phase 8.4: a staff login's roles changed (RoleAssignmentService). Ids only — pending AI actions
@@ -11,7 +12,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class UserRoleChanged implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly int $userId,

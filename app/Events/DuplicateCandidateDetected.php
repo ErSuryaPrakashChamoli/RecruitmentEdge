@@ -6,6 +6,7 @@ use App\Models\Candidate;
 use App\Models\CandidateDuplicateMatch;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Collection;
 
 /**
@@ -14,7 +15,7 @@ use Illuminate\Support\Collection;
  */
 class DuplicateCandidateDetected implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     /**
      * @param  Collection<int, CandidateDuplicateMatch>  $matches

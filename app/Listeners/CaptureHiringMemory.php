@@ -12,7 +12,10 @@ use App\Events\OfferStatusChanged;
 use App\Events\RequisitionStatusChanged;
 use App\Models\CandidateJoining;
 use App\Services\Intelligence\HiringMemoryService;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Captures Hiring Memory™ (Phase 7) from the real domain events, after they commit, on the
@@ -21,9 +24,27 @@ use Illuminate\Contracts\Queue\ShouldQueue;
  * never from the Joined pipeline stage — stage moves have known bypass paths. Capture is idempotent, so a replayed event records nothing twice.
  * Auto-discovered — do not also register it.
  */
-class CaptureHiringMemory implements ShouldQueue
+class CaptureHiringMemory implements ShouldBeEncrypted, ShouldQueue
 {
     public string $queue = 'intelligence';
+
+    /**
+     * Phase 8.7 (D8.7-003/004): internal writes retry 3 times with backoff, never immediately.
+     */
+    public int $tries = 3;
+
+    /**
+     * @var array<int, int>
+     */
+    public array $backoff = [10, 60];
+
+    /**
+     * Phase 8.7 (D8.7-013): an exhausted listener is recorded — event and ids only, never content.
+     */
+    public function failed(object $event, Throwable $exception): void
+    {
+        Log::error('queue.listener_failed', ['listener' => static::class, 'event' => $event::class, 'error' => $exception::class]);
+    }
 
     public function __construct(private readonly HiringMemoryService $memory) {}
 

@@ -16,6 +16,8 @@ use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
+use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
+use Filament\Auth\Notifications\ResetPassword;
 use Filament\Facades\Filament;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
@@ -39,6 +41,11 @@ class AppServiceProvider extends ServiceProvider
         // Phase 6 automation: the runtime must be one instance per process (loop prevention); the
         // registries are stateless catalogues built once.
         $this->app->singleton(AutomationRuntime::class);
+
+        // Phase 8.7 (D8.7-017, SEC-87-02): Filament's queued auth mails carry bearer-token URLs —
+        // resolve encrypted subclasses (Filament builds them through the container).
+        $this->app->bind(ResetPassword::class, \App\Notifications\Auth\ResetPassword::class);
+        $this->app->bind(NoticeOfEmailChangeRequest::class, \App\Notifications\Auth\NoticeOfEmailChangeRequest::class);
         $this->app->singleton(AutomationEventRegistry::class);
         $this->app->singleton(AutomationFieldRegistry::class);
         $this->app->singleton(AutomationActionRegistry::class);

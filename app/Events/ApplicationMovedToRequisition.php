@@ -4,6 +4,7 @@ namespace App\Events;
 
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Phase 8.3: an application was explicitly moved to another requisition
@@ -11,7 +12,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class ApplicationMovedToRequisition implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly int $applicationId,

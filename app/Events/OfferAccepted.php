@@ -5,6 +5,7 @@ namespace App\Events;
 use App\Models\Offer;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Fired once an offer's status is moved to Accepted — see OfferService::moveTo(). Phase 8.3: only
@@ -13,7 +14,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class OfferAccepted implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(public readonly Offer $offer) {}
 }

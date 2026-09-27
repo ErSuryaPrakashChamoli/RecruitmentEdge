@@ -35,7 +35,8 @@ class AiKnowledgeArticle extends Model
 
         static::saved(function (self $article): void {
             if ($article->is_published) {
-                ReindexKnowledgeArticleJob::dispatch($article->id);
+                // Phase 8.7 (D8.7-006): only once the save is committed.
+                ReindexKnowledgeArticleJob::dispatch($article->id)->afterCommit();
             }
         });
     }

@@ -7,13 +7,14 @@ use App\Models\Employee;
 use App\Models\EmployeeReferral;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * A referral moved status — by a reviewer, or automatically following its application.
  */
 class ReferralStatusChanged implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly EmployeeReferral $referral,

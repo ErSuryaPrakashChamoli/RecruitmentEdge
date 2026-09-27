@@ -12,7 +12,10 @@ use App\Models\CandidateJoining;
 use App\Models\HiringOutcomeSnapshot;
 use App\Services\Outcomes\HiringSnapshotService;
 use App\Services\Outcomes\OutcomeCalculator;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Outcome Loop™ (Phase 8.2): records outcomes as they happen, after commit, on the intelligence
@@ -21,9 +24,27 @@ use Illuminate\Contracts\Queue\ShouldQueue;
  * proof on its own. Idempotent; the daily outcomes:evaluate catches up on anything missed.
  * Auto-discovered — do not also register it.
  */
-class RecordHiringOutcomes implements ShouldQueue
+class RecordHiringOutcomes implements ShouldBeEncrypted, ShouldQueue
 {
     public string $queue = 'intelligence';
+
+    /**
+     * Phase 8.7 (D8.7-003/004): internal writes retry 3 times with backoff, never immediately.
+     */
+    public int $tries = 3;
+
+    /**
+     * @var array<int, int>
+     */
+    public array $backoff = [10, 60];
+
+    /**
+     * Phase 8.7 (D8.7-013): an exhausted listener is recorded — event and ids only, never content.
+     */
+    public function failed(object $event, Throwable $exception): void
+    {
+        Log::error('queue.listener_failed', ['listener' => static::class, 'event' => $event::class, 'error' => $exception::class]);
+    }
 
     public function __construct(
         private readonly HiringSnapshotService $snapshots,

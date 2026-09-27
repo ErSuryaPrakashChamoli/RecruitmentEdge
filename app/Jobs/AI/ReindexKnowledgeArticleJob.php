@@ -5,7 +5,7 @@ namespace App\Jobs\AI;
 use App\Models\AiKnowledgeArticle;
 use App\Services\AI\Rag\DocumentIngestionService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -13,7 +13,12 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class ReindexKnowledgeArticleJob implements ShouldBeUnique, ShouldQueue
+/**
+ * Phase 8.7 (SEC-87-09, DQ-87-18): unique only until it starts processing, so a save made while a
+ * reindex is running queues another (the old lock dropped it, leaving the index stale); an article
+ * unpublished by the time the job runs is not embedded.
+ */
+class ReindexKnowledgeArticleJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -49,7 +54,7 @@ class ReindexKnowledgeArticleJob implements ShouldBeUnique, ShouldQueue
     {
         $article = AiKnowledgeArticle::query()->find($this->articleId);
 
-        if ($article !== null) {
+        if ($article !== null && $article->is_published) {
             $ingestion->ingestKnowledgeArticle($article);
         }
     }

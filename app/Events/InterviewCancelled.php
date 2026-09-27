@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\Interview;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Fired by InterviewService after the change commits (Phase 5) — drives external calendar sync
@@ -14,7 +15,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class InterviewCancelled implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly Interview $interview,

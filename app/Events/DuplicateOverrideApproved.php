@@ -6,6 +6,7 @@ use App\Models\Candidate;
 use App\Models\Employee;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * A user created a new candidate despite strong duplicate matches, with a justification. The
@@ -13,7 +14,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class DuplicateOverrideApproved implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     /**
      * @param  array<int, array<string, mixed>>  $matches  DuplicateCandidateMatch::toArray() rows

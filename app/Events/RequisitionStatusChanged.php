@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * A requisition status transition made through RequisitionApprovalService::moveTo(), after it
@@ -15,7 +16,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class RequisitionStatusChanged implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly RecruitmentRequisition $requisition,

@@ -4,6 +4,7 @@ namespace App\Events;
 
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Phase 8.4: a separation took effect — employment is Separated and the login (if any) revoked
@@ -11,7 +12,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class EmployeeSeparated implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly int $employeeId,

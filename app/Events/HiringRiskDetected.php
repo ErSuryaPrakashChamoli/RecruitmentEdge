@@ -5,6 +5,7 @@ namespace App\Events;
 use App\Models\HiringRisk;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * A new risk was opened by the Hiring Risk Radar (Phase 7) — an automation trigger
@@ -12,7 +13,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class HiringRiskDetected implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(public readonly HiringRisk $risk) {}
 }

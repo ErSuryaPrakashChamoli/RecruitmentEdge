@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\Interview;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Fired by InterviewService::complete() after the result and the resulting stage change commit
@@ -13,7 +14,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class InterviewCompleted implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly Interview $interview,

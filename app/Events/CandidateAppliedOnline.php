@@ -5,6 +5,7 @@ namespace App\Events;
 use App\Models\CandidateApplication;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * A candidate applied through the career site (Phase 5) — drives the "application received"
@@ -12,7 +13,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class CandidateAppliedOnline implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(public readonly CandidateApplication $application) {}
 }

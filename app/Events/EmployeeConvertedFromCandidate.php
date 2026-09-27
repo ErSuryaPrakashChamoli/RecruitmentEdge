@@ -4,6 +4,7 @@ namespace App\Events;
 
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Phase 8.2: an employee record was created from a joined candidate
@@ -12,7 +13,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class EmployeeConvertedFromCandidate implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly int $candidateId,

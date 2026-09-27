@@ -120,7 +120,7 @@ class InterviewService
             'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
         ])->save());
 
-        InterviewRescheduled::dispatch($interview, $actor);
+        InterviewRescheduled::dispatch($interview, $actor, now()->getTimestamp());
 
         $this->notifyParticipants(
             $interview,

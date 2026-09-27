@@ -51,7 +51,8 @@ class AiDocument extends Model
     protected static function booted(): void
     {
         static::created(function (self $document): void {
-            IndexAiDocumentJob::dispatch($document->id);
+            // Phase 8.7 (D8.7-006): only once the upload is committed.
+            IndexAiDocumentJob::dispatch($document->id)->afterCommit();
         });
     }
 

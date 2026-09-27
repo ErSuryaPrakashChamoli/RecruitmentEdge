@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Enums\ActionPriority;
 use App\Models\User;
+use App\Notifications\StaffDatabaseNotification;
 use App\Services\Automation\RecipientResolver;
 use App\Services\Identity\StaffAccessService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -46,13 +48,15 @@ class NotificationDispatchService
             return;
         }
 
-        if ($dedupeKey !== null && $this->alreadySent($recipient, $dedupeKey)) {
+        // Phase 8.7 (P83-BACKLOG-010): the database row is written by a queued job, so two alerts
+        // dispatched together would both pass the table check — claim the key atomically first.
+        if ($dedupeKey !== null && ($this->alreadySent($recipient, $dedupeKey) || ! Cache::add('alert-dedupe:'.$recipient->getKey().':'.sha1($dedupeKey), true, now()->addDay()))) {
             return;
         }
 
         $priority ??= ActionPriority::fromColor($color);
 
-        Notification::make()
+        $notification = Notification::make()
             ->title("[{$category}] {$title}")
             ->body($body)
             ->color($color)
@@ -65,8 +69,10 @@ class NotificationDispatchService
             ], fn ($value) => $value !== null))
             ->when($url !== null, fn (Notification $notification) => $notification->actions([
                 Action::make('view')->button()->url($url)->markAsRead(),
-            ]))
-            ->sendToDatabase($recipient);
+            ]));
+
+        // Phase 8.7 (D8.7-001/017): encrypted, on the `notifications` queue.
+        $recipient->notify(new StaffDatabaseNotification($notification->getDatabaseMessage()));
     }
 
     /**

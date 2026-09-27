@@ -8,6 +8,7 @@ use App\Models\CandidateApplication;
 use App\Models\Employee;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Fired by StageTransitionService after every stage or status change it writes (forward moves,
@@ -18,7 +19,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class CandidateStageChanged implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly CandidateApplication $application,

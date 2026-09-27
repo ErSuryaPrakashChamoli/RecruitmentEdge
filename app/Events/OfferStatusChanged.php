@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\Offer;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Any offer status transition made through OfferService::moveTo(), after it commits (Phase 7 —
@@ -15,7 +16,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class OfferStatusChanged implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(
         public readonly Offer $offer,

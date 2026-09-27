@@ -5,6 +5,7 @@ namespace App\Events;
 use App\Models\CandidateCommunication;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 /**
  * Fired when a candidate message is marked Failed or Bounced — by SendCommunicationJob (provider
@@ -12,7 +13,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 class CommunicationFailed implements ShouldDispatchAfterCommit
 {
-    use Dispatchable;
+    use Dispatchable, SerializesModels;
 
     public function __construct(public readonly CandidateCommunication $communication) {}
 }
