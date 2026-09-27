@@ -183,7 +183,7 @@ test('cancelling an effective separation restores employment but never silently 
 });
 
 test('outcomes recorded from a cancelled separation are voided, keeping the original version, then observed again', function (): void {
-    $employee = Employee::factory()->reportingTo($this->managerEmployee)->create();
+    $employee = Employee::factory()->reportingTo($this->managerEmployee)->create(['date_of_joining' => now()->subDays(40)]);
     $snapshot = HiringOutcomeSnapshot::factory()->create(['employee_id' => $employee->id, 'joined_on' => now()->subDays(40)->toDateString(), 'captured_at' => now()->subDays(40)]);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(20)->toDateString(), 'separation_reason' => 'resignation']);
     $recorded = HiringOutcome::query()->where('source_type', (new EmployeeSeparation)->getMorphClass())->where('source_id', $separation->id)->current()->sole();

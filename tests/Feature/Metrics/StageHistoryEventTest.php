@@ -30,7 +30,7 @@ test('every writer records what the row is', function (): void {
     $this->transitions->reactivate($application, $this->recruiter);
     $this->transitions->dropout($application->fresh(), $reason, $this->recruiter);
 
-    expect($application->stageHistory()->orderBy('id')->pluck('event')->map->value->all())->toBe([
+    expect($application->stageHistory()->reorder('id')->pluck('event')->map->value->all())->toBe([
         'stage_entered', 'held', 'reactivated', 'rejected', 'reactivated', 'dropped',
     ]);
 });
