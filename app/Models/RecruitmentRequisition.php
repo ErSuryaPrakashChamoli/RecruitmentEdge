@@ -9,6 +9,8 @@ use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
+use Carbon\CarbonImmutable;
 use Database\Factories\RecruitmentRequisitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -58,7 +60,7 @@ class RecruitmentRequisition extends Model
      */
     public function lifecycleAttributes(): array
     {
-        return ['status'];
+        return ['status', 'closed_at'];
     }
 
     public function lifecycleOwner(): string
@@ -79,6 +81,7 @@ class RecruitmentRequisition extends Model
             'experience_max' => 'decimal:1',
             'target_joining_date' => 'date',
             'opening_date' => 'date',
+            'closed_at' => 'datetime',
             'closing_date' => 'date',
             'pipeline_template_version' => 'integer',
             'pipeline_applied_at' => 'datetime',
@@ -298,9 +301,31 @@ class RecruitmentRequisition extends Model
         return max(0, $this->openings - $this->filledOpeningsCount());
     }
 
+    /**
+     * Phase 8.5 (requisition ageing): whole calendar days, in the business timezone, from the opening
+     * date (or creation date) to the close date — or today while the requisition is still open. Never
+     * negative: a requisition whose opening date is still ahead is 0 days old (isNotYetOpen()). A
+     * requisition closed before Phase 8.5 has no close date and keeps ageing to today
+     * (hasUnknownCloseDate()).
+     */
     public function ageingInDays(): int
     {
-        return (int) ($this->opening_date ?? $this->created_at)->diffInDays(now());
+        $opened = CarbonImmutable::parse(($this->opening_date ?? $this->created_at)->toDateString(), MetricPeriod::timezone());
+        $until = $this->closed_at !== null
+            ? CarbonImmutable::parse(MetricPeriod::businessDate($this->closed_at), MetricPeriod::timezone())
+            : MetricPeriod::now()->startOfDay();
+
+        return max(0, (int) $opened->diffInDays($until, false));
+    }
+
+    public function isNotYetOpen(): bool
+    {
+        return $this->opening_date !== null && $this->opening_date->toDateString() > MetricPeriod::now()->toDateString();
+    }
+
+    public function hasUnknownCloseDate(): bool
+    {
+        return in_array($this->status, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true) && $this->closed_at === null;
     }
 
     /**

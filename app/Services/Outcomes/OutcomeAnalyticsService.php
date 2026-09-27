@@ -16,9 +16,11 @@ use App\Models\HiringOutcomeSnapshot;
 use App\Models\RecruitmentRequisition;
 use App\Models\RecruitmentSetting;
 use App\Models\User;
+use App\Services\Metrics\MetricPeriod;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Outcome Loop™ (Phase 8.2): outcome metrics from recorded outcomes and hiring snapshots only.
@@ -28,6 +30,12 @@ use Illuminate\Support\Collection;
  * rate and never counted as failures; a rate is withheld below the insufficient-history threshold.
  * Voided outcomes are excluded. Scope follows requisition visibility (HierarchyService), so a
  * manager only sees aggregates of requisitions they can see.
+ *
+ * Phase 8.5: these are the registered outcome.* metrics (App\Services\Metrics\Definitions\Outcome*).
+ * Periods are business-timezone calendar days (MetricPeriod); every value derived from fewer than
+ * the insufficient-history threshold — averages, min/max, per-stage and per-source figures — is
+ * withheld here in the service, not only in the view; offer outcomes leave withdrawn offers out
+ * (D4); source-to-join uses the source frozen at the hire (D6).
  */
 class OutcomeAnalyticsService
 {
@@ -40,26 +48,48 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array{period: array{from: string, to: string}, freshness: ?string, metrics: array<string, array<string, mixed>>, unavailable: array<string, string>}
      */
-    public function report(User $user, array $filters = []): array
+    public function report(?User $user, array $filters = []): array
     {
-        [$from, $to] = $this->period($filters);
+        $period = $this->period($filters);
 
         $latest = $this->outcomes($user, $filters)->max('created_at');
 
         return [
-            'period' => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+            'period' => ['from' => $period->fromDate(), 'to' => $period->toDate()],
             'freshness' => $latest !== null ? CarbonImmutable::parse($latest)->toDateTimeString() : null,
             'metrics' => [
-                'joining' => $this->joining($user, $filters, $from, $to),
-                'offers' => $this->offers($user, $filters, $from, $to),
-                'time_to_hire' => $this->timeToHire($user, $filters, $from, $to),
-                'time_in_stage' => $this->timeInStage($user, $filters, $from, $to),
-                'source_to_join' => $this->sourceToJoin($user, $filters, $from, $to),
-                'interview_evidence' => $this->interviewEvidence($user, $filters, $from, $to),
-                'status_observations' => $this->statusObservations($user, $filters, $from, $to),
+                'joining' => $this->joining($user, $filters, $period),
+                'offers' => $this->offers($user, $filters, $period),
+                'time_to_hire' => $this->timeToHire($user, $filters, $period),
+                'time_in_stage' => $this->timeInStage($user, $filters, $period),
+                'source_to_join' => $this->sourceToJoin($user, $filters, $period),
+                'interview_evidence' => $this->interviewEvidence($user, $filters, $period),
+                'status_observations' => $this->statusObservations($user, $filters, $period),
             ],
             'unavailable' => OutcomeType::UNAVAILABLE,
         ];
+    }
+
+    /**
+     * One section of report() — the adapter the registered outcome.* metrics use.
+     *
+     * @param  'joining'|'offers'|'time_to_hire'|'time_in_stage'|'source_to_join'|'interview_evidence'|'status_observations'  $section
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    public function section(string $section, ?User $user, array $filters = []): array
+    {
+        $period = $this->period($filters);
+
+        return match ($section) {
+            'joining' => $this->joining($user, $filters, $period),
+            'offers' => $this->offers($user, $filters, $period),
+            'time_to_hire' => $this->timeToHire($user, $filters, $period),
+            'time_in_stage' => $this->timeInStage($user, $filters, $period),
+            'source_to_join' => $this->sourceToJoin($user, $filters, $period),
+            'interview_evidence' => $this->interviewEvidence($user, $filters, $period),
+            'status_observations' => $this->statusObservations($user, $filters, $period),
+        };
     }
 
     /**
@@ -68,7 +98,7 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return Builder<HiringOutcome>
      */
-    public function outcomes(User $user, array $filters = []): Builder
+    public function outcomes(?User $user, array $filters = []): Builder
     {
         $query = HiringOutcome::query()->current()->where('hiring_outcomes.state', '!=', OutcomeState::Void->value);
 
@@ -91,7 +121,7 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return Builder<HiringOutcomeSnapshot>
      */
-    public function snapshots(User $user, array $filters = []): Builder
+    public function snapshots(?User $user, array $filters = []): Builder
     {
         $query = HiringOutcomeSnapshot::query();
 
@@ -103,17 +133,17 @@ class OutcomeAnalyticsService
     }
 
     /**
-     * The requested period; the last 365 days by default.
+     * The requested period in business-timezone calendar days; the last 365 days by default. A
+     * reversed range is swapped.
      *
      * @param  array<string, mixed>  $filters
-     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
      */
-    public function period(array $filters): array
+    public function period(array $filters): MetricPeriod
     {
-        $to = filled($filters['to'] ?? null) ? CarbonImmutable::parse($filters['to'])->endOfDay() : CarbonImmutable::today()->endOfDay();
-        $from = filled($filters['from'] ?? null) ? CarbonImmutable::parse($filters['from'])->startOfDay() : $to->subDays(364)->startOfDay();
+        $to = filled($filters['to'] ?? null) ? CarbonImmutable::parse($filters['to'])->toDateString() : MetricPeriod::now()->toDateString();
+        $from = filled($filters['from'] ?? null) ? CarbonImmutable::parse($filters['from'])->toDateString() : CarbonImmutable::parse($to)->subDays(364)->toDateString();
 
-        return $from->gt($to) ? [$to->startOfDay(), $from->endOfDay()] : [$from, $to];
+        return $from > $to ? MetricPeriod::dates($to, $from) : MetricPeriod::dates($from, $to);
     }
 
     /**
@@ -124,9 +154,9 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return Builder<RecruitmentRequisition>|null
      */
-    private function requisitionScope(User $user, array $filters): ?Builder
+    private function requisitionScope(?User $user, array $filters): ?Builder
     {
-        $viewAll = $user->can('hierarchy.view-all');
+        $viewAll = $user === null || $user->can('hierarchy.view-all');
         $narrowed = collect(['department_id', 'designation_id', 'location_id', 'requisition_id'])->contains(fn (string $key) => filled($filters[$key] ?? null));
 
         if ($viewAll && ! $narrowed) {
@@ -146,11 +176,11 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function joining(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function joining(?User $user, array $filters, MetricPeriod $period): array
     {
         $counts = $this->outcomes($user, $filters)
             ->whereIn('outcome_type', [OutcomeType::Joined->value, OutcomeType::NoShow->value, OutcomeType::Dropout->value])
-            ->whereBetween('observed_at', [$from, $to])
+            ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'hiring_outcomes.observed_at'))
             ->selectRaw('outcome_type, count(*) as total')
             ->groupBy('outcome_type')
             ->pluck('total', 'outcome_type');
@@ -182,11 +212,11 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function offers(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function offers(?User $user, array $filters, MetricPeriod $period): array
     {
         $released = $this->outcomes($user, $filters)
             ->where('outcome_type', OutcomeType::OfferReleased->value)
-            ->whereBetween('observed_at', [$from, $to])
+            ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'hiring_outcomes.observed_at'))
             ->select('offer_id');
 
         $reached = HiringOutcome::query()->current()
@@ -197,21 +227,25 @@ class OutcomeAnalyticsService
 
         $releasedCount = (clone $released)->distinct()->count('offer_id');
         $accepted = $reached->where('outcome_type', OutcomeType::OfferAccepted)->pluck('offer_id')->unique()->count();
-        $decided = $reached->pluck('offer_id')->unique()->count();
+        // Phase 8.5 (D4): a withdrawal is the employer's action, not the candidate's decision — a
+        // withdrawn offer is left out of the rate (and counted), unless the candidate had decided first.
+        $candidateDecided = $reached->whereIn('outcome_type', [OutcomeType::OfferAccepted, OutcomeType::OfferRejected, OutcomeType::OfferExpired])->pluck('offer_id')->unique();
+        $withdrawnOnly = $reached->where('outcome_type', OutcomeType::OfferWithdrawn)->pluck('offer_id')->unique()->diff($candidateDecided)->count();
+        $decided = $candidateDecided->count();
         $byStatus = collect([OutcomeType::OfferAccepted, OutcomeType::OfferRejected, OutcomeType::OfferExpired, OutcomeType::OfferWithdrawn])
             ->mapWithKeys(fn (OutcomeType $type) => [$type->value => $reached->where('outcome_type', $type)->pluck('offer_id')->unique()->count()])
             ->all();
 
         return $this->metric(
             label: 'Offer outcomes',
-            definition: 'Accepted ÷ offers with a decision (accepted, rejected, expired or withdrawn), among offers released in the period, from the offer status history. Release never implies acceptance.',
+            definition: 'Accepted ÷ offers the candidate decided (accepted, rejected or expired), among offers released in the period, from the offer status history. Withdrawn offers are an employer action and are left out. Release never implies acceptance.',
             population: 'Offers released in the period.',
             sampleSize: $decided,
             value: $decided > 0 ? round($accepted / $decided * 100, 1) : null,
             unit: '%',
-            unknown: max(0, $releasedCount - $decided),
-            unknownHandling: 'Released offers still awaiting a decision are shown separately and left out of the rate.',
-            extra: ['counts' => ['released' => $releasedCount, ...$byStatus, 'awaiting_decision' => max(0, $releasedCount - $decided)]],
+            unknown: max(0, $releasedCount - $decided - $withdrawnOnly),
+            unknownHandling: 'Released offers still awaiting a decision are shown separately and left out of the rate; withdrawn offers are counted but left out.',
+            extra: ['counts' => ['released' => $releasedCount, ...$byStatus, 'awaiting_decision' => max(0, $releasedCount - $decided - $withdrawnOnly)], 'excluded_withdrawn' => $withdrawnOnly],
         );
     }
 
@@ -219,11 +253,11 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function timeToHire(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function timeToHire(?User $user, array $filters, MetricPeriod $period): array
     {
         $rows = $this->outcomes($user, $filters)
             ->where('outcome_type', OutcomeType::TimeToHire->value)
-            ->whereBetween('observed_at', [$from, $to])
+            ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'hiring_outcomes.observed_at'))
             ->get(['result', 'value']);
 
         $values = $rows->where('result', OutcomeResult::Measured)->pluck('value')->map(fn ($value) => (float) $value)->sort()->values();
@@ -238,7 +272,9 @@ class OutcomeAnalyticsService
             unit: 'days (median)',
             unknown: $rows->where('result', OutcomeResult::Unknown)->count(),
             unknownHandling: 'Joins without a start date are counted as unknown and left out of the median and average.',
-            extra: ['average' => $values->isNotEmpty() ? round($values->avg(), 1) : null, 'min' => $values->first(), 'max' => $values->last()],
+            extra: $this->sufficient($values->count())
+                ? ['average' => round($values->avg(), 1), 'min' => $values->first(), 'max' => $values->last()]
+                : ['average' => null, 'min' => null, 'max' => null],
         );
     }
 
@@ -246,14 +282,14 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function timeInStage(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function timeInStage(?User $user, array $filters, MetricPeriod $period): array
     {
         $durations = [];
         $hires = 0;
         $withoutHistory = 0;
 
         $this->snapshots($user, $filters)
-            ->whereBetween('joined_on', [$from->toDateString(), $to->toDateString()])
+            ->tap(fn (Builder $q) => $period->whereDateColumn($q, 'joined_on'))
             ->select(['id', 'facts'])
             ->lazyById(500)
             ->each(function (HiringOutcomeSnapshot $snapshot) use (&$durations, &$hires, &$withoutHistory): void {
@@ -273,7 +309,7 @@ class OutcomeAnalyticsService
             ->map(fn (array $days, string $stage) => [
                 'stage' => $stage,
                 'label' => CandidateStage::tryFrom($stage)?->label() ?? str_replace('_', ' ', ucfirst($stage)),
-                'average_days' => round(array_sum($days) / count($days), 1),
+                'average_days' => $this->sufficient(count($days)) ? round(array_sum($days) / count($days), 1) : null,
                 'sample_size' => count($days),
                 'band' => OutcomeSampleBand::forSize(count($days)),
             ])
@@ -282,8 +318,8 @@ class OutcomeAnalyticsService
             ->all();
 
         return $this->metric(
-            label: 'Time in stage',
-            definition: 'Average days spent in each pipeline stage before joining, from the immutable stage history captured at the join.',
+            label: 'Time in stage (last visit)',
+            definition: 'Average days spent in each pipeline stage before joining, from the stage history captured at the join. A stage visited more than once counts its last visit only (hiring-snapshot/1); the pipeline Time in Stage metric adds up every visit.',
             population: 'Completed joins with an actual joining date in the period.',
             sampleSize: $hires - $withoutHistory,
             value: null,
@@ -298,19 +334,22 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function sourceToJoin(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function sourceToJoin(?User $user, array $filters, MetricPeriod $period): array
     {
         $rows = $this->outcomes($user, $filters)
             ->whereIn('hiring_outcomes.outcome_type', [OutcomeType::Joined->value, OutcomeType::NoShow->value, OutcomeType::Dropout->value])
-            ->whereBetween('hiring_outcomes.observed_at', [$from, $to])
+            ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'hiring_outcomes.observed_at'))
             ->join('candidate_applications', 'candidate_applications.id', '=', 'hiring_outcomes.candidate_application_id')
             ->join('candidates', 'candidates.id', '=', 'candidate_applications.candidate_id')
-            ->leftJoin('candidate_sources', 'candidate_sources.id', '=', 'candidates.source_id')
+            // Phase 8.5 (D6): a hire's source is the one frozen in its snapshot; no-shows and dropouts
+            // (no snapshot) use the candidate's current source.
+            ->leftJoin('hiring_outcome_snapshots', 'hiring_outcome_snapshots.candidate_joining_id', '=', 'hiring_outcomes.candidate_joining_id')
+            ->leftJoin('candidate_sources', 'candidate_sources.id', '=', DB::raw('coalesce(hiring_outcome_snapshots.source_id, candidates.source_id)'))
             ->selectRaw('candidate_sources.name as source_name, hiring_outcomes.outcome_type as type, count(*) as total')
             ->groupBy('candidate_sources.name', 'hiring_outcomes.outcome_type')
             ->get();
 
-        $sources = $rows->groupBy(fn ($row) => $row->source_name ?? 'Source not recorded')
+        $sources = $rows->groupBy(fn ($row) => $row->source_name ?? 'Not recorded')
             ->map(function (Collection $group, string $source) {
                 $joined = (int) $group->firstWhere('type', OutcomeType::Joined->value)?->total;
                 $decided = (int) $group->sum('total');
@@ -332,13 +371,13 @@ class OutcomeAnalyticsService
 
         return $this->metric(
             label: 'Source to join',
-            definition: 'Per candidate source: joined ÷ (joined + no-show + dropout). Observational — a source is one factor among many, never a cause.',
+            definition: 'Per candidate source (the source frozen at the hire): joined ÷ (joined + no-show + dropout). Observational — a source is one factor among many, never a cause.',
             population: 'Joining records that reached a final status in the period, grouped by the candidate source.',
             sampleSize: (int) $rows->sum('total'),
             value: null,
             unit: '%',
             unknown: 0,
-            unknownHandling: 'A source with fewer than '.config('outcomes.sample.insufficient_below', 3).' final outcomes shows its counts only — no rate. Candidates without a source are grouped as "Source not recorded".',
+            unknownHandling: 'A source with fewer than '.config('outcomes.sample.insufficient_below', 3).' final outcomes shows its counts only — no rate. Candidates without a source are grouped as "Not recorded".',
             extra: ['sources' => $sources],
         );
     }
@@ -347,7 +386,7 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function interviewEvidence(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function interviewEvidence(?User $user, array $filters, MetricPeriod $period): array
     {
         $hires = 0;
         $withFeedback = 0;
@@ -356,7 +395,7 @@ class OutcomeAnalyticsService
         $recommendations = [];
 
         $this->snapshots($user, $filters)
-            ->whereBetween('joined_on', [$from->toDateString(), $to->toDateString()])
+            ->tap(fn (Builder $q) => $period->whereDateColumn($q, 'joined_on'))
             ->select(['id', 'facts'])
             ->lazyById(500)
             ->each(function (HiringOutcomeSnapshot $snapshot) use (&$hires, &$withFeedback, &$rounds, &$scores, &$recommendations): void {
@@ -391,7 +430,7 @@ class OutcomeAnalyticsService
             unit: 'average score',
             unknown: $hires - $withFeedback,
             unknownHandling: 'Hires with no recorded feedback are counted separately. Missing feedback is not a negative signal.',
-            extra: ['hires' => $hires, 'average_rounds' => $rounds !== [] ? round(array_sum($rounds) / count($rounds), 1) : null, 'recommendations' => $recommendations],
+            extra: ['hires' => $hires, 'average_rounds' => $rounds !== [] && $this->sufficient(count($rounds)) ? round(array_sum($rounds) / count($rounds), 1) : null, 'recommendations' => $recommendations],
         );
     }
 
@@ -399,9 +438,9 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    private function statusObservations(User $user, array $filters, CarbonImmutable $from, CarbonImmutable $to): array
+    private function statusObservations(?User $user, array $filters, MetricPeriod $period): array
     {
-        $cohort = fn () => $this->snapshots($user, $filters)->whereBetween('joined_on', [$from->toDateString(), $to->toDateString()]);
+        $cohort = fn () => $this->snapshots($user, $filters)->tap(fn (Builder $q) => $period->whereDateColumn($q, 'joined_on'));
         $hires = $cohort()->count();
 
         $checkpoints = collect(OutcomeType::statusObservations())->map(function (OutcomeType $type) use ($cohort, $hires) {
@@ -456,7 +495,7 @@ class OutcomeAnalyticsService
      * @param  array<string, mixed>  $filters
      * @return Builder<CandidateApplication>
      */
-    private function applicationScope(User $user, array $filters): Builder
+    private function applicationScope(?User $user, array $filters): Builder
     {
         return CandidateApplication::query()
             ->when($this->requisitionScope($user, $filters), fn (Builder $query, Builder $requisitions) => $query->whereIn('requisition_id', $requisitions))
@@ -471,6 +510,11 @@ class OutcomeAnalyticsService
             'requisition_opened' => 'requisition opened',
             default => 'candidate applied',
         };
+    }
+
+    private function sufficient(int $size): bool
+    {
+        return OutcomeSampleBand::forSize($size)->isSufficient();
     }
 
     /**

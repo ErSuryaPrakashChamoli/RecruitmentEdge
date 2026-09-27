@@ -46,7 +46,10 @@ class HiringSnapshotService
         $joinedOn = $joining->actual_doj ?? $joining->expected_doj;
         $startPoint = (string) RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
         $start = RecruitmentAnalyticsService::timeToHireStart($application, $startPoint);
-        $timeToHire = $start !== null ? (int) $start->copy()->startOfDay()->diffInDays($joinedOn->copy()->startOfDay()) : null;
+        // Phase 8.5 (D2, hiring-snapshot/2): time to hire ends only at the actual joining date. A legacy
+        // Joined record without one keeps joined_on = expected date as its retention anchor, but its
+        // time to hire is unknown rather than measured to a planned date.
+        $timeToHire = $start !== null && $joining->actual_doj !== null ? (int) $start->copy()->startOfDay()->diffInDays($joining->actual_doj->copy()->startOfDay()) : null;
 
         // Phase 8.3: a start date after the joining date is bad source data — time to hire is
         // unknown, never negative (and never a failed capture).
@@ -67,7 +70,7 @@ class HiringSnapshotService
             'referral' => $candidate->referral_employee_id !== null,
             'origin_channel' => $application->origin_channel,
             'stage_days' => $this->memory->stageDurations($application),
-            'time_to_hire' => $start !== null ? ['start_point' => $startPoint, 'start_date' => $start->toDateString(), 'end_date' => $joinedOn->toDateString(), 'days' => $timeToHire] : null,
+            'time_to_hire' => $start !== null && $joining->actual_doj !== null ? ['start_point' => $startPoint, 'start_date' => $start->toDateString(), 'end_date' => $joining->actual_doj->toDateString(), 'days' => $timeToHire] : null,
             'interviews' => $this->interviewSummary($application->interviews),
             'offer' => $joining->offer !== null ? [
                 'offer_ref' => $joining->offer->offer_code,

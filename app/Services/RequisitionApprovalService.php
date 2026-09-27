@@ -135,7 +135,11 @@ class RequisitionApprovalService
         }
 
         return DB::transaction(fn (): RecruitmentRequisition => LifecycleGuard::allow(function () use ($requisition, $from, $to, $actor, $remarks): RecruitmentRequisition {
-            $requisition->forceFill(['status' => $to])->save();
+            $requisition->forceFill([
+                'status' => $to,
+                // Phase 8.5: closed and cancelled are terminal, so the requisition's age stops here.
+                ...(in_array($to, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true) ? ['closed_at' => now()] : []),
+            ])->save();
 
             $requisition->statusHistory()->create([
                 'from_status' => $from,

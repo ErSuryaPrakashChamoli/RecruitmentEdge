@@ -27,7 +27,11 @@ class HiringOutcomeSnapshot extends Model
     /** @use HasFactory<HiringOutcomeSnapshotFactory> */
     use HasFactory;
 
-    public const string RULES_VERSION = 'hiring-snapshot/1';
+    /**
+     * hiring-snapshot/2 (Phase 8.5 D2): time to hire ends only at the actual joining date. Snapshots
+     * captured under /1 keep their stored values and version.
+     */
+    public const string RULES_VERSION = 'hiring-snapshot/2';
 
     protected function casts(): array
     {

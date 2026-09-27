@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'candidate_application_id',
@@ -61,10 +62,17 @@ class CandidateJoining extends Model
 
     /**
      * Section 17's traffic-light risk indicator, driven by the configurable
-     * `joining_risk_followup_days` setting rather than a hard-coded threshold.
+     * `joining_risk_followup_days` setting rather than a hard-coded threshold: green, yellow, red,
+     * or closed (a cancelled joining).
      */
     public function riskLevel(): string
     {
+        // Phase 8.5 (DF-8): a cancelled joining is closed — it no longer falls through to the date
+        // rules and shows as an overdue (red) or approaching (yellow) joining.
+        if ($this->status === JoiningStatus::Cancelled) {
+            return 'closed';
+        }
+
         if ($this->status === JoiningStatus::Joined) {
             return 'green';
         }
@@ -118,6 +126,16 @@ class CandidateJoining extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * The Outcome Loop snapshot frozen when this joining was marked Joined (Phase 8.2).
+     *
+     * @return HasOne<HiringOutcomeSnapshot, $this>
+     */
+    public function outcomeSnapshot(): HasOne
+    {
+        return $this->hasOne(HiringOutcomeSnapshot::class, 'candidate_joining_id');
     }
 
     /**

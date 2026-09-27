@@ -5,6 +5,7 @@ use App\Enums\CandidateStage;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Enums\JoiningStatus;
+use App\Enums\MetricResultStatus;
 use App\Enums\OfferStatus;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
@@ -130,19 +131,27 @@ test('vacancyAgeing returns only open requisitions past the configured threshold
         ->and($all[$fresh->id]['is_overdue'])->toBeFalse();
 });
 
-test('averageTimeToHireDays is null when there are no joins in the period', function (): void {
-    expect($this->service->averageTimeToHireDays($this->start, $this->end))->toBeNull();
+test('timeToHire has no value when there are no joins in the period', function (): void {
+    $result = $this->service->timeToHire($this->start, $this->end);
+
+    expect($result->value)->toBeNull()
+        ->and($result->status)->toBe(MetricResultStatus::NoData);
 });
 
-test('averageTimeToHireDays measures from application_date to actual_doj by default', function (): void {
-    $application = CandidateApplication::factory()->create(['application_date' => now()->subDays(10)]);
-    CandidateJoining::factory()->create([
-        'candidate_application_id' => $application->id,
-        'status' => JoiningStatus::Joined,
-        'actual_doj' => now(),
-    ]);
+test('timeToHire is the median from application_date to actual_doj by default, with the mean alongside', function (): void {
+    foreach ([10, 12, 20] as $days) {
+        CandidateJoining::factory()->create([
+            'candidate_application_id' => CandidateApplication::factory()->create(['application_date' => now()->subDays($days)])->id,
+            'status' => JoiningStatus::Joined,
+            'actual_doj' => now(),
+        ]);
+    }
 
-    expect($this->service->averageTimeToHireDays($this->start, $this->end))->toBe(10.0);
+    $result = $this->service->timeToHire($this->start, $this->end);
+
+    expect($result->value)->toBe(12.0)
+        ->and($result->detail('mean'))->toBe(14.0)
+        ->and($result->sampleSize)->toBe(3);
 });
 
 test('turnUpAnalysis computes the turn-up ratio from interview statuses', function (): void {
@@ -155,11 +164,12 @@ test('turnUpAnalysis computes the turn-up ratio from interview statuses', functi
 
     $result = $this->service->turnUpAnalysis($this->start, $this->end);
 
-    expect($result['lineups'])->toBe(4)
+    // Phase 8.5: a cancelled interview never took place, so it is not a line-up that failed to turn up.
+    expect($result['lineups'])->toBe(3)
         ->and($result['turnups'])->toBe(2)
         ->and($result['no_shows'])->toBe(1)
         ->and($result['cancelled'])->toBe(1)
-        ->and($result['turnup_percent'])->toBe(50.0);
+        ->and($result['turnup_percent'])->toBe(66.7);
 });
 
 test('turnUpAnalysis returns a null turnup_percent when there are no line-ups', function (): void {
@@ -298,20 +308,23 @@ test('interviewAnalytics returns null percentages for an empty period instead of
         ->and($result['selection_percent'])->toBeNull();
 });
 
-test('offerAnalytics computes acceptance percent from decided offers only', function (): void {
-    Offer::factory()->create(['status' => OfferStatus::Accepted, 'offer_date' => now()]);
-    Offer::factory()->create(['status' => OfferStatus::Rejected, 'offer_date' => now()]);
-    Offer::factory()->create(['status' => OfferStatus::Released, 'offer_date' => now()]);
+test('offerAnalytics computes acceptance over released offers the candidate decided, leaving withdrawn out', function (): void {
+    foreach ([OfferStatus::Accepted, OfferStatus::Accepted, OfferStatus::Rejected, OfferStatus::Expired, OfferStatus::Withdrawn, OfferStatus::Released] as $status) {
+        analyticsReleasedOffer($status);
+    }
 
     $result = $this->service->offerAnalytics($this->start, $this->end);
 
-    expect($result['generated'])->toBe(3)
+    expect($result['generated'])->toBe(6)
+        ->and($result['released'])->toBe(6)
         ->and($result['pending'])->toBe(1)
-        ->and($result['acceptance_percent'])->toBe(50.0);
+        ->and($result['withdrawn'])->toBe(1)
+        ->and($result['acceptance_percent'])->toBe(50.0)
+        ->and($result['decided_acceptance_percent'])->toBe(66.7);
 });
 
 test('offerAnalytics leaves acceptance_percent null when no offers have been decided', function (): void {
-    Offer::factory()->create(['status' => OfferStatus::Released, 'offer_date' => now()]);
+    analyticsReleasedOffer(OfferStatus::Released);
 
     $result = $this->service->offerAnalytics($this->start, $this->end);
 
@@ -331,8 +344,11 @@ test('joiningAnalytics reports the near-term joining schedule and the joining pe
 
     $result = $this->service->joiningAnalytics($this->start, $this->end);
 
-    expect($result['joined'])->toBe(1)
-        ->and($result['joining_percent'])->toBe(100.0)
+    // Phase 8.5: a hire is dated by its actual joining date (none here), and one outcome is too few
+    // for a join rate — the old Selection -> Joining ratio is retired.
+    expect($result['joined'])->toBe(0)
+        ->and($result['join_rate_percent'])->toBeNull()
+        ->and($result)->not->toHaveKey('joining_percent')
         ->and($result['today'])->toBe(0)
         ->and($result['tomorrow'])->toBe(1);
 });
@@ -379,9 +395,11 @@ test('offerAnalytics reports released offers, acceptance of released, average CT
 
     $result = $this->service->offerAnalytics($this->start, $this->end);
 
+    // Two decided offers are below the minimum sample, and three offer figures are below the
+    // compensation group minimum: both are withheld, never shown as a misleading number.
     expect($result['released'])->toBe(2)
-        ->and($result['released_acceptance_percent'])->toBe(50.0)
-        ->and($result['average_offered_ctc'])->toBe(500000.0)
+        ->and($result['acceptance_percent'])->toBeNull()
+        ->and($result['average_offered_ctc'])->toBeNull()
         ->and($result['average_days_selection_to_offer'])->toBe(5.0);
 });
 
@@ -397,9 +415,10 @@ test('joiningAnalytics reports offer accepted to joined conversion separately fr
 
     $result = $this->service->joiningAnalytics($this->start, $this->end);
 
+    // The second accepted offer has no joining yet: it is awaiting, not "did not join".
     expect($result['accepted'])->toBe(2)
         ->and($result['accepted_joined'])->toBe(1)
-        ->and($result['offer_to_join_percent'])->toBe(50.0);
+        ->and($result['offer_to_join_percent'])->toBeNull();
 });
 
 test('joiningTrend returns daily expected vs joined buckets for a short range', function (): void {
@@ -429,3 +448,14 @@ test('joiningTrend buckets a long range by calendar month', function (): void {
         ->and($rows['Mar 2026']['expected'])->toBe(1)
         ->and($rows['Apr 2026']['joined'])->toBe(1);
 });
+
+/**
+ * An offer released now, currently at $status.
+ */
+function analyticsReleasedOffer(OfferStatus $status): Offer
+{
+    $offer = Offer::factory()->create(['status' => $status, 'offer_date' => now()]);
+    $offer->statusHistory()->create(['from_status' => OfferStatus::Initiated, 'to_status' => OfferStatus::Released]);
+
+    return $offer;
+}
