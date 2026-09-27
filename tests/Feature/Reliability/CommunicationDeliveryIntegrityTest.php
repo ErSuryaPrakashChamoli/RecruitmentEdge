@@ -294,3 +294,18 @@ test('a delivery report that arrives before the message id is saved is held and 
         ->and(deliverNow($message)->status)->toBe(CommunicationStatus::Delivered)
         ->and($message->fresh()->delivered_at)->not->toBeNull();
 });
+
+test('running the sweep again changes nothing more: each stuck item is handled once', function (): void {
+    Event::fake([CommunicationFailed::class]);
+    $sending = CandidateCommunication::factory()->create();
+    CandidateCommunication::query()->whereKey($sending->id)->update(['status' => CommunicationStatus::Sending->value, 'updated_at' => now()->subHour()]);
+    $interrupted = AiToolCall::factory()->create(['status' => AiToolCallStatus::Approved, 'approved_at' => now()->subHour()]);
+
+    $this->artisan('reliability:sweep')->assertSuccessful();
+    $this->artisan('reliability:sweep')->assertSuccessful();
+
+    Event::assertDispatchedTimes(CommunicationFailed::class, 1);
+    expect(AuditLog::query()->where('action', 'communication_failed')->where('auditable_id', $sending->id)->count())->toBe(1)
+        ->and(AuditLog::query()->where('action', 'ai_action_interrupted')->where('auditable_id', $interrupted->id)->count())->toBe(1)
+        ->and($interrupted->fresh()->result()->count())->toBe(1);
+});

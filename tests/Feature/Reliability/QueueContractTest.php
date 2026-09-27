@@ -1,6 +1,10 @@
 <?php
 
+use App\Jobs\AI\ReindexKnowledgeArticleJob;
+use App\Models\AiKnowledgeArticle;
+use App\Services\AI\Rag\DocumentIngestionService;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
@@ -48,3 +52,13 @@ arch('every domain event is dispatched only after its transaction commits')
 arch('queued jobs reach AI only through the gateway, never a provider directly')
     ->expect('App\Jobs')
     ->not->toUse('App\Services\AI\Providers');
+
+test('a knowledge reindex that runs after the article was unpublished indexes nothing (SEC-87-09)', function (): void {
+    $article = AiKnowledgeArticle::factory()->create(['is_published' => false]);
+    $ingestion = Mockery::mock(DocumentIngestionService::class);
+    $ingestion->shouldReceive('ingestKnowledgeArticle')->never();
+
+    (new ReindexKnowledgeArticleJob($article->id))->handle($ingestion);
+
+    expect(new ReindexKnowledgeArticleJob($article->id))->toBeInstanceOf(ShouldBeUniqueUntilProcessing::class);
+});
