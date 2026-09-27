@@ -8,6 +8,7 @@ use App\Services\Automation\AutomationEventRegistry;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Time-based automation sweep (Phase 6): for each Active rule with a schedule trigger, runs the
@@ -36,7 +37,16 @@ class DispatchAutomationRules extends Command
         $totalCreated = 0;
 
         foreach ($rules as $rule) {
-            $result = $engine->sweep($rule, $limit, (bool) $this->option('dry-run'), $this->option('entity') !== null ? (int) $this->option('entity') : null);
+            // Phase 8.7 (D8.7-011): one rule's failure never stops the other rules' sweeps.
+            try {
+                $result = $engine->sweep($rule, $limit, (bool) $this->option('dry-run'), $this->option('entity') !== null ? (int) $this->option('entity') : null);
+            } catch (Throwable $e) {
+                report($e);
+                $this->error("{$rule->key}: sweep failed; the other rules still ran.");
+
+                continue;
+            }
+
             $totalMatched += $result['matched'];
             $totalCreated += $result['created'];
 

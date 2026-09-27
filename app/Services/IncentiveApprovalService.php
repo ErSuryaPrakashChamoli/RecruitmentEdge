@@ -10,6 +10,7 @@ use App\Models\RecruiterIncentiveCalculation;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The only code path allowed to change an incentive calculation's status, record a payment, or
@@ -313,12 +314,18 @@ class IncentiveApprovalService
             ->whereDate('retention_due_at', '<=', now())
             ->get();
 
-        $due->each(fn (RecruiterIncentiveCalculation $calculation) => $this->moveTo(
-            $calculation,
-            IncentiveCalculationStatus::PendingVerification,
-            remarks: 'Retention period completed',
-        ));
+        // Phase 8.7 (D8.7-011): one calculation that cannot move never stops the others.
+        $released = 0;
 
-        return $due->count();
+        foreach ($due as $calculation) {
+            try {
+                $this->moveTo($calculation, IncentiveCalculationStatus::PendingVerification, remarks: 'Retention period completed');
+                $released++;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        return $released;
     }
 }

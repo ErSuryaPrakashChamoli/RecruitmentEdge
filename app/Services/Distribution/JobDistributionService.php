@@ -15,6 +15,7 @@ use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * The Job Distribution Engine (Phase 5): Approved (Open) requisition → posting → channels
@@ -196,9 +197,19 @@ class JobDistributionService
                 ->orWhereHas('requisition', fn ($r) => $r->where('status', '!=', RequisitionStatus::Open)))
             ->get();
 
-        $stale->each(fn (JobPosting $posting) => $this->unpublish($posting, reason: 'Requisition no longer open or closing date passed'));
+        // Phase 8.7 (D8.7-011): one posting that cannot close never stops the others.
+        $closed = 0;
 
-        return $stale->count();
+        foreach ($stale as $posting) {
+            try {
+                $this->unpublish($posting, reason: 'Requisition no longer open or closing date passed');
+                $closed++;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        return $closed;
     }
 
     private function uniqueSlug(string $source): string

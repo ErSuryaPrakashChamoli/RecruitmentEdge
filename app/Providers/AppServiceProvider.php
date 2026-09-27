@@ -18,6 +18,7 @@ use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
+use App\Services\SchedulerHeartbeat;
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
 use Filament\Auth\Notifications\ResetPassword;
 use Filament\Facades\Filament;
@@ -25,6 +26,10 @@ use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -98,6 +103,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
 
         $this->configureAsyncContext();
+        $this->configureSchedulerHeartbeat();
 
         $this->configureTables();
         $this->configurePortalRateLimits();
@@ -221,6 +227,17 @@ class AppServiceProvider extends ServiceProvider
 
         Queue::after(fn () => AuditLog::setDefaultActorKind(null));
         Queue::failing(fn () => AuditLog::setDefaultActorKind(null));
+    }
+
+    /**
+     * Phase 8.7 (D8.7-021/028): every scheduled task's outcome is the scheduler's heartbeat.
+     */
+    private function configureSchedulerHeartbeat(): void
+    {
+        Event::listen(ScheduledTaskFinished::class, fn (ScheduledTaskFinished $event) => app(SchedulerHeartbeat::class)->record($event->task, $event->task->exitCode === 0 || $event->task->runInBackground ? 'finished' : 'failed'));
+        Event::listen(ScheduledBackgroundTaskFinished::class, fn (ScheduledBackgroundTaskFinished $event) => app(SchedulerHeartbeat::class)->record($event->task, $event->task->exitCode === 0 ? 'finished' : 'failed'));
+        Event::listen(ScheduledTaskFailed::class, fn (ScheduledTaskFailed $event) => app(SchedulerHeartbeat::class)->record($event->task, 'failed'));
+        Event::listen(ScheduledTaskSkipped::class, fn (ScheduledTaskSkipped $event) => app(SchedulerHeartbeat::class)->record($event->task, 'skipped'));
     }
 
     private static function isScheduledRun(string $command): bool

@@ -12,6 +12,7 @@ use App\Services\Communication\MessageContext;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Throwable;
 
 /**
  * Scheduled candidate reminders (Phase 5E): interviews in the next reminder window and joinings a
@@ -40,7 +41,12 @@ class SendCandidateReminders extends Command
             ->with('candidateApplication.candidate', 'candidateApplication.requisition.designation', 'candidateApplication.recruiter')
             ->chunkById(200, function ($interviews) use ($communications, &$sent): void {
                 foreach ($interviews as $interview) {
-                    $sent += count($communications->sendAutomatic('interview_reminder', MessageContext::forInterview($interview), "interview.reminder:{$interview->id}:{$interview->scheduled_at->timestamp}", trigger: CommunicationTrigger::Reminder));
+                    // Phase 8.7 (D8.7-011): one reminder that cannot be built never stops the rest.
+                    try {
+                        $sent += count($communications->sendAutomatic('interview_reminder', MessageContext::forInterview($interview), "interview.reminder:{$interview->id}:{$interview->scheduled_at->timestamp}", trigger: CommunicationTrigger::Reminder));
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
                 }
             });
 
@@ -50,8 +56,12 @@ class SendCandidateReminders extends Command
             ->with('candidateApplication.candidate', 'candidateApplication.requisition.designation', 'candidateApplication.recruiter')
             ->chunkById(200, function ($joinings) use ($communications, &$sent): void {
                 foreach ($joinings as $joining) {
-                    $application = $joining->candidateApplication;
-                    $sent += count($communications->sendAutomatic('joining_reminder', new MessageContext($application->candidate, $application, joining: $joining), "joining.reminder:{$joining->id}:{$joining->expected_doj->toDateString()}", trigger: CommunicationTrigger::Reminder));
+                    try {
+                        $application = $joining->candidateApplication;
+                        $sent += count($communications->sendAutomatic('joining_reminder', new MessageContext($application->candidate, $application, joining: $joining), "joining.reminder:{$joining->id}:{$joining->expected_doj->toDateString()}", trigger: CommunicationTrigger::Reminder));
+                    } catch (Throwable $e) {
+                        report($e);
+                    }
                 }
             });
 

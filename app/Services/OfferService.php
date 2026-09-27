@@ -22,6 +22,7 @@ use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The only code path allowed to change an offer's status. Every change is written atomically with
@@ -382,9 +383,19 @@ class OfferService
             ->whereDate('offer_expiry', '<', today()->toDateString())
             ->get();
 
-        $lapsed->each(fn (Offer $offer) => $this->moveTo($offer, OfferStatus::Expired, remarks: 'Offer validity lapsed'));
+        // Phase 8.7 (D8.7-011): one offer that cannot expire never stops the others.
+        $expired = 0;
 
-        return $lapsed->count();
+        foreach ($lapsed as $offer) {
+            try {
+                $this->moveTo($offer, OfferStatus::Expired, remarks: 'Offer validity lapsed');
+                $expired++;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        return $expired;
     }
 
     /**

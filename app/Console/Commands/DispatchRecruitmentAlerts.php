@@ -30,6 +30,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Threshold/time-driven proactive alerts (Section 40) that have no single triggering write —
@@ -79,7 +80,13 @@ class DispatchRecruitmentAlerts extends Command
                 continue;
             }
 
-            $sent += $check();
+            // Phase 8.7 (D8.7-011): one failing check never stops the others.
+            try {
+                $sent += $check();
+            } catch (Throwable $e) {
+                report($e);
+                $this->error("Check {$key} failed; the others still ran.");
+            }
         }
 
         $this->info("Dispatched {$sent} recruitment alert(s).");

@@ -12,6 +12,7 @@ use App\Models\RecruiterPerformanceSnapshot;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Computes a recruiter's composite performance score for a period as a weighted average of each
@@ -133,8 +134,13 @@ class PerformanceEngine
         $this->activeRecruitersQuery($visibleEmployeeIds)
             ->lazyById()
             ->each(function (Employee $recruiter) use ($start, $end, $force, &$count): void {
-                $this->snapshotFor($recruiter, $start, $end, $force);
-                $count++;
+                // Phase 8.7 (D8.7-011): one recruiter's failure never stops the others' snapshots.
+                try {
+                    $this->snapshotFor($recruiter, $start, $end, $force);
+                    $count++;
+                } catch (Throwable $e) {
+                    report($e);
+                }
             });
 
         return $count;
