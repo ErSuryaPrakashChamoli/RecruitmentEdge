@@ -441,6 +441,14 @@ class AutomationEngine
             return;
         }
 
+        // Phase 8.4: a rule runs on its owner's current authority, never on what they once had.
+        if (($problem = app(AutomationRuleService::class)->ownerAuthorityProblem($rule)) !== null) {
+            app(AutomationRuleService::class)->pauseForAuthority($rule, $problem);
+            $this->finish($execution, AutomationExecutionStatus::Cancelled, skip: "The rule was paused: {$problem}.");
+
+            return;
+        }
+
         $context = AutomationContext::fromExecution($execution);
 
         if ($context === null) {

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\EmployeeStatus;
 use App\Enums\InterviewStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
@@ -112,6 +113,11 @@ class ApplicationAssignmentService
 
         if (! $this->hierarchy->canView($actor, $recruiter)) {
             throw new DomainException('Choose a recruiter in your own team.');
+        }
+
+        // Phase 8.4: current responsibility only ever moves to someone who is currently employed.
+        if ($recruiter->trashed() || $recruiter->status !== EmployeeStatus::Active) {
+            throw new DomainException('Choose a recruiter who is currently active.');
         }
 
         if ((int) $application->recruiter_id === $recruiter->id) {

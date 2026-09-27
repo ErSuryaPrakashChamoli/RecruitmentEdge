@@ -152,28 +152,50 @@ class RecruiterActionService
     }
 
     /**
-     * Open items owned by inactive employees move to the nearest active manager (audited).
+     * Open items whose owner can no longer be reached — inactive, separated or deleted, or whose
+     * login is suspended, revoked or missing — move to the nearest reachable manager (audited).
+     * Phase 8.4: previously only status Inactive was caught.
      */
-    public function reassignFromInactiveOwners(): int
+    public function reassignFromInactiveOwners(?int $ownerId = null): int
     {
         $moved = 0;
 
         RecruiterAction::query()
             ->open()
-            ->whereHas('owner', fn (Builder $owner) => $owner->where('status', '!=', 'active'))
-            ->with('owner')
+            ->when($ownerId !== null, fn (Builder $query) => $query->where('owner_id', $ownerId))
+            ->with('owner.user')
             ->chunkById(200, function ($actions) use (&$moved) {
                 foreach ($actions as $action) {
-                    $manager = $this->reachableOwner($action->owner);
+                    if ($this->recipients->isReachable($action->owner)) {
+                        continue;
+                    }
+
+                    $manager = $this->reachableOwner($action->owner) ?? $this->fallbackOwner();
 
                     if ($manager !== null && $manager->id !== $action->owner_id) {
-                        $this->moveTo($action, $manager, 'Previous owner is inactive', null);
+                        $this->moveTo($action, $manager, 'Previous owner is no longer active', null);
                         $moved++;
                     }
                 }
             });
 
         return $moved;
+    }
+
+    /**
+     * Phase 8.4: the final fallback when nobody in the chain is reachable — the first reachable
+     * holder of identity.handoff_fallback_permission (an HR administrator).
+     */
+    public function fallbackOwner(): ?Employee
+    {
+        return User::query()
+            ->whereNotNull('employee_id')
+            ->where('access_status', 'active')
+            ->with('employee.user')
+            ->orderBy('id')
+            ->get()
+            ->first(fn (User $user) => $user->can((string) config('identity.handoff_fallback_permission')) && $this->recipients->isReachable($user->employee))
+            ?->employee;
     }
 
     /**

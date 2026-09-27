@@ -4,8 +4,10 @@ namespace Database\Factories;
 
 use App\Enums\AutomationRuleStatus;
 use App\Models\AutomationRule;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Permission;
 
 /**
  * @extends Factory<AutomationRule>
@@ -31,6 +33,8 @@ class AutomationRuleFactory extends Factory
             ],
             'timing' => ['mode' => 'immediate'],
             'escalation' => ['steps' => [], 'stop_conditions' => null],
+            // Phase 8.4: every rule has an accountable owner whose authority is re-checked when it runs.
+            'owner_id' => User::factory(),
         ];
     }
 
@@ -39,6 +43,13 @@ class AutomationRuleFactory extends Factory
         return $this->afterCreating(function (AutomationRule $rule): void {
             $rule->versions()->create(['version' => $rule->version + 1, 'snapshot' => $rule->configuration(), 'change_summary' => 'Factory']);
             $rule->forceFill(['version' => $rule->version + 1])->saveQuietly();
+
+            // A factory-made owner can run the rule it owns (organisation-wide, like the default scope).
+            $owner = $rule->owner;
+
+            if ($owner !== null && $owner->roles()->doesntExist() && $owner->getDirectPermissions()->isEmpty()) {
+                $owner->givePermissionTo(collect(['automation.activate', 'automation.organization'])->map(fn (string $name) => Permission::findOrCreate($name))->all());
+            }
         });
     }
 

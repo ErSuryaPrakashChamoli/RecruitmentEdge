@@ -5,6 +5,7 @@ namespace App\Services\Automation;
 use App\Enums\EmployeeStatus;
 use App\Models\Employee;
 use App\Services\HierarchyService;
+use App\Services\Identity\StaffAccessService;
 use Illuminate\Support\Collection;
 
 /**
@@ -66,11 +67,17 @@ class RecipientResolver
         };
     }
 
+    /**
+     * Phase 8.4: reachable means a current employee (Active, not deleted) whose login is permitted —
+     * a separated, suspended or revoked person never receives operational work or alerts.
+     */
     public function isReachable(?Employee $employee): bool
     {
         return $employee !== null
+            && ! $employee->trashed()
             && $employee->status === EmployeeStatus::Active
-            && $employee->user !== null;
+            && $employee->user !== null
+            && app(StaffAccessService::class)->permits($employee->user);
     }
 
     /**

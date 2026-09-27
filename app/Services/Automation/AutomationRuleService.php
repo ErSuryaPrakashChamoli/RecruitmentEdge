@@ -10,8 +10,10 @@ use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
 use App\Models\AutomationRuleVersion;
 use App\Models\User;
+use App\Services\Identity\StaffAccessService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -91,7 +93,50 @@ class AutomationRuleService
             throw new DomainException('This rule cannot be activated yet: '.implode(' ', $errors));
         }
 
+        // Phase 8.4: a rule whose owner can no longer run it becomes the activator's responsibility.
+        if ($rule->owner_id !== $actor->id && $this->ownerAuthorityProblem($rule) !== null) {
+            $previousOwner = $rule->owner_id;
+            $rule->forceFill(['owner_id' => $actor->id]);
+            AuditLog::record($rule, 'automation_rule_owner_transferred', ['owner_id' => $previousOwner], ['owner_id' => $actor->id, 'by_user_id' => $actor->id]);
+        }
+
         return $this->transition($rule, AutomationRuleStatus::Active, $actor, 'automation_rule_activated', ['activated_at' => now(), 'activated_by' => $actor->id]);
+    }
+
+    /**
+     * Phase 8.4: why the rule's accountable owner can no longer run it — no owner, their access is
+     * not active, they lost automation.activate, or the rule's scope is no longer theirs — or null.
+     */
+    public function ownerAuthorityProblem(AutomationRule $rule): ?string
+    {
+        $owner = $rule->owner;
+
+        return match (true) {
+            $owner === null => 'the rule has no accountable owner',
+            ! app(StaffAccessService::class)->permits($owner) => 'its owner no longer has access',
+            ! $owner->can('automation.activate') => 'its owner can no longer run automation',
+            ! $this->scopes->canUseScope($owner, $rule->scope_type, $rule->scope_id) => 'its scope is outside its owner\'s authority',
+            default => null,
+        };
+    }
+
+    /**
+     * Phase 8.4: pauses a rule whose owner lost the authority to run it (at execution, or when the
+     * owner leaves). Audited; someone with the authority re-activates it and becomes its owner.
+     */
+    public function pauseForAuthority(AutomationRule $rule, string $reason): AutomationRule
+    {
+        if (! $rule->isActive()) {
+            return $rule;
+        }
+
+        $rule->forceFill(['status' => AutomationRuleStatus::Paused])->save();
+
+        AuditLog::record($rule, 'automation_rule_paused_authority', ['status' => AutomationRuleStatus::Active->value], ['status' => AutomationRuleStatus::Paused->value, 'reason' => $reason, 'owner_id' => $rule->owner_id]);
+        Log::warning('identity.automation_paused', ['rule_id' => $rule->id, 'owner_id' => $rule->owner_id, 'reason' => $reason]);
+        AutomationEngine::forgetActiveTriggers();
+
+        return $rule;
     }
 
     public function pause(AutomationRule $rule, User $actor): AutomationRule

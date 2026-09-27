@@ -3,9 +3,13 @@
 namespace App\Services;
 
 use App\Enums\ActionPriority;
+use App\Models\User;
+use App\Services\Automation\RecipientResolver;
+use App\Services\Identity\StaffAccessService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 /**
  * The only code path allowed to write into the persistent (database) Notification Center —
@@ -36,6 +40,8 @@ class NotificationDispatchService
         ?ActionPriority $priority = null,
         array $meta = [],
     ): void {
+        $recipient = $this->operationalRecipient($recipient);
+
         if ($recipient === null) {
             return;
         }
@@ -61,6 +67,34 @@ class NotificationDispatchService
                 Action::make('view')->button()->url($url)->markAsRead(),
             ]))
             ->sendToDatabase($recipient);
+    }
+
+    /**
+     * Phase 8.4: operational alerts go only to people who can act on them. A staff recipient who is
+     * no longer reachable (inactive, separated or deleted employee; suspended or revoked login) is
+     * replaced by the nearest reachable manager — who sees that person's work through the
+     * hierarchy — and failing that by an HR administrator; with nobody reachable the alert is
+     * dropped and logged. A current recipient is unchanged.
+     */
+    private function operationalRecipient(?Model $recipient): ?Model
+    {
+        if (! $recipient instanceof User) {
+            return $recipient;
+        }
+
+        $employee = $recipient->employee()->withTrashed()->first();
+        $resolver = app(RecipientResolver::class);
+
+        if ($employee === null ? app(StaffAccessService::class)->permits($recipient) : $resolver->isReachable($employee)) {
+            return $recipient;
+        }
+
+        $actions = app(RecruiterActionService::class);
+        $replacement = ($employee !== null ? $actions->reachableOwner($employee) : null) ?? $actions->fallbackOwner();
+
+        Log::info('identity.notification_rerouted', ['from_user_id' => $recipient->id, 'to_user_id' => $replacement?->user?->id]);
+
+        return $replacement?->user;
     }
 
     private function alreadySent(Model $recipient, string $dedupeKey): bool

@@ -126,6 +126,9 @@ test('joining and selected-without-offer schedule triggers find the right record
 });
 
 test('a send-message action goes through the communication service and respects preferences and the daily cap', function (): void {
+    // Start mid-morning: the test moves the clock by hours, and near midnight that would cross into
+    // a new day and reset the daily cap (a pre-existing time-of-day dependence, fixed in Phase 8.4).
+    $this->travelTo(now()->setTime(9, 0));
     config(['automation.max_candidate_messages_per_day' => 1]);
     app(CommunicationTemplateService::class)->create(['key' => 'candidate_checkin', 'name' => 'Check-in', 'channel' => 'email', 'subject' => 'Checking in', 'body' => 'Hi {{candidate.first_name}}', 'status' => TemplateStatus::Active]);
     AutomationRule::factory()->active()->create([
