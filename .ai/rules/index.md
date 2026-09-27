@@ -18,9 +18,11 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/Communication/** | .ai/rules/communication.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
 | app/Models/Concerns/Auditable.php,app/Models/*.php | .ai/rules/concerns-models.md |
+| app/Models/AuditLog.php,app/Models/Concerns/Auditable.php | .ai/rules/concerns.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
+| app/Models/RecruitmentSetting.php,app/Services/RecruitmentSettingService.php,app/Filament/Resources/RecruitmentSettings/**,app/Services/Metrics/Definitions/SlaLegCompliance.php | .ai/rules/definitions.md |
 | app/Services/Distribution/** | .ai/rules/distribution.md |
-| app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php | .ai/rules/enums.md |
+| app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php, app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Enums/StageHistoryEvent.php | .ai/rules/enums.md |
 | database/seeders/**,database/factories/** | .ai/rules/factories.md |
 | resources/css/filament/admin/theme.css | .ai/rules/filament-admin.md |
 | app/Filament/Pages/*.php, app/Filament/Pages/Profile.php | .ai/rules/filament-pages.md |
@@ -28,6 +30,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Pages/Dashboard.php,app/Filament/Widgets/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/filament.md |
 | app/Services/AI/Gateway/*.php | .ai/rules/gateway.md |
 | composer.json, docker-compose.yml | .ai/rules/general.md |
+| app/Services/Governance/**,config/outcomes.php,config/metrics.php | .ai/rules/governance.md |
 | app/Services/Identity/** | .ai/rules/identity.md |
 | app/Services/AI/Tools/IntelligenceTools/** | .ai/rules/intelligence-tools.md |
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
@@ -36,11 +39,13 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/Metrics/** | .ai/rules/metrics.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Services/StageTransitionService.php,app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Models/RecruitmentStage.php,app/Models/RequisitionPipelineStage.php,app/Models/CandidateApplication.php | .ai/rules/models-models-models.md |
+| app/Models/Department.php,app/Models/Designation.php,app/Models/Location.php,app/Models/CandidateSource.php,app/Models/RecruitmentRejectionReason.php,app/Services/MasterDataLifecycleService.php | .ai/rules/models-models-services.md |
 | app/Services/StageTransitionService.php,app/Services/RequisitionApprovalService.php,app/Models/CandidateApplication.php,app/Models/RecruitmentRequisition.php | .ai/rules/models-models.md |
 | app/Models/CandidateJoining.php,app/Services/EmployeeConversionService.php, app/Models/*.php,app/Services/*.php | .ai/rules/models-services.md |
 | app/Services/HierarchyService.php,app/Observers/EmployeeObserver.php,app/Models/Employee.php | .ai/rules/models.md |
 | app/Services/OfferLetterRenderer.php,app/Services/WordToPdfConverter.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/** | .ai/rules/offer-letter-templates.md |
 | app/Services/OfferService.php,app/Filament/Resources/Offers/**,app/Models/OfferStatusHistory.php | .ai/rules/offers-models.md |
+| app/Services/OfferService.php,app/Services/OfferLetterIssuanceService.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/Offers/** | .ai/rules/offers.md |
 | app/Services/Outcomes/**, app/Services/Outcomes/OutcomeLearningService.php | .ai/rules/outcomes.md |
 | app/Services/AiAssistantService.php,app/Filament/Pages/AiCopilot.php | .ai/rules/pages.md |
 | app/Services/OfferLetterRenderer.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/**,app/Filament/Resources/Offers/**,resources/views/pdf/offer-letter*.blade.php | .ai/rules/pdf.md |
@@ -48,12 +53,16 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Resources/**,app/Policies/** | .ai/rules/policies.md |
 | app/Models/AuditLog.php,app/Services/CandidatePortalService.php,app/Http/Controllers/Portal/**,routes/portal.php | .ai/rules/portal.md |
 | app/Filament/Widgets/**,resources/views/filament/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/providers-filament.md |
+| app/Policies/**,app/Providers/AppServiceProvider.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/providers-providers-filament.md |
 | app/Services/AI/Providers/*.php,app/Services/AI/Gateway/*.php,app/Providers/AiServiceProvider.php | .ai/rules/providers.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Filament/Resources/RecruitmentIncentiveRules/** | .ai/rules/recruitment-incentive-rules.md |
 | app/Filament/Resources/**,app/Filament/Pages/*.php | .ai/rules/resources-filament-pages.md |
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php | .ai/rules/schemas-models-services.md |
 | app/Filament/Resources/**/Schemas/*.php | .ai/rules/schemas.md |
+| app/Services/Automation/AutomationRuleService.php,app/Services/Communication/CommunicationTemplateService.php | .ai/rules/services-communication.md |
+| app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Models/RecruiterIncentiveCalculation.php | .ai/rules/services-models-models-models.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Services/IncentiveApprovalService.php,app/Models/RecruiterIncentiveCalculation.php, app/Services/IncentiveApprovalService.php,app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveSlab.php, app/Services/RequisitionApprovalService.php,app/Services/StageTransitionService.php,app/Models/RecruitmentRejectionReason.php | .ai/rules/services-models.md |
+| app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php,app/Services/InterviewService.php | .ai/rules/services-services.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |
 | tests/** | .ai/rules/tests.md |
 | app/Services/AI/Tools/** | .ai/rules/tools.md |
