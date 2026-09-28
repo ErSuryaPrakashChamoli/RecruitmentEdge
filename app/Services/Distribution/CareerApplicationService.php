@@ -12,14 +12,17 @@ use App\Enums\TimelineEventType;
 use App\Enums\TimelineSource;
 use App\Enums\TimelineVisibility;
 use App\Events\CandidateAppliedOnline;
+use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\CandidateDocument;
 use App\Models\CandidateSource;
+use App\Models\Employee;
 use App\Models\JobPosting;
 use App\Services\CandidateDuplicateDetector;
 use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationPreferenceService;
+use App\Services\NotificationDispatchService;
 use App\Services\SequenceCodeGenerator;
 use DomainException;
 use Illuminate\Http\UploadedFile;
@@ -29,11 +32,15 @@ use Illuminate\Support\Facades\DB;
  * Turns a career-site application into the existing records (Phase 5): Candidate Master →
  * CandidateApplication → the requisition's pipeline. There is no separate applicant database.
  *
- * Duplicates: an exact email or (normalised) mobile match reuses that candidate — the public can't
- * justify an override, and matching on a verified contact detail is safe; weaker matches create a
- * new candidate and CandidateObserver logs them for HR review. A candidate who already applied to
- * the requisition gets their existing application back (no duplicate application). The candidate
- * master record is never modified by a public submission.
+ * Phase 8.8 containment (SEC-88-01 / SEC-88-09): a contact match is not proof of identity. The
+ * public form is anonymous, so a submission whose email or mobile strongly matches an existing
+ * candidate (the same rule under which staff need a written justification to create a duplicate) is
+ * HELD: nothing is written to that candidate — no application, no file, no consent change, no
+ * timeline entry — the uploaded file is not stored, the requisition's recruiter is alerted to follow
+ * up through the candidate's known contact details, and an audit row records the hold with ids only.
+ * Weaker matches still create a new candidate that CandidateObserver logs for HR review. Every
+ * outcome returns the same neutral result, so the response never reveals whether the contact
+ * details belong to an existing candidate or application.
  */
 class CareerApplicationService
 {
@@ -59,12 +66,13 @@ class CareerApplicationService
         private readonly SequenceCodeGenerator $codes,
         private readonly CandidateTimelineService $timeline,
         private readonly CommunicationPreferenceService $preferences,
+        private readonly NotificationDispatchService $notifications,
     ) {}
 
     /**
      * @param  array{full_name: string, email: string, mobile: string, current_city?: string|null, total_experience?: float|string|null, current_company?: string|null, consent_email?: bool, consent_whatsapp?: bool}  $data
      * @param  array{channel?: string|null, source?: string|null, campaign_id?: int|null}  $attribution
-     * @return array{application: CandidateApplication, existing: bool}
+     * @return array{outcome: 'received'|'held', application: CandidateApplication|null}
      */
     public function apply(JobPosting $posting, array $data, ?UploadedFile $resume = null, array $attribution = []): array
     {
@@ -81,14 +89,15 @@ class CareerApplicationService
             throw new DomainException('This position is not accepting online applications yet.');
         }
 
+        // SEC-88-01: an anonymous submission never acts on an existing candidate it merely matches.
+        if (($matched = $this->matchingCandidate($data)) !== null) {
+            $this->hold($posting, $matched, $recruiterId);
+
+            return ['outcome' => 'held', 'application' => null];
+        }
+
         return DB::transaction(function () use ($posting, $data, $resume, $attribution, $requisition, $recruiterId): array {
-            $candidate = $this->matchingCandidate($data) ?? $this->createCandidate($data, $attribution);
-
-            $existing = CandidateApplication::query()->where('candidate_id', $candidate->id)->where('requisition_id', $requisition->id)->first();
-
-            if ($existing !== null) {
-                return ['application' => $existing, 'existing' => true];
-            }
+            $candidate = $this->createCandidate($data, $attribution);
 
             $application = CandidateApplication::query()->create([
                 'application_code' => $this->codes->next('APP'),
@@ -138,18 +147,42 @@ class CareerApplicationService
 
             CandidateAppliedOnline::dispatch($application);
 
-            return ['application' => $application, 'existing' => false];
+            return ['outcome' => 'received', 'application' => $application];
         });
     }
 
     /**
+     * The existing candidate the submitted contact details strongly match, if any. Used only to
+     * decide to hold the submission — never to act on that candidate.
+     *
      * @param  array<string, mixed>  $data
      */
     private function matchingCandidate(array $data): ?Candidate
     {
-        return $this->duplicates->detect($data)
-            ->first(fn ($match) => $match->confidence >= 90 && array_intersect($match->matchingFields, ['mobile', 'email']) !== [])
-            ?->candidate;
+        return $this->duplicates->strongMatches($data)->first()?->candidate;
+    }
+
+    /**
+     * Records the held submission without touching the matched candidate: an audit row on the
+     * posting (ids only — no submitted email, mobile or consent) and one alert per candidate,
+     * posting and day to the requisition's recruiter.
+     */
+    private function hold(JobPosting $posting, Candidate $matched, int $recruiterId): void
+    {
+        AuditLog::record($posting, 'career_application_held', null, [
+            'reason' => 'contact_details_match_existing_candidate',
+            'matched_candidate_id' => $matched->id,
+        ]);
+
+        $this->notifications->alert(
+            Employee::query()->find($recruiterId)?->user,
+            'Recruitment',
+            'Online application held for review',
+            "A career-site application for {$posting->title} used contact details that belong to existing candidate {$matched->candidate_code}. It was not added to their record. Confirm with the candidate through their known contact details before adding an application.",
+            'warning',
+            null,
+            "career-application-held:{$matched->id}:{$posting->id}:".now()->toDateString(),
+        );
     }
 
     /**

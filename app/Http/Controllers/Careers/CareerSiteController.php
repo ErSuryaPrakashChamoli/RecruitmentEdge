@@ -59,7 +59,7 @@ class CareerSiteController extends Controller
         $attribution = $request->session()->get("careers.attribution.{$posting->id}", []);
 
         try {
-            $result = $applications->apply(
+            $applications->apply(
                 $posting,
                 [...$request->safe()->except(['resume', 'privacy_consent', 'website']), 'consent_email' => $request->boolean('consent_email'), 'consent_whatsapp' => $request->boolean('consent_whatsapp')],
                 $request->file('resume'),
@@ -69,7 +69,9 @@ class CareerSiteController extends Controller
             return back()->withInput($request->except('resume'))->withErrors(['application' => $e->getMessage()]);
         }
 
-        return redirect()->route('careers.applied', $posting->public_slug)->with('careers_reference', $result['application']->application_code)->with('careers_existing', $result['existing']);
+        // SEC-88-09: one neutral response whatever happened — never an application code or a hint
+        // that the contact details are already known.
+        return redirect()->route('careers.applied', $posting->public_slug);
     }
 
     public function applied(string $slug): View

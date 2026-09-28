@@ -157,20 +157,24 @@ describe('career site applications', function (): void {
         Event::assertDispatched(CandidateAppliedOnline::class);
     });
 
-    test('an applicant matching an existing candidate by email reuses that candidate record', function (): void {
+    // Phase 8.8 containment (SEC-88-01): a contact match is not proof of identity, so a public
+    // submission matching an existing candidate is held for the recruiter instead of being attached.
+    test('an applicant matching an existing candidate by email is held, never attached to that candidate', function (): void {
         $existing = Candidate::factory()->create(['email' => 'neha@example.com', 'full_name' => 'Neha K']);
 
-        $this->post(route('careers.apply', $this->posting->public_slug), applicationPayload());
+        $this->post(route('careers.apply', $this->posting->public_slug), applicationPayload())->assertRedirect(route('careers.applied', $this->posting->public_slug));
 
         expect(Candidate::query()->count())->toBe(1)
-            ->and(CandidateApplication::query()->sole()->candidate_id)->toBe($existing->id)
-            ->and($existing->fresh()->full_name)->toBe('Neha K');
+            ->and(CandidateApplication::query()->count())->toBe(0)
+            ->and($existing->fresh()->full_name)->toBe('Neha K')
+            ->and(AuditLog::query()->where('action', 'career_application_held')->exists())->toBeTrue();
     });
 
-    test('applying twice to the same position does not create a second application', function (): void {
+    test('applying twice to the same position does not create a second application, and says nothing different', function (): void {
         $this->post(route('careers.apply', $this->posting->public_slug), applicationPayload());
         $this->post(route('careers.apply', $this->posting->public_slug), applicationPayload(['resume' => UploadedFile::fake()->create('cv2.pdf', 50, 'application/pdf')]))
-            ->assertSessionHas('careers_existing', true);
+            ->assertRedirect(route('careers.applied', $this->posting->public_slug))
+            ->assertSessionMissing('careers_existing');
 
         expect(CandidateApplication::query()->count())->toBe(1);
     });
