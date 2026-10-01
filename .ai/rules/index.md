@@ -22,10 +22,12 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/Concerns/Auditable.php,app/Models/*.php | .ai/rules/concerns-models.md |
 | app/Models/AuditLog.php,app/Jobs/Concerns/**,app/Providers/AppServiceProvider.php | .ai/rules/concerns-providers.md |
 | app/Models/AuditLog.php,app/Models/Concerns/Auditable.php | .ai/rules/concerns.md |
+| app/Http/Controllers/**,app/Providers/AppServiceProvider.php,config/filesystems.php | .ai/rules/controllers-providers.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
 | app/Models/RecruitmentSetting.php,app/Services/RecruitmentSettingService.php,app/Filament/Resources/RecruitmentSettings/**,app/Services/Metrics/Definitions/SlaLegCompliance.php | .ai/rules/definitions.md |
 | app/Services/Distribution/** | .ai/rules/distribution.md |
 | app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php, app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Enums/StageHistoryEvent.php | .ai/rules/enums.md |
+| app/Filament/**,app/Services/Export/**,app/Policies/ExportPolicy.php | .ai/rules/export-policies.md |
 | database/seeders/**,database/factories/** | .ai/rules/factories.md |
 | resources/css/filament/admin/theme.css | .ai/rules/filament-admin.md |
 | app/Filament/Pages/*.php, app/Filament/Pages/Profile.php | .ai/rules/filament-pages.md |
@@ -41,6 +43,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/OfferService.php,app/Services/InterviewService.php,app/Services/CandidateJoiningService.php,app/Events/OfferAccepted.php,app/Listeners/CreateJoiningRecordForAcceptedOffer.php | .ai/rules/listeners.md |
 | app/Jobs/**,app/Listeners/**,app/Notifications/**,app/Mail/** | .ai/rules/mail.md |
 | app/Services/Metrics/** | .ai/rules/metrics.md |
+| routes/portal.php,app/Http/Controllers/Portal/**,app/Http/Middleware/*Candidate*.php,app/Services/CandidateStepUpService.php | .ai/rules/middleware-services.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Services/StageTransitionService.php,app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Models/RecruitmentStage.php,app/Models/RequisitionPipelineStage.php,app/Models/CandidateApplication.php | .ai/rules/models-models-models.md |
 | app/Models/Department.php,app/Models/Designation.php,app/Models/Location.php,app/Models/CandidateSource.php,app/Models/RecruitmentRejectionReason.php,app/Services/MasterDataLifecycleService.php | .ai/rules/models-models-services.md |

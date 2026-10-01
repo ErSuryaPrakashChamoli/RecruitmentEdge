@@ -45,3 +45,60 @@
 | High-volume scheduling | slot booking uses a row lock per slot (correct); the concurrency gap is correctness (SEC-88-20), not throughput |
 
 No N+1 was found on the portal pages reviewed; per-page query counts were not instrumented and should be measured in 8.8G.
+
+## 4. Implementation measurements
+
+### SEC-88-01 / SEC-88-09 containment (`55fefd3`)
+
+100k-candidate throwaway database, 30 submissions each: new applicant 56.8 ms / 50.1 queries → 60.4 ms / 49.2 queries (within noise); a held submission (existing candidate or duplicate) 7–9 ms / 8.1 queries, using the existing indexed duplicate lookup (`index_merge`), no table scan.
+
+### Authentication foundation (D8.8-001)
+
+Same requests through Laravel's HTTP test client on the baseline (`55fefd3`) and after the change; query counts are exact, times are in-process (SQLite) and within noise.
+
+| Request | Queries before → after | Cause of change |
+|---|---|---|
+| Candidate sign-in (success) | 1.1 → 2.1 | `portal_login` audit row |
+| Candidate sign-in (failure) | 1.0 → 3.0 | account lookup + `portal_login_failed` row (only for an existing account) |
+| Candidate dashboard | 10.1 → 10.1 | — (session context and fingerprint check: one HMAC, no query) |
+| Candidate profile update | 3.0 → 3.0 | — |
+| Signed-link scheduling page | 6.1 → 6.1 | — |
+| Password reset via link, incl. ending other sessions | 4.0 → 5.2 | audit row, remember-token update |
+| Step-up: request a code | new: 1.1 | audit row (code state in the cache) |
+| Step-up: verify a code | new: 1.0 | audit row |
+| Staff admin request | 251.2 → 251.2 | — |
+
+No N+1 introduced; ending other sessions costs nothing up front (it is checked lazily, per request, by one HMAC).
+
+### Final measurements on the frozen code (`05a9fd3`)
+
+The same disposable Pest probes, two rounds each, run back to back on a quiet machine. Every measured request re-reads the signed-in user from the session, as a real request does. Median of 21 runs (11 for password sets, 7 for the staff dashboard). SQLite in-memory, so times are in-process. Query counts are exact.
+
+**Authentication (baseline `55fefd3` → final `05a9fd3`, round 2):**
+
+| Operation | Before: queries / time | After: queries / time | Status |
+|---|---|---|---|
+| Candidate sign-in (success) | 1.0 / 2.5 ms | 2.0 / 3.0 ms | + `portal_login` audit row |
+| Candidate sign-in (failure) | 1.0 / 202.2 ms | 3.0 / 252.6 ms | + audit, inside the deliberate 50 ms time box (`9bdd6bc`); existing and unknown emails answer in the same time |
+| Candidate dashboard | 12.0 / 5.5 ms | 12.0 / 5.8 ms | unchanged |
+| Profile update (self-service) | 5.0 / 2.9 ms | 5.0 / 3.1 ms | unchanged |
+| Password change via set link (signed in) | 4.1 / 3.4 ms | 4.0 / 3.6 ms | unchanged |
+| Password reset via link (signed out) | 3.0 / 3.1 ms | 4.0 / 3.6 ms | + audit and remember-token update |
+| Request on a session ended by a password change | 12.0 / 6.7 ms, **200 (session still valid)** | 3.0 / 1.9 ms, **302 (ended)** | the D8.8-001 control |
+| Signed-link scheduling page | 6.0 / 3.8 ms | 6.0 / 4.0 ms | unchanged |
+| Step-up: request / wrong code / correct code | — | 3.0 / 2.2 ms · 2.0 / 1.9 ms · 2.0 / 2.0 ms | new |
+| Staff admin dashboard | 250 / 255.3 ms | 250 / 256.1 ms | unchanged |
+
+**Remediation paths (pre-remediation `460c394` → final `05a9fd3`, round 2; median / p95):**
+
+| Operation | Before | After | Status |
+|---|---|---|---|
+| Portal sign-in page | 0 q · 1.9 / 2.2 ms | 0 q · 1.8 / 2.9 ms | headers add no measurable cost |
+| Career site index | 1 q · 2.3 / 2.6 ms | 1 q · 2.3 / 2.4 ms | unchanged |
+| Staff sign-in page | 0 q · 9.6 / 10.2 ms | 0 q · 9.3 / 14.4 ms | unchanged (p95 noise) |
+| Private file open (preview link) | **not comparable**: the probe's faked disk was not reachable through the old open `storage/{path}` route (404) | 2.0 q · 3.8 / 5.2 ms | new path: signed, user-bound, audited |
+| Export file download (owner) | 1.0 q · 1.3 / 1.7 ms | 2.1 q · 2.1 / 2.5 ms | + policy check and `export_downloaded` row |
+| Report CSV export (funnel, via Livewire) | 35.6 q · 65.3 / 113.2 ms | 36.4 q · 67.6 / 94.3 ms | + `report_exported` row |
+| Staff admin dashboard (this fixture) | 136.4 q · 225.3 ms | 136.4 q · 224.7 ms | unchanged |
+
+There is no regression. The only deliberate costs are the failed sign-in time box and the audit rows. Nothing was optimised. Times are in-process: production network, MySQL and PHP-FPM / Apache timings will differ.

@@ -1,6 +1,18 @@
-# Phase 8.8 Implementation: Security Containment of SEC-88-01 and SEC-88-09
+# Phase 8.8 Implementation
 
-**Status:** CONTAINMENT ONLY. Phase 8.8 as a whole is **not implemented and not complete**. This document records the one change made before the Phase 8.8 product and legal decisions: closing the public career-site identity takeover (SEC-88-01) and the application-existence oracle (SEC-88-09). Every other Phase 8.8 decision (D8.8-001 … 035, 037, 038) remains unresolved and untouched.
+Phase 8.8 is **not complete**. Two approved pieces are implemented:
+
+1. **Security containment** of SEC-88-01 and SEC-88-09 (D8.8-036) — this document, below.
+2. **Authentication foundation** (D8.8-001, `9315879` + `9bdd6bc`) — `phase-8-8-authentication-foundation.md`.
+3. **Decisioned remediation** (owner decisions of 2026-10-01, `05a9fd3`) — Part 3 below.
+
+Every other D8.8 decision remains unresolved. Freeze record: `phase-8-8-freeze.md`.
+
+---
+
+# Part 1: Security Containment of SEC-88-01 and SEC-88-09
+
+**Status:** implemented (`55fefd3`). Phase 8.8 as a whole is **not complete**. This document records the one change made before the Phase 8.8 product and legal decisions: closing the public career-site identity takeover (SEC-88-01) and the application-existence oracle (SEC-88-09). At the time of the containment every other Phase 8.8 decision was unresolved and untouched; D8.8-001 has since been approved and implemented separately.
 
 **Baseline:** `feature/sep_25_hrm` @ `a98b0c2` (Phase 8.7 freeze): 160 migrations, 237 routes, 1,873 tests / 20,362 assertions.
 
@@ -99,3 +111,29 @@ Candidate authentication or identity verification (no OTP, magic link or MFA —
 Code-only: no migration, route, configuration or queue change. Deploy with the normal procedure (`docs/runbooks/queue-operations.md` §1). Recruiters will start receiving "Online application held for review" alerts when existing candidates apply online; they should confirm with the candidate through the contact details already on file and add the application from the staff UI.
 
 The production hotfix (D8.6-030, `hotfix/filament-delete-authorization` @ `2fab3fd`, still requiring the SEC-86-I-01 joining `create()` fix) is separate and **not deployed**.
+
+---
+
+# Part 3: Decisioned remediation (2026-10-01)
+
+**Decision source:** the project owner's dispositions of 2026-10-01, recorded verbatim in `phase-8-8-decision-record.md` → "Owner decisions (2026-10-01)", with the implementation matrix. **Only the findings classified A were implemented**; B and C items were not touched.
+
+| Finding (A) | Change | Files |
+|---|---|---|
+| SEC-88-04 | Staff never see a candidate's set-password link. `CandidatePortalService::invite()` no longer returns it; it is only emailed to the candidate. The invite notification says so. | `CandidatePortalService`, `Candidates/Pages/ViewCandidate` |
+| SEC-88-03 (+ 24) | Every table export: 10,000-row cap, audited request or refusal; file downloadable by the owner only, within 24 hours, behind staff-access and MFA, every download audited. | `ExportGovernance`, `ExportPolicy`, `AuditExportDownload`, `AppServiceProvider::configureExports()` |
+| SEC-88-12 | Formula neutralisation on every export column and report CSV cell. | `AppServiceProvider`, `ReportExportService` |
+| SEC-88-13 | Audit of offer-letter, incentive-statement, report and private-file downloads (export downloads above). | `OffersTable`, `ViewRecruiterIncentiveCalculation`, `IncentiveStatementService`, `RecruitmentReports`, `PrivateFileController` |
+| SEC-88-15 | `compensation.view` required for offer letters, the incentive export and other people's statements; own statements exempt. | `OffersTable`, `RecruiterIncentiveCalculationsTable`, `ViewRecruiterIncentiveCalculation`, `IncentiveStatementService` |
+| SEC-88-06 | Path-tamper guard on every upload field (project default); candidate and joining documents pdf / doc / docx / jpg / jpeg / png ≤ 10 MB; candidate resume ≤ 5 MB. Malware scanning deferred (D8.8-029). | `AppServiceProvider::configureUploads()`, `CandidateDocument`, both document relation managers, `CandidateForm` |
+| SEC-88-17 | The private `local` disk is no longer served at `storage/{path}` (`serve => false`). Previews use `files.private`: 5-minute signed URL bound to the issuing staff user, staff-access + `auth:web` + MFA, audited. | `config/filesystems.php`, `PrivateFileController`, `routes/web.php`, `AppServiceProvider::configurePrivateFiles()` |
+| SEC-88-11 | X-Frame-Options SAMEORIGIN, `frame-ancestors 'self'`, nosniff, Referrer-Policy, and HSTS over HTTPS on portal, career and staff sign-in / password-reset pages. No full CSP (approved scope). | `AddSecurityHeaders`, `bootstrap/app.php`, `AdminPanelProvider` |
+
+**Not changed:** migrations (160, none added), metric definitions, Outcome Loop, queue topology, scheduler, authentication semantics (D8.8-001), and historical records.
+**Routes:** 240 → 239. `GET`/`PUT storage/{path}` are removed; `GET files/private` is added.
+**Tests:** 37 new security tests (`tests/Feature/Security/SEC8803…SEC8817*`). Verification is in `phase-8-8-freeze.md`.
+
+**Deployment notes:**
+- Any bookmark or copied preview URL of the form `/storage/...` stops working. This is intended; previews regenerate on open.
+- Exports older than 24 hours can no longer be downloaded; users run them again. The stored files remain, because file expiry is deferred with retention.
+- A custom role without `compensation.view` loses the offer-letter download, the incentive export, and statements other than its own.
