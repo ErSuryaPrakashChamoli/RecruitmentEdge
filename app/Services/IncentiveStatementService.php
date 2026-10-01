@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
+use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruiterIncentivePayment;
@@ -28,7 +29,8 @@ class IncentiveStatementService
 
     /**
      * Anyone with `incentives.view` may download their own statement; another recruiter's needs
-     * `reports.export` or `incentives.approve` and that recruiter inside the viewer's hierarchy.
+     * `reports.export` or `incentives.approve`, `compensation.view` (Phase 8.8, SEC-88-15 — it is
+     * someone else's pay) and that recruiter inside the viewer's hierarchy.
      */
     public function canDownloadFor(User $user, Employee $recruiter): bool
     {
@@ -37,6 +39,7 @@ class IncentiveStatementService
         }
 
         return ($user->can('reports.export') || $user->can('incentives.approve'))
+            && $user->can('compensation.view')
             && $this->hierarchy->canView($user, $recruiter);
     }
 
@@ -108,6 +111,9 @@ class IncentiveStatementService
 
     public function streamPeriodStatement(Employee $recruiter, CarbonInterface $month, IncentiveBeneficiary $beneficiary = IncentiveBeneficiary::Recruiter): StreamedResponse
     {
+        // Phase 8.8 (SEC-88-13): who took a copy of whose statement.
+        AuditLog::record($recruiter, 'incentive_statement_downloaded', null, ['statement' => 'period', 'month' => $month->format('Y-m'), 'beneficiary' => $beneficiary->value]);
+
         return $this->exporter->streamPdf(
             $this->filename($recruiter, $month),
             'pdf.incentive-statement-period',

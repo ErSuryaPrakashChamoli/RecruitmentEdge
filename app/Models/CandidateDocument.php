@@ -21,6 +21,22 @@ class CandidateDocument extends Model
     /** @use HasFactory<CandidateDocumentFactory> */
     use HasFactory;
 
+    /**
+     * Phase 8.8 (SEC-88-06): what staff may upload as a candidate or joining document — PDF, Word
+     * and JPEG/PNG images, up to 10 MB.
+     *
+     * @var list<string>
+     */
+    public const array STAFF_UPLOAD_MIME_TYPES = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/png',
+    ];
+
+    public const int STAFF_UPLOAD_MAX_KB = 10240;
+
     protected static function booted(): void
     {
         static::creating(function (CandidateDocument $document): void {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
@@ -35,6 +36,8 @@ return Application::configure(basePath: dirname(__DIR__))
         // candidate guard authenticates the request.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, EnsureCandidateSessionIsCurrent::class);
         $middleware->alias(['candidate.step-up' => RequireCandidateStepUp::class]);
+        // Phase 8.8 (SEC-88-11): defensive headers on portal, career and staff sign-in pages.
+        $middleware->web(append: [AddSecurityHeaders::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

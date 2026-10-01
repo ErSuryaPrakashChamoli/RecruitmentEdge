@@ -6,6 +6,7 @@ use App\Filament\Auth\StaffAppAuthentication;
 use App\Filament\Pages\Auth\StaffLogin;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
+use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureStaffMfa;
 use App\Http\Middleware\UseCandidateSessionContext;
@@ -110,6 +111,8 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                // Phase 8.8 (SEC-88-11): the sign-in and password-reset pages get defensive headers.
+                AddSecurityHeaders::class,
             ])
             // Phase 8.4: persistent, so Livewire updates are re-checked too — a suspended or revoked
             // login, or a session from before a revocation, is signed out on its next request.

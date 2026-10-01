@@ -87,10 +87,12 @@ class CandidatePortalService
     ) {}
 
     /**
-     * Creates (or re-activates) the candidate's portal account and emails a set-password link.
-     * Returns the link so the recruiter can also share it directly.
+     * Creates (or re-activates) the candidate's portal account and emails a set-password link to
+     * the candidate. Phase 8.8 (D8.8-037, SEC-88-04): the link is never returned, so staff can never
+     * see or use it — a password set through it is recorded as the candidate (D8.8-001), so only the
+     * candidate may ever hold it.
      */
-    public function invite(Candidate $candidate, ?Employee $actor = null, ?string $email = null): string
+    public function invite(Candidate $candidate, ?Employee $actor = null, ?string $email = null): void
     {
         $email = strtolower(trim((string) ($email ?? $candidate->email)));
 
@@ -123,11 +125,7 @@ class CandidatePortalService
             return $account;
         });
 
-        $url = $this->passwordLink($account);
-
-        Mail::to($account->email)->send(new CandidatePortalLink($candidate->full_name, $url, isInvitation: true));
-
-        return $url;
+        Mail::to($account->email)->send(new CandidatePortalLink($candidate->full_name, $this->passwordLink($account), isInvitation: true));
     }
 
     public function deactivate(CandidatePortalAccount $account, ?Employee $actor = null): void

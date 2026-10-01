@@ -58,8 +58,8 @@ class ViewCandidate extends ViewRecord
     }
 
     /**
-     * Gives the candidate (or re-sends) candidate portal access. The set-password link is emailed
-     * and also shown once here so the recruiter can share it directly.
+     * Gives the candidate (or re-sends) candidate portal access. The set-password link is emailed to
+     * the candidate only — never shown to staff (Phase 8.8, D8.8-037, SEC-88-04).
      */
     public function invitePortalAction(): Action
     {
@@ -78,13 +78,12 @@ class ViewCandidate extends ViewRecord
                 /** @var Candidate $record */
                 $record = $this->getRecord();
 
-                $url = InterviewsTable::guarded('Portal access could not be granted', fn () => app(CandidatePortalService::class)->invite($record, auth()->user()?->employee, $data['email']));
+                InterviewsTable::guarded('Portal access could not be granted', fn () => app(CandidatePortalService::class)->invite($record, auth()->user()?->employee, $data['email']));
 
                 Notification::make()
                     ->title('Portal invitation sent')
-                    ->body("The candidate was emailed a link to set their password. You can also share it directly (valid for 48 hours):\n{$url}")
+                    ->body('The candidate was emailed a link to set their password (valid for 48 hours). The link is sent only to the candidate.')
                     ->success()
-                    ->persistent()
                     ->send();
             });
     }

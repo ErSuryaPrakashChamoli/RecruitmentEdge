@@ -83,6 +83,7 @@ class CandidateForm
                             ->visibility('private')
                             ->directory('resumes')
                             ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+                            ->maxSize(5120)
                             ->columnSpanFull(),
                     ]),
                 Section::make('Source')

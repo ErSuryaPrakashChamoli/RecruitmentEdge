@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Enums\CandidateStage;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
+use App\Models\AuditLog;
 use App\Models\CandidateSource;
 use App\Models\Department;
 use App\Models\RecruitmentRequisition;
@@ -200,6 +201,8 @@ class RecruitmentReports extends Page implements HasForms
             $this->metricLabel('pipeline.funnel'),
         ]);
 
+        $this->auditReportExport('recruitment-funnel', $rows->count());
+
         return app(ReportExportService::class)->streamCsv(
             'recruitment-funnel.csv',
             ['Stage', 'Reached (cohort)', '% of applications in period', 'Metric'],
@@ -228,11 +231,25 @@ class RecruitmentReports extends Page implements HasForms
             'source-roi (Phase 8.5)',
         ]);
 
+        $this->auditReportExport('source-roi', $rows->count());
+
         return app(ReportExportService::class)->streamCsv(
             'source-roi.csv',
             ['Source', 'Spend', 'Applications', 'Connected', 'Interested', 'Interviewed', 'Selected', 'Offers', 'Joined', 'Conversion %', 'Cost per Interview', 'Cost per Selection', 'Cost per Join', 'Definition'],
             $rows,
         );
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-13): who exported which report, and how many rows.
+     */
+    private function auditReportExport(string $report, int $rows): void
+    {
+        $user = Filament::auth()->user();
+
+        if ($user !== null) {
+            AuditLog::record($user, 'report_exported', null, ['report' => $report, 'rows' => $rows]);
+        }
     }
 
     private function metricLabel(string $key): string
@@ -252,6 +269,8 @@ class RecruitmentReports extends Page implements HasForms
             $row['is_overdue'] ? 'Yes' : 'No',
             $this->metricLabel('requisition.ageing'),
         ]);
+
+        $this->auditReportExport('vacancy-ageing', $rows->count());
 
         return app(ReportExportService::class)->streamCsv(
             'vacancy-ageing.csv',

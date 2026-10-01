@@ -6,6 +6,7 @@ use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
 use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Exports\OfferExporter;
+use App\Models\AuditLog;
 use App\Models\Designation;
 use App\Models\Location;
 use App\Models\Offer;
@@ -260,7 +261,8 @@ class OffersTable
             ->label('Download Offer Letter')
             ->icon('heroicon-o-document-arrow-down')
             ->color('gray')
-            ->visible(fn (Offer $record): bool => (bool) auth()->user()?->can('view', $record))
+            // Phase 8.8 (SEC-88-15): the letter states the full CTC, so it needs compensation.view too.
+            ->visible(fn (Offer $record): bool => (bool) auth()->user()?->can('view', $record) && (bool) auth()->user()?->can('compensation.view'))
             ->action(function (Offer $record): StreamedResponse {
                 $record->loadMissing([
                     'candidateApplication.candidate',
@@ -283,6 +285,9 @@ class OffersTable
                 }
 
                 $name = $issued !== null ? "offer-letter-{$record->offer_code}-r{$issued->revision}.pdf" : "offer-letter-{$record->offer_code}.pdf";
+
+                // Phase 8.8 (SEC-88-13): who took a copy of the letter.
+                AuditLog::record($record, 'offer_letter_downloaded', null, ['issued' => $issued !== null, 'revision' => $issued?->revision]);
 
                 return response()->streamDownload(function () use ($pdf): void {
                     echo $pdf;

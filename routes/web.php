@@ -2,8 +2,11 @@
 
 use App\Http\Controllers\Careers\CareerSiteController;
 use App\Http\Controllers\Integrations\CalendarOAuthController;
+use App\Http\Controllers\PrivateFileController;
 use App\Http\Controllers\QueueHealthController;
 use App\Http\Controllers\Webhooks\CommunicationWebhookController;
+use App\Http\Middleware\EnforceStaffAccess;
+use App\Http\Middleware\EnsureStaffMfa;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -23,6 +26,12 @@ Route::middleware(['auth'])->prefix('integrations/calendar')->name('integrations
     Route::get('{provider}/connect', [CalendarOAuthController::class, 'redirect'])->name('connect');
     Route::get('{provider}/callback', [CalendarOAuthController::class, 'callback'])->name('callback');
 });
+
+// Phase 8.8 (SEC-88-17): private files (resumes, documents) — only for the signed-in staff user the
+// short-lived signed link was issued to; replaces the open `storage/{path}` route.
+Route::get('files/private', PrivateFileController::class)
+    ->middleware(['signed:relative', EnforceStaffAccess::class, 'auth:web', EnsureStaffMfa::class])
+    ->name('files.private');
 
 // Phase 5 public career site (applications flow into the existing candidate pipeline).
 // Phase 8.7 (D8.7-021): queue health for external monitoring (administrators or a bearer token).

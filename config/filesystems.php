@@ -33,7 +33,9 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Phase 8.8 (SEC-88-17): not served at storage/{path}; temporary URLs go through the
+            // authenticated files.private route (AppServiceProvider::configurePrivateFiles).
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

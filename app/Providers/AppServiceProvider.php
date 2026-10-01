@@ -2,13 +2,18 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\PrivateFileController;
+use App\Http\Middleware\AuditExportDownload;
+use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
+use App\Http\Middleware\EnsureStaffMfa;
 use App\Http\Middleware\UseCandidateSessionContext;
 use App\Logging\RedactingFailedJobProvider;
 use App\Models\AuditLog;
 use App\Models\CandidatePortalAccount;
 use App\Models\Role;
 use App\Models\User;
+use App\Policies\ExportPolicy;
 use App\Policies\RolePolicy;
 use App\Rules\NotCommonPassword;
 use App\Services\Automation\AutomationActionRegistry;
@@ -18,14 +23,19 @@ use App\Services\Automation\AutomationRuntime;
 use App\Services\CandidatePortalService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
+use App\Services\Export\ExportGovernance;
 use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
 use App\Services\SchedulerHeartbeat;
+use Filament\Actions\ExportAction;
+use Filament\Actions\Exports\ExportColumn;
+use Filament\Actions\Exports\Models\Export;
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
 use Filament\Auth\Notifications\ResetPassword;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\FileUpload;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Auth\Events\Login;
@@ -47,6 +57,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use Livewire\Component;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -114,6 +125,51 @@ class AppServiceProvider extends ServiceProvider
         $this->configureTables();
         $this->configurePortalRateLimits();
         $this->configurePasswordPolicy();
+
+        $this->configureUploads();
+        $this->configureExports();
+        $this->configurePrivateFiles();
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-06): every upload field accepts only a file uploaded in that form or the
+     * value already stored — a submitted path can never point the record at another stored file.
+     */
+    private function configureUploads(): void
+    {
+        FileUpload::configureUsing(fn (FileUpload $upload): FileUpload => $upload->preventFilePathTampering());
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-03, SEC-88-12, SEC-88-13, SEC-88-24): every Filament table export is capped,
+     * written without live spreadsheet formulas and audited; its file is downloadable only by its
+     * owner within the download window, behind the panel's staff-access and MFA checks.
+     */
+    private function configureExports(): void
+    {
+        ExportAction::configureUsing(fn (ExportAction $action): ExportAction => $action
+            ->maxRows(ExportGovernance::MAX_ROWS)
+            ->before(fn (ExportAction $action, array $data, Component $livewire) => ExportGovernance::rememberRequest($action, $data, $livewire))
+            ->after(fn () => ExportGovernance::recordRefusedIfNotStarted()));
+
+        ExportColumn::configureUsing(fn (ExportColumn $column): ExportColumn => $column->preventFormulaInjection());
+
+        Export::created(fn (Export $export) => ExportGovernance::recordRequested($export));
+
+        Gate::policy(Export::class, ExportPolicy::class);
+
+        // The download route is Filament's (not a panel route); its middleware group gets the
+        // panel's staff-access and MFA checks, then the download audit.
+        $this->app['router']->middlewareGroup('filament.actions', ['web', EnforceStaffAccess::class, EnsureStaffMfa::class, AuditExportDownload::class]);
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-17): the private disk is not served at storage/{path}; its temporary URLs
+     * (Filament file previews) point at the authenticated, audited files.private route instead.
+     */
+    private function configurePrivateFiles(): void
+    {
+        PrivateFileController::registerTemporaryUrls();
     }
 
     /**

@@ -44,6 +44,8 @@ class DocumentsRelationManager extends RelationManager
                     ->disk('local')
                     ->visibility('private')
                     ->directory('candidate-documents')
+                    ->acceptedFileTypes(CandidateDocument::STAFF_UPLOAD_MIME_TYPES)
+                    ->maxSize(CandidateDocument::STAFF_UPLOAD_MAX_KB)
                     ->columnSpanFull(),
                 Textarea::make('remarks')
                     ->columnSpanFull(),

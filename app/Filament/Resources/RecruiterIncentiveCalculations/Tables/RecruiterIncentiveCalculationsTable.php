@@ -64,9 +64,10 @@ class RecruiterIncentiveCalculationsTable
                     ->options(collect(IncentiveCalculationStatus::cases())->mapWithKeys(fn (IncentiveCalculationStatus $s) => [$s->value => $s->label()])),
             ])
             ->headerActions([
+                // Phase 8.8 (SEC-88-15): the export carries incentive amounts — pay needs compensation.view.
                 ExportAction::make()
                     ->exporter(RecruiterIncentiveCalculationExporter::class)
-                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export') && (bool) auth()->user()?->can('compensation.view')),
             ])
             ->recordActions([
                 ViewAction::make(),
