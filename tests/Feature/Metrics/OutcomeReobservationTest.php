@@ -24,7 +24,7 @@ beforeEach(function (): void {
     $chroEmployee = Employee::factory()->create();
     $this->vpEmployee = Employee::factory()->reportingTo($chroEmployee)->create();
     $this->vp = User::factory()->create(['employee_id' => $this->vpEmployee->id])->assignRole('vp_hr');
-    $this->employee = Employee::factory()->reportingTo($this->vpEmployee)->create();
+    $this->employee = Employee::factory()->reportingTo($this->vpEmployee)->create(['date_of_joining' => now()->subDays(40)->toDateString()]);
     $this->snapshot = HiringOutcomeSnapshot::factory()->create(['employee_id' => $this->employee->id, 'joined_on' => now()->subDays(40)->toDateString(), 'captured_at' => now()->subDays(40)]);
     $this->lifecycle = app(EmployeeLifecycleService::class);
 });
