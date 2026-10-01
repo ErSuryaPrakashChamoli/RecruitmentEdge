@@ -8,6 +8,7 @@ use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureStaffMfa;
+use App\Http\Middleware\UseCandidateSessionContext;
 use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -98,6 +99,8 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
             ])
             ->middleware([
+                // Phase 8.8 (D8.8-001): the panel always uses the staff session cookie and guard.
+                UseCandidateSessionContext::class,
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,

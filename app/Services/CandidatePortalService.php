@@ -33,6 +33,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 
 /**
  * Candidate portal business logic (Phase 4). Every read and write is resolved through the
@@ -170,16 +171,33 @@ class CandidatePortalService
         Mail::to($account->email)->send(new CandidatePortalLink($account->candidate->full_name, $this->passwordLink($account), isInvitation: false));
     }
 
+    /**
+     * Phase 8.8 (D8.8-001): a new password ends every other candidate session — their stored
+     * fingerprint no longer matches (EnsureCandidateSessionIsCurrent) and the remember-me token
+     * is replaced, so no "remember me" cookie from another device signs back in. The caller signs
+     * the current request in again and stores the new fingerprint. Staff sessions are unaffected.
+     */
     public function setPassword(CandidatePortalAccount $account, string $password): void
     {
-        $account->forceFill(['password' => $password, 'password_set_at' => now()])->save();
+        $account->forceFill(['password' => $password, 'password_set_at' => now(), 'remember_token' => Str::random(60)])->save();
 
-        AuditLog::record($account, 'portal_password_set', null, ['password_set_at' => now()->toIso8601String()]);
+        AuditLog::asCandidate($account, fn () => AuditLog::record($account, 'portal_password_set', null, ['password_set_at' => now()->toIso8601String(), 'other_sessions_ended' => true]));
+    }
+
+    /**
+     * The value a candidate session must carry to stay signed in: tied to the account's current
+     * password hash, so it changes when the password changes. Never shown or sent anywhere.
+     */
+    public function sessionFingerprint(CandidatePortalAccount $account): string
+    {
+        return hash_hmac('sha256', 'candidate-session|'.($account->getRawOriginal('password') ?? 'unset').'|'.$account->public_id, (string) config('app.key'));
     }
 
     public function recordLogin(CandidatePortalAccount $account): void
     {
         $account->forceFill(['last_login_at' => now()])->save();
+
+        AuditLog::asCandidate($account, fn () => AuditLog::record($account, 'portal_login', null, ['outcome' => 'succeeded']));
     }
 
     /**

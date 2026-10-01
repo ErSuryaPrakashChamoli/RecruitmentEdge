@@ -2,8 +2,11 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
+use App\Http\Middleware\UseCandidateSessionContext;
 use App\Logging\RedactingFailedJobProvider;
 use App\Models\AuditLog;
+use App\Models\CandidatePortalAccount;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\RolePolicy;
@@ -12,6 +15,7 @@ use App\Services\Automation\AutomationActionRegistry;
 use App\Services\Automation\AutomationEventRegistry;
 use App\Services\Automation\AutomationFieldRegistry;
 use App\Services\Automation\AutomationRuntime;
+use App\Services\CandidatePortalService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Identity\StaffAccessService;
@@ -24,6 +28,7 @@ use Filament\Auth\Notifications\ResetPassword;
 use Filament\Facades\Filament;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
@@ -104,6 +109,7 @@ class AppServiceProvider extends ServiceProvider
 
         $this->configureAsyncContext();
         $this->configureSchedulerHeartbeat();
+        $this->configureCandidateSessions();
 
         $this->configureTables();
         $this->configurePortalRateLimits();
@@ -238,6 +244,19 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(ScheduledBackgroundTaskFinished::class, fn (ScheduledBackgroundTaskFinished $event) => app(SchedulerHeartbeat::class)->record($event->task, $event->task->exitCode === 0 ? 'finished' : 'failed'));
         Event::listen(ScheduledTaskFailed::class, fn (ScheduledTaskFailed $event) => app(SchedulerHeartbeat::class)->record($event->task, 'failed'));
         Event::listen(ScheduledTaskSkipped::class, fn (ScheduledTaskSkipped $event) => app(SchedulerHeartbeat::class)->record($event->task, 'skipped'));
+    }
+
+    /**
+     * Phase 8.8 (D8.8-001): every candidate sign-in — password, set-password link or remember-me
+     * cookie — stores the fingerprint that EnsureCandidateSessionIsCurrent checks.
+     */
+    private function configureCandidateSessions(): void
+    {
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->guard === UseCandidateSessionContext::CANDIDATE_GUARD && $event->user instanceof CandidatePortalAccount && request()->hasSession()) {
+                request()->session()->put(EnsureCandidateSessionIsCurrent::SESSION_KEY, app(CandidatePortalService::class)->sessionFingerprint($event->user));
+            }
+        });
     }
 
     private static function isScheduledRun(string $command): bool

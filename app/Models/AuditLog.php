@@ -37,7 +37,7 @@ class AuditLog extends Model
      * Phase 8.7 (D8.7-015): who is acting when no person is — set by asActor() around automation
      * and AI work: ['kind' => 'automation'|'ai'|…, 'on_behalf_of' => user id or null].
      *
-     * @var array{kind: string, on_behalf_of: int|null}|null
+     * @var array{kind: string, on_behalf_of: int|null, actor?: Model}|null
      */
     private static ?array $actorContext = null;
 
@@ -68,7 +68,9 @@ class AuditLog extends Model
         // (automation, AI) the work is not the signed-in person's: no user_id, the principal is
         // recorded as on_behalf_of instead (Phase 8.7, D8.7-015).
         $context = self::$actorContext;
-        $actor = $context === null ? auth()->user() : null;
+        // Phase 8.8 (D8.8-001): inside asCandidate() the actor is the candidate the server resolved
+        // for this action — never whoever else is signed in.
+        $actor = $context === null ? auth()->user() : ($context['actor'] ?? null);
         $kind = $context['kind'] ?? match (true) {
             $actor instanceof User => 'user',
             $actor instanceof Model => 'candidate',
@@ -132,6 +134,34 @@ class AuditLog extends Model
     {
         $previous = self::$actorContext;
         self::$actorContext = ['kind' => $kind, 'on_behalf_of' => $onBehalfOfUserId];
+
+        try {
+            return $callback();
+        } finally {
+            self::$actorContext = $previous;
+        }
+    }
+
+    /**
+     * Phase 8.8 (D8.8-001): run candidate self-service work as that candidate. The actor is
+     * resolved on the server (the signed-in candidate, or the candidate a verified signed link
+     * belongs to); rows record kind `candidate` and the candidate in the actor columns, never a
+     * staff user_id — even when a staff session exists in the same browser. Nested contexts
+     * (automation reacting to the change) keep their own attribution.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult
+     */
+    public static function asCandidate(Model $candidateActor, callable $callback): mixed
+    {
+        if ($candidateActor instanceof User) {
+            throw new \InvalidArgumentException('A staff user cannot be recorded as a candidate actor.');
+        }
+
+        $previous = self::$actorContext;
+        self::$actorContext = ['kind' => 'candidate', 'on_behalf_of' => null, 'actor' => $candidateActor];
 
         try {
             return $callback();

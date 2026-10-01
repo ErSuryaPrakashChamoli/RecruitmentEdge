@@ -3,14 +3,21 @@
 use App\Models\CandidateApplication;
 use App\Models\JobPosting;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 require_once __DIR__.'/Sec88ContainmentHelpers.php';
 
 /**
  * SEC-88-09: the public response is the same whatever the submitted contact details belong to —
  * it never shows an application code or says the person already applied.
+ *
+ * Livewire's "a component rendered this request" flag is static, so an earlier test in the same
+ * process that rendered a Filament page over HTTP would otherwise make only the first page here
+ * carry Livewire's injected assets. Resetting it keeps the byte-for-byte comparison independent
+ * of test order.
  */
 beforeEach(function (): void {
+    Livewire::flushState();
     Storage::fake('local');
     $this->posting = sec88Posting();
     $this->victim = sec88ExistingCandidate();

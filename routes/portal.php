@@ -7,7 +7,9 @@ use App\Http\Controllers\Portal\DocumentController;
 use App\Http\Controllers\Portal\PasswordController;
 use App\Http\Controllers\Portal\ProfileController;
 use App\Http\Controllers\Portal\SchedulingController;
+use App\Http\Controllers\Portal\StepUpController;
 use App\Http\Middleware\EnsureCandidatePortalAccountIsActive;
+use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,7 +37,8 @@ Route::middleware(['signed', 'throttle:portal-auth'])->group(function (): void {
 });
 
 // Self-scheduling: a valid signature OR the owning signed-in candidate (checked in the controller).
-Route::middleware('throttle:portal-actions')->group(function (): void {
+// Phase 8.8 (D8.8-001): a candidate session left over from before a password change is ended first.
+Route::middleware([EnsureCandidateSessionIsCurrent::class, 'throttle:portal-actions'])->group(function (): void {
     Route::get('schedule/{invitation}', [SchedulingController::class, 'show'])->name('schedule.show');
     Route::post('schedule/{invitation}', [SchedulingController::class, 'book'])->name('schedule.book');
     Route::get('bookings/{booking}', [SchedulingController::class, 'showBooking'])->name('bookings.show');
@@ -43,9 +46,15 @@ Route::middleware('throttle:portal-actions')->group(function (): void {
     Route::post('bookings/{booking}/cancel', [SchedulingController::class, 'cancel'])->name('bookings.cancel');
 });
 
-Route::middleware(['auth:candidate', EnsureCandidatePortalAccountIsActive::class, 'throttle:portal-actions'])->group(function (): void {
+Route::middleware([EnsureCandidateSessionIsCurrent::class, 'auth:candidate', EnsureCandidatePortalAccountIsActive::class, 'throttle:portal-actions'])->group(function (): void {
     Route::get('/', DashboardController::class)->name('dashboard');
     Route::post('logout', [AuthController::class, 'destroy'])->name('logout');
+
+    // Phase 8.8 (D8.8-001): email one-time-code step-up. A reusable capability — routes that need
+    // it use the `candidate.step-up` middleware; none does yet.
+    Route::get('verify', [StepUpController::class, 'show'])->name('step-up.show');
+    Route::post('verify/send', [StepUpController::class, 'send'])->name('step-up.send');
+    Route::post('verify', [StepUpController::class, 'verify'])->name('step-up.verify');
 
     Route::get('applications/{application}', [ApplicationController::class, 'show'])->name('applications.show');
     Route::post('applications/{application}/interviews/{round}/confirm', [ApplicationController::class, 'confirmInterview'])->whereNumber('round')->name('interviews.confirm');

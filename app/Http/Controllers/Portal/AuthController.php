@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Portal\LoginRequest;
+use App\Models\AuditLog;
 use App\Models\CandidatePortalAccount;
 use App\Services\CandidatePortalService;
 use Illuminate\Http\RedirectResponse;
@@ -32,6 +33,8 @@ class AuthController extends Controller
         $key = 'portal-login:'.Str::lower($request->string('email')).'|'.$request->ip();
 
         if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
+            $this->recordFailure($request, 'throttled');
+
             throw ValidationException::withMessages([
                 'email' => 'Too many sign-in attempts. Try again in '.RateLimiter::availableIn($key).' seconds.',
             ]);
@@ -46,6 +49,7 @@ class AuthController extends Controller
 
         if (! Auth::guard('candidate')->attempt($credentials, $request->boolean('remember'))) {
             RateLimiter::hit($key, 60);
+            $this->recordFailure($request, 'invalid_credentials');
 
             throw ValidationException::withMessages(['email' => 'These details do not match our records.']);
         }
@@ -62,10 +66,32 @@ class AuthController extends Controller
 
     public function destroy(Request $request): RedirectResponse
     {
+        /** @var CandidatePortalAccount|null $account */
+        $account = Auth::guard('candidate')->user();
+
+        if ($account !== null) {
+            AuditLog::asCandidate($account, fn () => AuditLog::record($account, 'portal_logout', null, ['outcome' => 'signed_out']));
+        }
+
         Auth::guard('candidate')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
         return redirect()->route('portal.login');
+    }
+
+    /**
+     * Phase 8.8 (D8.8-001): a failed sign-in is audited against the account it named, if that
+     * account exists — as an unauthenticated (system) attempt, with the outcome only: never the
+     * email, password or anything typed. Attempts on unknown emails are not recorded against
+     * anyone, and the response is the same either way.
+     */
+    private function recordFailure(Request $request, string $reason): void
+    {
+        $account = CandidatePortalAccount::query()->where('email', Str::lower($request->string('email')))->first();
+
+        if ($account !== null) {
+            AuditLog::record($account, 'portal_login_failed', null, ['outcome' => 'failed', 'reason' => $reason]);
+        }
     }
 }

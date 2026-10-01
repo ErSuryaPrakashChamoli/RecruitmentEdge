@@ -38,6 +38,8 @@ class SensitiveDataRedactor
         '/\b(sk-[A-Za-z0-9_\-]{12,}|AIza[0-9A-Za-z_\-]{20,})\b/' => self::MASK,
         '/(?<![\w\/.:-])\+\d[\d \-]{7,14}\d(?![\w\/.:-])/' => self::MASK,
         '/(?<![\w\/.:-])[6-9]\d{9}(?![\w\/.:-])/' => self::MASK,
+        // Phase 8.8 (D8.8-001): a candidate step-up code in a rendered email (e.g. the `log` mailer).
+        '/\b(verification code is)\s*\d{4,8}\b/i' => '$1 '.self::MASK,
     ];
 
     public static function text(?string $value): ?string

@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Portal;
 use App\Enums\SchedulingChannel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Portal\BookSlotRequest;
+use App\Models\AuditLog;
+use App\Models\Candidate;
 use App\Models\CandidatePortalAccount;
 use App\Models\InterviewAvailabilitySlot;
 use App\Models\InterviewSchedulingInvitation;
 use App\Models\InterviewSlotBooking;
 use App\Services\InterviewSchedulingService;
 use DomainException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\URL;
@@ -47,13 +50,13 @@ class SchedulingController extends Controller
         $account = $request->user('candidate');
 
         try {
-            $booking = $scheduling->book(
+            $booking = AuditLog::asCandidate($this->candidateActor($request, $invitation->candidateApplication->candidate_id), fn () => $scheduling->book(
                 $invitation,
                 $slot,
                 $account !== null ? SchedulingChannel::CandidatePortal : SchedulingChannel::SignedLink,
                 $account,
                 $request->input('note'),
-            );
+            ));
         } catch (DomainException $e) {
             return back()->withErrors(['slot' => $e->getMessage()]);
         }
@@ -80,7 +83,7 @@ class SchedulingController extends Controller
         $slot = InterviewAvailabilitySlot::query()->where('public_id', $request->string('slot'))->firstOrFail();
 
         try {
-            $new = $scheduling->reschedule($booking, $slot, $request->user('candidate'), $request->input('reason'));
+            $new = AuditLog::asCandidate($this->candidateActor($request, $booking->candidate_id), fn () => $scheduling->reschedule($booking, $slot, $request->user('candidate'), $request->input('reason')));
         } catch (DomainException $e) {
             return back()->withErrors(['slot' => $e->getMessage()]);
         }
@@ -94,7 +97,7 @@ class SchedulingController extends Controller
         $request->validate(['reason' => ['required', 'string', 'min:3', 'max:500']]);
 
         try {
-            $scheduling->cancelBooking($booking, $request->string('reason')->toString(), $request->user('candidate'));
+            AuditLog::asCandidate($this->candidateActor($request, $booking->candidate_id), fn () => $scheduling->cancelBooking($booking, $request->string('reason')->toString(), $request->user('candidate')));
         } catch (DomainException $e) {
             return back()->withErrors(['reason' => $e->getMessage()]);
         }
@@ -123,6 +126,22 @@ class SchedulingController extends Controller
         abort_unless($request->hasValidSignature() || $this->ownsApplicationOf($request, $booking->candidate_id), 404);
 
         return $booking;
+    }
+
+    /**
+     * Phase 8.8 (D8.8-001): who the audit trail records for a self-scheduling action — resolved on
+     * the server from the invitation or booking the signature (or the owner's session) authorised:
+     * the signed-in owner, else that candidate's portal account, else the candidate record. Never
+     * a staff user, whatever else the browser is signed in to.
+     */
+    private function candidateActor(Request $request, int $candidateId): Model
+    {
+        if ($this->ownsApplicationOf($request, $candidateId)) {
+            return $request->user('candidate');
+        }
+
+        return CandidatePortalAccount::query()->where('candidate_id', $candidateId)->first()
+            ?? Candidate::query()->findOrFail($candidateId);
     }
 
     private function ownsApplicationOf(Request $request, int $candidateId): bool
