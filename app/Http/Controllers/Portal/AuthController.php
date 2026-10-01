@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
+use Illuminate\Support\Timebox;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -22,6 +23,12 @@ use Illuminate\View\View;
 class AuthController extends Controller
 {
     public const int MAX_ATTEMPTS = 5;
+
+    /**
+     * Minimum duration of the failed sign-in audit step (lookup + write), long enough to cover a
+     * database write so it cannot reveal whether the email has an account.
+     */
+    public const int FAILURE_AUDIT_TIMEBOX_MICROSECONDS = 50_000;
 
     public function create(): View
     {
@@ -84,14 +91,19 @@ class AuthController extends Controller
      * Phase 8.8 (D8.8-001): a failed sign-in is audited against the account it named, if that
      * account exists — as an unauthenticated (system) attempt, with the outcome only: never the
      * email, password or anything typed. Attempts on unknown emails are not recorded against
-     * anyone, and the response is the same either way.
+     * anyone. The lookup and the write run inside a fixed time box, so a known and an unknown email
+     * take the same time to answer — as the guard already does for the attempt itself.
      */
     private function recordFailure(Request $request, string $reason): void
     {
-        $account = CandidatePortalAccount::query()->where('email', Str::lower($request->string('email')))->first();
+        $email = Str::lower($request->string('email'));
 
-        if ($account !== null) {
-            AuditLog::record($account, 'portal_login_failed', null, ['outcome' => 'failed', 'reason' => $reason]);
-        }
+        app(Timebox::class)->call(function () use ($email, $reason): void {
+            $account = CandidatePortalAccount::query()->where('email', $email)->first();
+
+            if ($account !== null) {
+                AuditLog::record($account, 'portal_login_failed', null, ['outcome' => 'failed', 'reason' => $reason]);
+            }
+        }, self::FAILURE_AUDIT_TIMEBOX_MICROSECONDS);
     }
 }

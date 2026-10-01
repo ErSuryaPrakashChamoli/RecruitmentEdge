@@ -4,6 +4,7 @@ use App\Models\AuditLog;
 use App\Services\CandidatePortalService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Timebox;
 
 require_once __DIR__.'/D88001Helpers.php';
 
@@ -51,4 +52,37 @@ test('a failed sign-in for an unknown email is not recorded against anyone and g
     expect(AuditLog::query()->where('action', 'portal_login_failed')->count())->toBe(1);
     $unknown->assertSessionHasErrors(['email' => 'These details do not match our records.']);
     $wrong->assertSessionHasErrors(['email' => 'These details do not match our records.']);
+});
+
+test('the failed sign-in audit runs in the same fixed time box for a known and an unknown email', function (): void {
+    $known = d88Account();
+    $boxes = new ArrayObject;
+    app()->instance(Timebox::class, new class($boxes) extends Timebox
+    {
+        public function __construct(private ArrayObject $boxes) {}
+
+        public function call(callable $callback, int $microseconds): mixed
+        {
+            $this->boxes[] = ['microseconds' => $microseconds, 'failedRowsBefore' => AuditLog::query()->where('action', 'portal_login_failed')->count()];
+            $result = $callback($this);
+            $this->boxes[count($this->boxes) - 1]['failedRowsAfter'] = AuditLog::query()->where('action', 'portal_login_failed')->count();
+
+            return $result;
+        }
+    });
+
+    $this->post(route('portal.login.store'), ['email' => $known->email, 'password' => 'Whatever#123']);
+    $this->post(route('portal.login.store'), ['email' => 'nobody@example.test', 'password' => 'Whatever#123']);
+    [$knownBox, $unknownBox] = $boxes->getArrayCopy();
+    $row = AuditLog::query()->where('action', 'portal_login_failed')->sole();
+
+    expect($boxes)->toHaveCount(2)
+        ->and($knownBox['microseconds'])->toBe($unknownBox['microseconds'])
+        ->and($knownBox['microseconds'])->toBeGreaterThanOrEqual(10_000)
+        ->and([$knownBox['failedRowsBefore'], $knownBox['failedRowsAfter']])->toBe([0, 1])
+        ->and([$unknownBox['failedRowsBefore'], $unknownBox['failedRowsAfter']])->toBe([1, 1])
+        ->and($row->auditable_id)->toBe($known->id)
+        ->and($row->actor_kind)->toBe('system')
+        ->and($row->request_id)->not->toBeNull()
+        ->and($row->ip_address)->not->toBeNull();
 });
