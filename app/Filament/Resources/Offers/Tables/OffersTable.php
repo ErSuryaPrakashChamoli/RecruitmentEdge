@@ -278,20 +278,33 @@ class OffersTable
                 // Phase 8.6 (D8.6-010): once released, the stored issued letter is returned as issued;
                 // a letter regenerated from current data (never released, or released before 8.6)
                 // is labelled as such.
-                ['pdf' => $pdf, 'issued' => $issued] = app(OfferLetterIssuanceService::class)->pdfFor($record);
+                $letters = app(OfferLetterIssuanceService::class);
+
+                // Phase 8.9 (P89-PERF-024): a released Word letter is converted to PDF in the background.
+                if ($letters->pendingConversionFor($record) !== null) {
+                    Notification::make()->title('Offer letter being prepared')->body('The PDF for this release is being produced; it will be ready in a minute or two.')->warning()->send();
+
+                    return null;
+                }
+
+                ['pdf' => $pdf, 'issued' => $issued, 'format' => $format] = $letters->pdfFor($record);
 
                 if ($issued === null && $record->status !== OfferStatus::Draft && $record->status !== OfferStatus::Initiated) {
                     Notification::make()->title('Regenerated letter')->body('No issued letter is stored for this offer (released before letters were kept); this copy was generated from current data.')->warning()->send();
                 }
 
-                $name = $issued !== null ? "offer-letter-{$record->offer_code}-r{$issued->revision}.pdf" : "offer-letter-{$record->offer_code}.pdf";
+                if ($format === 'docx') {
+                    Notification::make()->title('Word preview')->body('This is the filled Word letter. The PDF is produced when the offer is released.')->info()->send();
+                }
+
+                $name = ($issued !== null ? "offer-letter-{$record->offer_code}-r{$issued->revision}" : "offer-letter-{$record->offer_code}").'.'.$format;
 
                 // Phase 8.8 (SEC-88-13): who took a copy of the letter.
-                AuditLog::record($record, 'offer_letter_downloaded', null, ['issued' => $issued !== null, 'revision' => $issued?->revision]);
+                AuditLog::record($record, 'offer_letter_downloaded', null, ['issued' => $issued !== null, 'revision' => $issued?->revision, 'format' => $format]);
 
                 return response()->streamDownload(function () use ($pdf): void {
                     echo $pdf;
-                }, $name, ['Content-Type' => 'application/pdf']);
+                }, $name, ['Content-Type' => $format === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf']);
             });
     }
 

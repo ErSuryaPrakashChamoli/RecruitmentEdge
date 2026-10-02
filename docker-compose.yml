@@ -16,8 +16,9 @@
 #   platform alerts), so neither ever waits behind a burst of candidate messages;
 # - `queue-automation`: automation runs and ownership handoffs, so a burst of messages never
 #   starves automation (and the reverse);
-# - `queue-background`: slow provider calls (AI, embeddings, calendar and job-board APIs, Outcome
-#   Loop / Hiring Memory capture) and Filament exports (`exports`).
+# - `queue-background`: Word offer letters converted to PDF (`documents`, Phase 8.9), slow provider
+#   calls (AI, embeddings, calendar and job-board APIs, Outcome Loop / Hiring Memory capture) and
+#   Filament exports (`exports`).
 # All four also take `default` as a fallback (it should stay empty).
 #
 # Timeouts: DB_QUEUE_RETRY_AFTER (330) must stay above the longest worker --timeout (300), or a job
@@ -172,7 +173,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=documents,intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -182,7 +183,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=intelligence,integrations,exports,default"]
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=documents,intelligence,integrations,exports,default"]
       interval: 60s
       timeout: 20s
       retries: 3

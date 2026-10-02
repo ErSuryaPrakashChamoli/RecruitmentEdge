@@ -4,18 +4,27 @@ use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
 use App\Filament\Resources\OfferLetterTemplates\Pages\CreateOfferLetterTemplate;
 use App\Filament\Resources\OfferLetterTemplates\Pages\EditOfferLetterTemplate;
+use App\Jobs\ConvertOfferLetterJob;
+use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Offer;
+use App\Models\OfferLetter;
+use App\Models\OfferLetterConversion;
 use App\Models\OfferLetterTemplate;
 use App\Models\User;
+use App\Notifications\StaffDatabaseNotification;
+use App\Services\OfferLetterIssuanceService;
 use App\Services\OfferLetterRenderer;
+use App\Services\OfferService;
 use App\Services\WordToPdfConverter;
 use Database\Seeders\RecruitmentReferenceDataSeeder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Process\PendingProcess;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use PhpOffice\PhpWord\IOFactory;
@@ -176,4 +185,74 @@ test('without LibreOffice the Word letter is still delivered as a PDF', function
 
     expect($pdf)->toStartWith('%PDF');
     Process::assertRan(fn (PendingProcess $process): bool => in_array('--convert-to', (array) $process->command, true));
+});
+
+test('releasing a Word-letter offer never converts in the request: the filled letter is fixed at release and the PDF issued by a queued job (Phase 8.9)', function (): void {
+    Queue::fake();
+    app()->instance(WordToPdfConverter::class, new class extends WordToPdfConverter
+    {
+        public function convert(string $docxPath): string
+        {
+            throw new LogicException('The release request must not convert the letter.');
+        }
+    });
+    $offer = offerForWordLetter();
+    $releaser = Employee::factory()->create();
+    User::factory()->create(['employee_id' => $releaser->id])->assignRole('chro');
+
+    app(OfferService::class)->moveTo($offer, OfferStatus::Released, $releaser);
+
+    $conversion = OfferLetterConversion::query()->sole();
+    expect($conversion->status)->toBe(OfferLetterConversion::PENDING)
+        ->and(OfferLetter::query()->where('offer_id', $offer->id)->exists())->toBeFalse()
+        ->and(Storage::disk('local')->exists($conversion->document_path))->toBeTrue();
+    Queue::assertPushedOn('documents', ConvertOfferLetterJob::class);
+
+    // Data changed after the release does not change the letter the candidate receives.
+    $offer->candidateApplication->candidate->update(['full_name' => 'Changed Name']);
+    $converter = new class extends WordToPdfConverter
+    {
+        public string $documentXml = '';
+
+        public function convert(string $docxPath): string
+        {
+            $zip = new ZipArchive;
+            $zip->open($docxPath);
+            $this->documentXml = (string) $zip->getFromName('word/document.xml');
+            $zip->close();
+
+            return '%PDF-converted';
+        }
+    };
+    app()->instance(WordToPdfConverter::class, $converter);
+
+    app()->call([new ConvertOfferLetterJob($conversion->id), 'handle']);
+
+    $letter = OfferLetter::query()->where('offer_id', $offer->id)->sole();
+    expect($converter->documentXml)->toContain('Asha Verma')->not->toContain('Changed Name')
+        ->and($letter->sha256)->toBe(hash('sha256', '%PDF-converted'))
+        ->and($letter->issued_at->equalTo($conversion->requested_at))->toBeTrue()
+        ->and($conversion->fresh()->status)->toBe(OfferLetterConversion::ISSUED)
+        ->and(AuditLog::query()->where('action', 'offer_letter_issued')->where('auditable_id', $offer->id)->exists())->toBeTrue();
+});
+
+test('a letter still being converted is never answered with an older one, and a failed conversion alerts the releaser (Phase 8.9)', function (): void {
+    Queue::fake();
+    $offer = offerForWordLetter();
+    $releaser = Employee::factory()->create();
+    $releaserUser = User::factory()->create(['employee_id' => $releaser->id])->assignRole('chro');
+    app(OfferService::class)->moveTo($offer, OfferStatus::Released, $releaser);
+    $letters = app(OfferLetterIssuanceService::class);
+
+    expect($letters->pendingConversionFor($offer))->not->toBeNull();
+
+    $conversion = OfferLetterConversion::query()->sole();
+    Notification::fake();
+    (new ConvertOfferLetterJob($conversion->id))->failed(new RuntimeException('soffice crashed for asha@example.com'));
+
+    expect($conversion->fresh()->status)->toBe(OfferLetterConversion::FAILED)
+        ->and($conversion->fresh()->error)->not->toContain('asha@example.com')
+        ->and($letters->pendingConversionFor($offer))->toBeNull()
+        ->and(AuditLog::query()->where('action', 'offer_letter_conversion_failed')->exists())->toBeTrue();
+    Notification::assertSentTo($releaserUser, StaffDatabaseNotification::class);
 });

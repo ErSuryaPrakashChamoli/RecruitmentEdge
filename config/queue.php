@@ -136,7 +136,7 @@ return [
         'communications,default',
         'security,notifications,default',
         'automation,default',
-        'intelligence,integrations,exports,default',
+        'documents,intelligence,integrations,exports,default',
     ],
 
     'expect_processes' => (bool) env('QUEUE_EXPECT_PROCESSES', false),

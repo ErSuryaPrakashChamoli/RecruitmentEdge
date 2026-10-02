@@ -28,7 +28,7 @@ Phase 8.9 (D8.9-022, P89-OPS-004/005): the compose stack starts itself in a safe
 | `queue` | communications, default | 120 | candidate messages, `SendCandidateCommunications` |
 | `queue-priority` (Phase 8.9) | security, notifications, default | 120 | `security`: password reset, email-change verification and notice, candidate portal links, step-up OTP codes; `notifications`: in-app and platform alerts. Never behind a burst of candidate messages (ED-05). |
 | `queue-automation` | automation, default | 120 | automation runs, ownership handoffs |
-| `queue-background` | intelligence, integrations, exports, default | 300 | AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
+| `queue-background` | documents, intelligence, integrations, exports, default | 300 | `documents`: released Word offer letters converted to PDF (Phase 8.9 — the release request no longer waits for LibreOffice); AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
 
 Rules:
 - **`retry_after` (330) must stay above the longest `--timeout` (300)**, or a job still running is handed to a second worker. `queue:health-check` alerts if it is not. `stop_grace_period` (330 s) must be at least `retry_after`.
