@@ -8,6 +8,7 @@ use App\Enums\SchedulingChannel;
 use App\Enums\TimelineEventType;
 use App\Filament\Resources\CandidateApplications\Pages\ViewCandidateApplication;
 use App\Filament\Resources\Candidates\Pages\ViewCandidate;
+use App\Listeners\NotifyRecruitersOfPortalDocument;
 use App\Mail\CandidatePortalLink;
 use App\Models\AuditLog;
 use App\Models\Candidate;
@@ -25,8 +26,10 @@ use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\InterviewSchedulingService;
 use App\Services\StageTransitionService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Events\CallQueuedListener;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Livewire\Livewire;
@@ -261,6 +264,35 @@ describe('profile and documents', function (): void {
             ->actor_type->toBe($account->getMorphClass())
             ->actor_id->toBe($account->id);
         Storage::disk('local')->assertExists($document->file_path);
+    });
+
+    test('the recruiters of the candidate\'s active applications are alerted about an uploaded document', function (): void {
+        Storage::fake('local');
+        $this->seed(RolePermissionSeeder::class);
+        $recruiter = User::factory()->create(['employee_id' => Employee::factory()->create()->id]);
+        $account = portalAccount();
+        portalApplication($account, ['recruiter_id' => $recruiter->employee_id]);
+        actingAs($account, 'candidate');
+
+        $this->post(route('portal.documents.store'), [
+            'document_type' => DocumentType::Resume->value,
+            'file' => UploadedFile::fake()->create('cv.pdf', 200, 'application/pdf'),
+        ])->assertSessionHas('status');
+
+        expect($recruiter->notifications()->count())->toBe(1);
+    });
+
+    test('the recruiter alert for an upload runs on the notifications queue, not in the upload request (Phase 8.9)', function (): void {
+        Storage::fake('local');
+        Queue::fake();
+        actingAs(portalAccount(), 'candidate');
+
+        $this->post(route('portal.documents.store'), [
+            'document_type' => DocumentType::Resume->value,
+            'file' => UploadedFile::fake()->create('cv.pdf', 200, 'application/pdf'),
+        ])->assertSessionHas('status');
+
+        Queue::assertPushedOn('notifications', CallQueuedListener::class, fn (CallQueuedListener $job): bool => $job->class === NotifyRecruitersOfPortalDocument::class);
     });
 
     test('unsafe or oversized uploads are rejected', function (UploadedFile $file, string $type): void {
