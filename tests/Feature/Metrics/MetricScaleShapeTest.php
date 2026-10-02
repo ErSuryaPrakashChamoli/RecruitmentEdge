@@ -98,6 +98,25 @@ test('time to hire and SLA leg compliance read their rows in bounded chunks', fu
             ->every(fn (array $q): bool => str_contains($q['query'], 'limit 2000') || str_contains($q['query'], 'where "id" in') || str_contains($q['query'], 'exists')))->toBeTrue();
 });
 
+test('source to join pages its joinings by id instead of loading the period at once (Phase 8.9)', function (): void {
+    collect([JoiningStatus::Joined, JoiningStatus::Joined, JoiningStatus::NoShow])->each(fn (JoiningStatus $status) => CandidateJoining::factory()->create([
+        'status' => $status,
+        'actual_doj' => $status === JoiningStatus::Joined ? now()->subDays(5)->toDateString() : null,
+    ]));
+    $query = MetricQuery::make(MetricPeriod::lastDays(30), null);
+    $result = null;
+
+    $queries = collect(metricScaleQueries(function () use ($query, &$result): void {
+        $result = app(MetricService::class)->get('source.source_to_join', $query);
+    }));
+
+    expect($queries->filter(fn (array $q): bool => str_contains($q['query'], 'from "candidate_joinings"'))
+        ->every(fn (array $q): bool => str_contains($q['query'], 'limit 1000')))->toBeTrue()
+        ->and($result->sampleSize)->toBe(3)
+        ->and(collect($result->details['sources'])->sum('joined'))->toBe(2)
+        ->and(collect($result->details['sources'])->sum('no_show'))->toBe(1);
+});
+
 test('the lean median helpers return exactly what Collection::median() and avg() return (Phase 8.9)', function (): void {
     $definition = new class(app(MetricScope::class)) extends MetricDefinition
     {

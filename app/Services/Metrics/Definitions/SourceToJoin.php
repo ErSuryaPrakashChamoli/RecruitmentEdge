@@ -16,7 +16,7 @@ use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 
 /**
  * source.source_to_join (D6, D9): the joining outcomes of the period grouped by the hire's frozen
@@ -67,37 +67,53 @@ class SourceToJoin extends MetricDefinition
         $columns = ['candidate_joinings.id', 'candidate_joinings.status', 'candidate_joinings.candidate_application_id'];
         $relations = ['outcomeSnapshot:id,candidate_joining_id,source_id', 'candidateApplication:id,candidate_id', 'candidateApplication.candidate:id,source_id'];
 
-        $rows = $this->hires($query)->with($relations)->get($columns)->concat(
-            $this->filteredJoinings(CandidateJoining::query(), $query)
-                ->whereIn('candidate_joinings.status', [JoiningStatus::NoShow->value, JoiningStatus::Dropout->value])
-                ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'candidate_joinings.updated_at'))
-                ->with($relations)
-                ->get($columns),
-        );
+        // Phase 8.9 (P89-PERF-028 family): hires, then no-shows and dropouts (disjoint by status),
+        // are paged by id and counted per source as they are read — hydrating every joining of the
+        // period with its relations took 314 MB at 1M candidates (365 days, organisation-wide).
+        // Same joinings, same attribution, same counts; sources keep their first-seen order.
+        $counts = [];
+        $tally = function (EloquentCollection $joinings) use (&$counts): void {
+            foreach ($joinings as $joining) {
+                $sourceId = ($joining->outcomeSnapshot?->source_id ?? $joining->candidateApplication?->candidate?->source_id) ?? 0;
+                $counts[$sourceId] ??= ['joined' => 0, 'no_show' => 0, 'dropout' => 0, 'sample_size' => 0];
+                $counts[$sourceId]['sample_size']++;
+
+                match ($joining->status) {
+                    JoiningStatus::Joined => $counts[$sourceId]['joined']++,
+                    JoiningStatus::NoShow => $counts[$sourceId]['no_show']++,
+                    JoiningStatus::Dropout => $counts[$sourceId]['dropout']++,
+                    default => null,
+                };
+            }
+        };
+
+        $this->hires($query)->with($relations)->select($columns)
+            ->chunkById(1000, $tally, 'candidate_joinings.id', 'id');
+        $this->filteredJoinings(CandidateJoining::query(), $query)
+            ->whereIn('candidate_joinings.status', [JoiningStatus::NoShow->value, JoiningStatus::Dropout->value])
+            ->tap(fn (Builder $q) => $period->whereTimestampColumn($q, 'candidate_joinings.updated_at'))
+            ->with($relations)->select($columns)
+            ->chunkById(1000, $tally, 'candidate_joinings.id', 'id');
 
         $names = CandidateSource::query()->pluck('name', 'id');
 
-        $sources = $rows
-            ->groupBy(fn (CandidateJoining $joining) => ($joining->outcomeSnapshot?->source_id ?? $joining->candidateApplication?->candidate?->source_id) ?? 0)
-            ->map(function (Collection $group, int $sourceId) use ($names) {
-                $joined = $group->where('status', JoiningStatus::Joined)->count();
-
-                return [
-                    'source_id' => $sourceId ?: null,
-                    'source' => $sourceId ? (string) ($names[$sourceId] ?? self::NOT_RECORDED) : self::NOT_RECORDED,
-                    'joined' => $joined,
-                    'no_show' => $group->where('status', JoiningStatus::NoShow)->count(),
-                    'dropout' => $group->where('status', JoiningStatus::Dropout)->count(),
-                    'sample_size' => $group->count(),
-                    'rate' => $this->withheld($this->rate($joined, $group->count()), $group->count()),
-                ];
-            })
+        $sources = collect($counts)
+            ->map(fn (array $count, int $sourceId) => [
+                'source_id' => $sourceId ?: null,
+                'source' => $sourceId ? (string) ($names[$sourceId] ?? self::NOT_RECORDED) : self::NOT_RECORDED,
+                'joined' => $count['joined'],
+                'no_show' => $count['no_show'],
+                'dropout' => $count['dropout'],
+                'sample_size' => $count['sample_size'],
+                'rate' => $this->withheld($this->rate($count['joined'], $count['sample_size']), $count['sample_size']),
+            ])
             ->sortByDesc('sample_size')
             ->values()
             ->all();
 
-        $joined = $rows->where('status', JoiningStatus::Joined)->count();
+        $joined = array_sum(array_column($counts, 'joined'));
+        $total = array_sum(array_column($counts, 'sample_size'));
 
-        return $this->result($query, $this->rate($joined, $rows->count()), $rows->count(), ['sources' => $sources]);
+        return $this->result($query, $this->rate($joined, $total), $total, ['sources' => $sources]);
     }
 }
