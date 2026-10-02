@@ -418,6 +418,10 @@ class AutomationEngine
             $depth > 0 && in_array($rule->id, $this->runtime->ruleChain(), true) => 'Loop prevented: this rule is already running earlier in the same automation chain.',
             $depth >= (int) config('automation.max_chain_depth', 3) => 'Loop prevented: maximum automation chain depth ('.config('automation.max_chain_depth', 3).') reached.',
             $runAt === null => 'Not scheduled: the timing date ('.$anchorField.') is not set on this record.',
+            // Phase 8.9 (P89-PERF-008): a run due now for a rule that has already started its daily
+            // limit of runs today is decided here — the same check and message as at run time — so
+            // a burst of events no longer queues a job per event only to skip it in the worker.
+            $runAt->lte(now()) => $this->dailyLimitReason($rule->id, $version?->snapshot ?? $rule->configuration()),
             default => null,
         };
 
@@ -658,14 +662,26 @@ class AutomationEngine
             return "Limit: this rule already ran {$perEntity} time(s) for this record.";
         }
 
+        return $this->dailyLimitReason((int) $execution->automation_rule_id, $snapshot, $execution->id);
+    }
+
+    /**
+     * The rule's runs started today against its daily limit (the rule's own setting, capped by
+     * automation.max_executions_per_rule_per_day) — checked when a run is due and again when it runs.
+     * Served by automation_exec_rule_started (rule, started_at).
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function dailyLimitReason(int $ruleId, array $snapshot, ?int $exceptExecutionId = null): ?string
+    {
         $daily = min(
             (int) ($snapshot['max_executions_per_day'] ?? 0) ?: PHP_INT_MAX,
             (int) config('automation.max_executions_per_rule_per_day', 500),
         );
 
         $today = AutomationExecution::query()
-            ->where('automation_rule_id', $execution->automation_rule_id)
-            ->whereKeyNot($execution->id)
+            ->where('automation_rule_id', $ruleId)
+            ->when($exceptExecutionId !== null, fn ($q) => $q->whereKeyNot($exceptExecutionId))
             ->whereIn('status', [AutomationExecutionStatus::Completed, AutomationExecutionStatus::PartiallyCompleted, AutomationExecutionStatus::Failed, AutomationExecutionStatus::Running])
             ->where('started_at', '>=', now()->startOfDay())
             ->count();

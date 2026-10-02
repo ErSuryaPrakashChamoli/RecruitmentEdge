@@ -26,6 +26,7 @@ use App\Services\CandidateTimelineService;
 use App\Services\InterviewService;
 use App\Services\StageTransitionService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Support\Facades\Queue;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
@@ -287,4 +288,53 @@ test('timeline notes written by automation stay internal and never reach the can
 
     expect(CandidateTimelineEvent::query()->where('title', 'Automation: recruiter chased interviewer')->sole()->visibility)->toBe(TimelineVisibility::Internal)
         ->and(app(CandidateTimelineService::class)->forPortal($candidate)->pluck('title')->all())->not->toContain('Automation: recruiter chased interviewer');
+});
+
+test('a rule that already reached its daily limit records the skip when the event happens and queues no job (Phase 8.9)', function (): void {
+    Queue::fake();
+    $rule = AutomationRule::factory()->active()->create(['max_executions_per_day' => 1]);
+    AutomationExecution::query()->forceCreate([
+        'automation_rule_id' => $rule->id, 'automation_rule_version_id' => $rule->currentVersion->id, 'trigger' => $rule->trigger,
+        'subject_type' => (new Interview)->getMorphClass(), 'subject_id' => 999999, 'idempotency_key' => 'earlier-run-today',
+        'status' => AutomationExecutionStatus::Completed, 'scheduled_for' => now(), 'triggered_at' => now(), 'started_at' => now()->subMinute(), 'completed_at' => now(), 'depth' => 0,
+    ]);
+
+    engineInterview(engineApplication($this->recruiter));
+    engineInterview(engineApplication($this->recruiter));
+
+    $skipped = AutomationExecution::query()->where('subject_id', '!=', 999999)->get();
+
+    expect($skipped)->toHaveCount(2)
+        ->and($skipped->pluck('status')->unique()->all())->toBe([AutomationExecutionStatus::Skipped])
+        ->and($skipped->every(fn (AutomationExecution $run) => str_starts_with((string) $run->skip_reason, 'Daily limit: this rule already ran 1 time(s) today (limit 1).')))->toBeTrue()
+        ->and($skipped->every(fn (AutomationExecution $run) => $run->completed_at !== null))->toBeTrue();
+    Queue::assertNotPushed(RunAutomationExecutionJob::class);
+});
+
+test('below its daily limit a rule still queues its run (Phase 8.9)', function (): void {
+    Queue::fake();
+    AutomationRule::factory()->active()->create(['max_executions_per_day' => 5]);
+
+    engineInterview(engineApplication($this->recruiter));
+
+    expect(AutomationExecution::query()->sole()->status)->toBe(AutomationExecutionStatus::Pending);
+    Queue::assertPushed(RunAutomationExecutionJob::class, 1);
+});
+
+test('cleanup prunes old runs skipped by the daily limit in batches and keeps runs that acted (Phase 8.9)', function (): void {
+    $rule = AutomationRule::factory()->active()->create();
+    $make = fn (string $key, AutomationExecutionStatus $status, ?string $reason, int $daysAgo) => AutomationExecution::query()->forceCreate([
+        'automation_rule_id' => $rule->id, 'trigger' => $rule->trigger, 'subject_type' => (new Interview)->getMorphClass(), 'subject_id' => 1,
+        'idempotency_key' => $key, 'status' => $status, 'skip_reason' => $reason, 'scheduled_for' => now(), 'triggered_at' => now(), 'depth' => 0,
+        'created_at' => now()->subDays($daysAgo),
+    ]);
+    $oldLimitSkip = $make('old-limit', AutomationExecutionStatus::Skipped, 'Daily limit: this rule already ran 500 time(s) today (limit 500).', 120);
+    $recentLimitSkip = $make('recent-limit', AutomationExecutionStatus::Skipped, 'Daily limit: this rule already ran 500 time(s) today (limit 500).', 3);
+    $oldCompleted = $make('old-completed', AutomationExecutionStatus::Completed, null, 120);
+
+    $this->artisan('recruitment:automation:cleanup')->assertSuccessful();
+
+    expect(AutomationExecution::query()->whereKey($oldLimitSkip->id)->exists())->toBeFalse()
+        ->and(AutomationExecution::query()->whereKey($recentLimitSkip->id)->exists())->toBeTrue()
+        ->and(AutomationExecution::query()->whereKey($oldCompleted->id)->exists())->toBeTrue();
 });
