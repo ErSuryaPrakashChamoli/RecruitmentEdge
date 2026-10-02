@@ -263,7 +263,7 @@ class OffersTable
             ->color('gray')
             // Phase 8.8 (SEC-88-15): the letter states the full CTC, so it needs compensation.view too.
             ->visible(fn (Offer $record): bool => (bool) auth()->user()?->can('view', $record) && (bool) auth()->user()?->can('compensation.view'))
-            ->action(function (Offer $record): StreamedResponse {
+            ->action(function (Offer $record): ?StreamedResponse {
                 $record->loadMissing([
                     'candidateApplication.candidate',
                     'candidateApplication.requisition.department',

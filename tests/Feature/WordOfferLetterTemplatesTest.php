@@ -4,6 +4,7 @@ use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
 use App\Filament\Resources\OfferLetterTemplates\Pages\CreateOfferLetterTemplate;
 use App\Filament\Resources\OfferLetterTemplates\Pages\EditOfferLetterTemplate;
+use App\Filament\Resources\Offers\Pages\EditOffer;
 use App\Jobs\ConvertOfferLetterJob;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
@@ -255,4 +256,15 @@ test('a letter still being converted is never answered with an older one, and a 
         ->and($letters->pendingConversionFor($offer))->toBeNull()
         ->and(AuditLog::query()->where('action', 'offer_letter_conversion_failed')->exists())->toBeTrue();
     Notification::assertSentTo($releaserUser, StaffDatabaseNotification::class);
+});
+
+test('downloading a letter while its PDF is still being produced says so instead of failing (Phase 8.9)', function (): void {
+    Queue::fake();
+    $offer = offerForWordLetter();
+    app(OfferService::class)->moveTo($offer, OfferStatus::Released, $this->admin->employee);
+
+    Livewire::test(EditOffer::class, ['record' => $offer->getRouteKey()])
+        ->callAction('downloadOfferLetter')
+        ->assertNotified('Offer letter being prepared')
+        ->assertNoFileDownloaded();
 });
