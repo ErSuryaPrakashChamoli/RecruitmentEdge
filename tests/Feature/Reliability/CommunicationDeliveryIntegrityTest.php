@@ -31,6 +31,7 @@ use App\Services\Communication\Data\WebhookStatusUpdate;
 use App\Services\Communication\DeliveryStatusService;
 use App\Services\Communication\MessageContext;
 use App\Services\Communication\ProviderCircuitBreaker;
+use App\Services\Identity\StaffAccessService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -308,4 +309,36 @@ test('running the sweep again changes nothing more: each stuck item is handled o
     expect(AuditLog::query()->where('action', 'communication_failed')->where('auditable_id', $sending->id)->count())->toBe(1)
         ->and(AuditLog::query()->where('action', 'ai_action_interrupted')->where('auditable_id', $interrupted->id)->count())->toBe(1)
         ->and($interrupted->fresh()->result()->count())->toBe(1);
+});
+
+test('a message sent by a staff member is not delivered once that sender loses the authority to send it (Phase 8.9)', function (string $loss): void {
+    $this->seed(RolePermissionSeeder::class);
+    $context = deliveryContext();
+    $senderEmployee = Employee::factory()->create();
+    CandidateApplication::query()->whereKey($context->application->id)->update(['recruiter_id' => $senderEmployee->id]);
+    $sender = User::factory()->create(['employee_id' => $senderEmployee->id])->assignRole('recruiter');
+    $chro = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
+    $message = $this->communications->send(CommunicationChannel::Email, $context, deliveryTemplate('interview_scheduled'), actor: $senderEmployee, trigger: CommunicationTrigger::Manual, idempotencyKey: "sender-{$loss}");
+
+    match ($loss) {
+        'suspended' => app(StaffAccessService::class)->suspend($sender, $chro, 'Under review'),
+        'lost the send permission' => $sender->syncRoles([]),
+        'candidate left the team' => CandidateApplication::query()->whereKey($context->application->id)->update(['recruiter_id' => Employee::factory()->create()->id]),
+    };
+
+    expectSuppressed(deliverNow($message), 'no longer has access to send it');
+})->with(['suspended', 'lost the send permission', 'candidate left the team']);
+
+test('a staff member who keeps their authority still has their message delivered, and automated messages carry no sender check (Phase 8.9)', function (): void {
+    $this->seed(RolePermissionSeeder::class);
+    $context = deliveryContext();
+    $senderEmployee = Employee::factory()->create();
+    CandidateApplication::query()->whereKey($context->application->id)->update(['recruiter_id' => $senderEmployee->id]);
+    User::factory()->create(['employee_id' => $senderEmployee->id])->assignRole('recruiter');
+
+    $manual = $this->communications->send(CommunicationChannel::Email, $context, deliveryTemplate('interview_scheduled'), actor: $senderEmployee, trigger: CommunicationTrigger::Manual, idempotencyKey: 'sender-kept');
+    $automated = $this->communications->send(CommunicationChannel::Email, $context, CommunicationTemplate::query()->where('key', 'interview_scheduled')->sole(), trigger: CommunicationTrigger::Automation, idempotencyKey: 'automated-1');
+
+    expect(deliverNow($manual)->status)->toBe(CommunicationStatus::Sent)
+        ->and(deliverNow($automated)->status)->toBe(CommunicationStatus::Sent);
 });

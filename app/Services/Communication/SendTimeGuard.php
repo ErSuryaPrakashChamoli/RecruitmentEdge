@@ -9,6 +9,7 @@ use App\Enums\OfferStatus;
 use App\Enums\TemplateStatus;
 use App\Models\CandidateCommunication;
 use App\Models\Offer;
+use App\Models\User;
 
 /**
  * Phase 8.7 (D8.7-024, D8.7-008 c): what must stop a message that is already queued. Content is
@@ -26,7 +27,11 @@ use App\Models\Offer;
  * 4. the offer it is about was withdrawn, expired, declined or sent back to draft;
  * 5. the candidate joined after it was queued and it is a recruitment-stage template (joining and
  *    onboarding templates still go);
- * 6. its template was archived after it was queued (archiving is the "stop sending" switch).
+ * 6. its template was archived after it was queued (archiving is the "stop sending" switch);
+ * 7. (Phase 8.9, P89-SEC-011) a staff member sent it — by hand, a resend or through the Copilot —
+ *    and no longer has the authority to: their access was suspended or revoked, they lost
+ *    communications.send, or the candidate left their hierarchy. Automated messages carry no
+ *    sender; their rule owner is re-checked when the automation runs.
  *
  * Only changes after queueing count: a rejection notice queued for a rejected application is sent.
  */
@@ -75,11 +80,32 @@ class SendTimeGuard
             return $reason;
         }
 
-        return $this->applicationReason($communication, $queued)
+        return $this->senderReason($communication)
+            ?? $this->applicationReason($communication, $queued)
             ?? $this->interviewReason($communication, $queued)
             ?? $this->offerReason($queued)
             ?? $this->hiredReason($communication, $queued)
             ?? $this->templateReason($communication);
+    }
+
+    /**
+     * The staff sender must still be allowed to send this message now: an active login (the gate is
+     * fail-closed for suspended and revoked users), communications.send, and the candidate visible to
+     * them — exactly what the send action required when the message was queued.
+     */
+    private function senderReason(CandidateCommunication $communication): ?string
+    {
+        if ($communication->sent_by === null) {
+            return null;
+        }
+
+        $sender = User::query()->where('employee_id', $communication->sent_by)->first();
+
+        if ($sender === null || ! $sender->can('communications.send') || ! $sender->can('view', $communication->candidate)) {
+            return 'The staff member who sent this message no longer has access to send it.';
+        }
+
+        return null;
     }
 
     /**
