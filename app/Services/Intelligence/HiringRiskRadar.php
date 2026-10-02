@@ -72,9 +72,14 @@ class HiringRiskRadar
      * A scan that fails part-way resolves nothing. Full scans never overlap (a cache lock); a scan
      * that finds another one running skips instead of racing it.
      *
+     * Phase 8.9 (P89-PERF-005): requisitions the hourly refresh deferred (its time budget ran out)
+     * are not evaluated in this scan — their requisition-level risks are neither re-observed nor
+     * auto-resolved, so a deferral never closes a live risk; the next scan evaluates them first.
+     *
+     * @param  array<int, int>  $deferredRequisitionIds
      * @return array{opened: int, refreshed: int, resolved: int, skipped?: bool}
      */
-    public function scan(?RecruitmentRequisition $only = null): array
+    public function scan(?RecruitmentRequisition $only = null, array $deferredRequisitionIds = []): array
     {
         if ($only !== null) {
             return $this->runScan($only);
@@ -87,16 +92,17 @@ class HiringRiskRadar
         }
 
         try {
-            return $this->runScan(null);
+            return $this->runScan(null, array_fill_keys($deferredRequisitionIds, true));
         } finally {
             $lock->release();
         }
     }
 
     /**
+     * @param  array<int, true>  $deferred  requisition id => true
      * @return array{opened: int, refreshed: int, resolved: int}
      */
-    private function runScan(?RecruitmentRequisition $only): array
+    private function runScan(?RecruitmentRequisition $only, array $deferred = []): array
     {
         $started = now()->subSecond();
         $counts = ['opened' => 0, 'refreshed' => 0, 'resolved' => 0];
@@ -111,8 +117,12 @@ class HiringRiskRadar
         } else {
             RecruitmentRequisition::query()
                 ->where('status', RequisitionStatus::Open)
-                ->chunkById(self::CHUNK, function ($requisitions) use ($observe): void {
+                ->chunkById(self::CHUNK, function ($requisitions) use ($observe, $deferred): void {
                     foreach ($requisitions as $requisition) {
+                        if (isset($deferred[$requisition->id])) {
+                            continue;
+                        }
+
                         foreach ($this->requisitionRisks($requisition) as $risk) {
                             $observe($risk);
                         }
@@ -137,7 +147,7 @@ class HiringRiskRadar
         }
 
         // Reached only when the whole population above was evaluated.
-        $counts['resolved'] = $this->autoResolve($started, $only);
+        $counts['resolved'] = $this->autoResolve($started, $only, $deferred);
 
         return $counts;
     }
@@ -449,14 +459,20 @@ class HiringRiskRadar
             ->all();
     }
 
-    private function autoResolve(CarbonInterface $started, ?RecruitmentRequisition $only): int
+    /**
+     * @param  array<int, true>  $deferred  requisitions not evaluated in this scan
+     */
+    private function autoResolve(CarbonInterface $started, ?RecruitmentRequisition $only, array $deferred = []): int
     {
+        $requisitionMorph = (new RecruitmentRequisition)->getMorphClass();
+
         $stale = HiringRisk::query()
             ->open()
             ->where('detector_version', self::DETECTOR_VERSION)
             ->where('last_seen_at', '<', $started)
             ->when($only !== null, fn ($q) => $q->where('requisition_id', $only->id))
-            ->get();
+            ->get()
+            ->reject(fn (HiringRisk $risk): bool => $risk->subject_type === $requisitionMorph && isset($deferred[(int) $risk->subject_id]));
 
         foreach ($stale as $risk) {
             $risk->forceFill(['status' => HiringRiskStatus::Resolved, 'resolved_at' => now(), 'resolution' => 'No longer detected by the Risk Radar.', 'open_key' => null])->save();

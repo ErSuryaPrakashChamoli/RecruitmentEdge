@@ -58,7 +58,7 @@ test('raw vacancy-ageing and SLA-breach sweeps are used only where already inven
         'app/Services/AI/Tools/JobTools/FindAtRiskRequisitionsTool.php',
         'app/Services/RecruitmentActionCenterService.php',
         'app/Services/RecruitmentAnalyticsService.php',
-    ])->and(ungovernedKpiConsumers('openBreaches', 'openPipelineStageBreaches', 'breachFor'))->toBe([
+    ])->and(ungovernedKpiConsumers('openBreaches', 'openPipelineStageBreaches', 'breachFor', 'eachOpenBreach', 'eachOpenPipelineStageBreach'))->toBe([
         'app/Console/Commands/DispatchRecruitmentAlerts.php',
         'app/Services/Automation/AutomationFieldRegistry.php',
         'app/Services/RecruitmentSlaService.php',

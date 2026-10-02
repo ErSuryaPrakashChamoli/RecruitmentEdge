@@ -123,9 +123,8 @@ class DispatchRecruitmentAlerts extends Command
 
     private function checkOpenSlaBreaches(NotificationDispatchService $notifications, RecruitmentSlaService $sla): int
     {
-        $count = 0;
-
-        foreach ($sla->openBreaches() as $breach) {
+        // Phase 8.9 (P89-PERF-004): streamed one page of breaches at a time.
+        return $sla->eachOpenBreach(function (array $breach) use ($notifications): void {
             /** @var CandidateApplication $application */
             $application = $breach['application'];
 
@@ -138,10 +137,7 @@ class DispatchRecruitmentAlerts extends Command
                 CandidateApplicationResource::getUrl('view', ['record' => $application]),
                 "sla-breach-{$application->id}-{$breach['leg_label']}-".now()->toDateString(),
             );
-            $count++;
-        }
-
-        return $count;
+        });
     }
 
     /**
@@ -150,9 +146,7 @@ class DispatchRecruitmentAlerts extends Command
      */
     private function checkPipelineStageSlaBreaches(NotificationDispatchService $notifications, RecruitmentSlaService $sla): int
     {
-        $count = 0;
-
-        foreach ($sla->openPipelineStageBreaches() as $breach) {
+        return $sla->eachOpenPipelineStageBreach(function (array $breach) use ($notifications): void {
             /** @var CandidateApplication $application */
             $application = $breach['application'];
 
@@ -165,10 +159,7 @@ class DispatchRecruitmentAlerts extends Command
                 CandidateApplicationResource::getUrl('view', ['record' => $application]),
                 "pipeline-sla-{$application->id}-{$application->pipeline_stage_id}-".now()->toDateString(),
             );
-            $count++;
-        }
-
-        return $count;
+        });
     }
 
     private function checkSelectedWithoutOffer(NotificationDispatchService $notifications): int
@@ -181,7 +172,7 @@ class DispatchRecruitmentAlerts extends Command
             ->where('last_activity_at', '<=', now()->subHours($thresholdHours))
             ->whereDoesntHave('offers', fn ($q) => $q->whereNot('status', OfferStatus::Withdrawn))
             ->with('candidate', 'recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($applications as $application) {
             $notifications->alert(
@@ -211,7 +202,7 @@ class DispatchRecruitmentAlerts extends Command
             ->where('status', FollowupStatus::Pending)
             ->where('followup_date', '<=', now()->endOfDay())
             ->with('candidateApplication.candidate', 'recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($followups as $followup) {
             $isOverdue = $followup->followup_date->lt(now()->startOfDay());
@@ -247,7 +238,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [...InterviewStatus::unconfirmed(), InterviewStatus::Confirmed])
             ->whereDate('scheduled_at', $tomorrow)
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user', 'interviewer.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $recipients = collect([$interview->interviewer?->user, $interview->candidateApplication->recruiter?->user])
@@ -282,7 +273,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', InterviewStatus::unconfirmed())
             ->whereBetween('scheduled_at', [now(), now()->addHours(48)])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $notifications->alert(
@@ -310,7 +301,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereNull('result')
             ->where('scheduled_at', '<=', now()->subHours($thresholdHours))
             ->with('candidateApplication.candidate', 'interviewer')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $notifications->alert(
@@ -338,7 +329,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereNotNull('offer_expiry')
             ->whereBetween('offer_expiry', [now()->toDateString(), now()->addDays($warningDays)->toDateString()])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($offers as $offer) {
             $application = $offer->candidateApplication;
@@ -367,7 +358,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->whereDate('expected_doj', $tomorrow)
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;
@@ -404,7 +395,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->whereDate('expected_doj', now()->addDays($reminderDays)->toDateString())
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;
@@ -431,7 +422,7 @@ class DispatchRecruitmentAlerts extends Command
         $joinings = CandidateJoining::query()
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             if ($joining->riskLevel() !== 'red') {
@@ -467,7 +458,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->where('expected_doj', '<', now()->toDateString())
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.reportsTo.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;

@@ -8,9 +8,11 @@ use App\Services\Intelligence\HiringHealthService;
 use App\Services\Intelligence\HiringRiskRadar;
 use App\Services\Intelligence\IntelligenceAiService;
 use App\Services\Intelligence\TalentSignalService;
+use Closure;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -58,20 +60,73 @@ class RefreshIntelligence extends Command
             }
         };
 
-        if ($limit !== null) {
-            $query->limit($limit)->get()->each($refresh);
+        $deferredIds = [];
+
+        if ($limit !== null || $only !== null) {
+            $query->when($limit, fn ($q) => $q->limit($limit))->get()->each($refresh);
         } else {
-            $query->chunkById(HiringRiskRadar::CHUNK, fn ($chunk) => $chunk->each($refresh));
+            $deferredIds = $this->refreshStalestFirst($refresh);
         }
 
+        $deferred = count($deferredIds);
+
         $scoped = $only !== null ? RecruitmentRequisition::query()->when(is_numeric($only), fn ($q) => $q->whereKey($only), fn ($q) => $q->where('code', $only))->first() : null;
-        $risks = $only !== null && $scoped === null ? ['opened' => 0, 'refreshed' => 0, 'resolved' => 0] : $radar->scan($scoped);
+        $risks = $only !== null && $scoped === null ? ['opened' => 0, 'refreshed' => 0, 'resolved' => 0] : $radar->scan($scoped, $deferredIds);
         $expired = $ai->expireStaleRequests();
 
-        $this->info("{$count} requisition(s): {$snapshots} health snapshot(s), {$refreshedSignals} talent signal(s) refreshed".($failed > 0 ? ", {$failed} failed" : '')
+        if ($deferred > 0) {
+            // Not silent: the next hourly run starts with these (they are the least stale left).
+            Log::warning('intelligence.refresh_deferred', ['deferred' => $deferred, 'budget_seconds' => (int) config('intelligence.refresh.time_budget_seconds')]);
+        }
+
+        $this->info("{$count} requisition(s): {$snapshots} health snapshot(s), {$refreshedSignals} talent signal(s) refreshed".($failed > 0 ? ", {$failed} failed" : '').($deferred > 0 ? ", {$deferred} deferred to the next run (time budget)" : '')
             .'; risks '.(($risks['skipped'] ?? false) ? 'skipped (another scan is running)' : "{$risks['opened']} opened, {$risks['refreshed']} still open, {$risks['resolved']} resolved")
             ."; {$expired} stale AI request(s) expired.");
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-005): a scheduled run refreshes the open requisitions stalest first — no
+     * Hiring Health snapshot yet, then the oldest — and stops starting new ones once the run's time
+     * budget is spent, so a cold run at thousands of open requisitions no longer overruns its hourly
+     * cadence (414 s cold at 520 in Phase 8.7, ≈ 0.8 s each). What is left is deferred, counted and
+     * logged, and taken first by the next run; the Risk Radar leaves their requisition risks as they
+     * are this run. Returns the deferred requisition ids.
+     *
+     * @param  Closure(RecruitmentRequisition): void  $refresh
+     * @return array<int, int>
+     */
+    private function refreshStalestFirst(Closure $refresh): array
+    {
+        $deadline = microtime(true) + (int) config('intelligence.refresh.time_budget_seconds', 2700);
+
+        $ids = RecruitmentRequisition::query()
+            ->where('recruitment_requisitions.status', RequisitionStatus::Open)
+            ->leftJoin('hiring_health_snapshots as current_health', function ($join): void {
+                $join->on('current_health.requisition_id', '=', 'recruitment_requisitions.id')->where('current_health.is_current', true);
+            })
+            ->orderByRaw('current_health.computed_at is not null')
+            ->orderBy('current_health.computed_at')
+            ->orderBy('recruitment_requisitions.id')
+            ->pluck('recruitment_requisitions.id')
+            ->unique()
+            ->values();
+
+        foreach ($ids->chunk(HiringRiskRadar::CHUNK) as $index => $chunk) {
+            $requisitions = RecruitmentRequisition::query()->whereKey($chunk->all())->get()->keyBy('id');
+
+            foreach ($chunk as $position => $id) {
+                if (microtime(true) >= $deadline) {
+                    return $ids->slice($position)->map(fn ($id): int => (int) $id)->values()->all();
+                }
+
+                if (($requisition = $requisitions->get($id)) !== null) {
+                    $refresh($requisition);
+                }
+            }
+        }
+
+        return [];
     }
 }

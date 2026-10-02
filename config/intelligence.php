@@ -23,6 +23,10 @@ return [
         // Talent signals refreshed per requisition per run (a throughput bound). Since Phase 8.7 every
         // open requisition is refreshed and scanned — there is no per-run requisition cap.
         'signals_per_requisition' => 200,
+        // Phase 8.9 (P89-PERF-005): a scheduled run stops starting requisitions after this many
+        // seconds (stalest first); the rest are logged as deferred and go first in the next run.
+        // Below the hourly cadence and the 120-minute overlap guard.
+        'time_budget_seconds' => (int) env('INTELLIGENCE_REFRESH_TIME_BUDGET', 2700),
     ],
 
     'ai' => [

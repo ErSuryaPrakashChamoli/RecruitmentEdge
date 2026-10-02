@@ -19,6 +19,8 @@ use App\Services\Intelligence\RoleDnaService;
 use App\Services\Intelligence\TalentSignalService;
 use App\Services\RequisitionApprovalService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
@@ -81,4 +83,49 @@ test('the refresh expires AI requests that never completed, without calling AI, 
     expect($stale->fresh()->ai_status)->toBe(IntelligenceAiStatus::Failed)
         ->and($stale->fresh()->ai_error)->toContain('did not complete')
         ->and($recent->fresh()->ai_status)->toBe(IntelligenceAiStatus::Processing);
+});
+
+test('a scheduled run refreshes the stalest requisitions first and defers, never drops, what its time budget leaves (Phase 8.9)', function (): void {
+    $first = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
+    $second = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
+    $this->artisan('intelligence:refresh')->assertSuccessful();
+    $openRisks = HiringRisk::query()->open()->pluck('id')->sort()->values()->all();
+    expect($openRisks)->not->toBeEmpty();
+
+    HiringHealthSnapshot::query()->where('requisition_id', $first->id)->update(['computed_at' => now()->subHours(7)]);
+    HiringHealthSnapshot::query()->where('requisition_id', $second->id)->update(['computed_at' => now()->subHours(9)]);
+    Log::spy();
+
+    // Budget spent before the first requisition: both are deferred, and the Risk Radar leaves their
+    // requisition risks open — a deferral never resolves a live risk.
+    config(['intelligence.refresh.time_budget_seconds' => 0]);
+    $this->artisan('intelligence:refresh')->expectsOutputToContain('0 requisition(s): 0 health snapshot(s), 0 talent signal(s) refreshed, 2 deferred to the next run (time budget)')->assertSuccessful();
+    Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context) => $message === 'intelligence.refresh_deferred' && $context['deferred'] === 2);
+    expect(HiringRisk::query()->open()->pluck('id')->sort()->values()->all())->toBe($openRisks);
+
+    // The next run refreshes both, the stalest (9 h) first.
+    config(['intelligence.refresh.time_budget_seconds' => 2700]);
+    $this->artisan('intelligence:refresh')->expectsOutputToContain('2 requisition(s): 2 health snapshot(s)')->assertSuccessful();
+
+    expect(HiringHealthSnapshot::query()->where('requisition_id', $second->id)->where('is_current', true)->value('id'))
+        ->toBeLessThan(HiringHealthSnapshot::query()->where('requisition_id', $first->id)->where('is_current', true)->value('id'));
+});
+
+test('talent signals beyond the per-run limit are refreshed by later runs, and fresh ones are skipped cheaply (Phase 8.9)', function (): void {
+    $requisition = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open, 'skills' => ['PHP']]);
+    CandidateApplication::factory()->count(5)->create(['requisition_id' => $requisition->id]);
+    $signals = app(TalentSignalService::class);
+
+    expect($signals->refreshForRequisition($requisition, 2))->toBe(2)
+        ->and($signals->refreshForRequisition($requisition, 2))->toBe(2)
+        ->and($signals->refreshForRequisition($requisition, 2))->toBe(1)
+        ->and(TalentSignalSnapshot::query()->where('is_current', true)->count())->toBe(5);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $refreshed = $signals->refreshForRequisition($requisition, 200);
+    $queries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($refreshed)->toBe(0)->and($queries)->toBeLessThan(10);
 });

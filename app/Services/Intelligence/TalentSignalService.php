@@ -8,6 +8,7 @@ use App\Models\CandidateApplication;
 use App\Models\RecruitmentRequisition;
 use App\Models\TalentSignalSnapshot;
 use App\Models\User;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -95,18 +96,41 @@ class TalentSignalService
     public function refreshForRequisition(RecruitmentRequisition $requisition, int $limit = 200, ?User $actor = null): int
     {
         $refreshed = 0;
+        $currentDnaVersion = $this->roleDna->profileFor($requisition)->current_version;
 
+        // Phase 8.9 (P89-PERF-023, P89-DQ-015): every active application is checked — not only the
+        // first 200 by id — a page at a time, with one query per page for the current signals; only
+        // stale signals are recalculated, at most $limit per run, so a large requisition is covered
+        // over successive runs and a fresh one costs one query per page instead of ~6 per application.
         CandidateApplication::query()
             ->where('requisition_id', $requisition->id)
             ->where('status', ApplicationStatus::Active)
             ->with(['candidate', 'requisition'])
-            ->orderBy('id')
-            ->limit($limit)
-            ->get()
-            ->each(function (CandidateApplication $application) use (&$refreshed): void {
-                $before = $this->currentFor($application)?->id;
-                $after = $this->refresh($application)->id;
-                $refreshed += $before !== $after ? 1 : 0;
+            ->chunkById(200, function (Collection $applications) use ($requisition, $limit, $currentDnaVersion, &$refreshed): bool {
+                $current = TalentSignalSnapshot::query()
+                    ->where('requisition_id', $requisition->id)
+                    ->whereIn('candidate_id', $applications->pluck('candidate_id'))
+                    ->where('is_current', true)
+                    ->with('roleDnaVersion')
+                    ->orderBy('id')
+                    ->get()
+                    ->keyBy('candidate_id');
+
+                foreach ($applications as $application) {
+                    if ($refreshed >= $limit) {
+                        return false;
+                    }
+
+                    $snapshot = $current->get($application->candidate_id);
+
+                    if ($snapshot !== null && ! $this->isStaleAgainst($snapshot, $application, $currentDnaVersion)) {
+                        continue;
+                    }
+
+                    $refreshed += $this->refresh($application)->id !== $snapshot?->id ? 1 : 0;
+                }
+
+                return true;
             });
 
         if ($actor !== null && $refreshed > 0) {
@@ -119,10 +143,17 @@ class TalentSignalService
     public function isStale(TalentSignalSnapshot $snapshot, ?CandidateApplication $application = null): bool
     {
         $application ??= $snapshot->candidateApplication;
-        $profile = $this->roleDna->profileFor($application->requisition);
 
+        return $this->isStaleAgainst($snapshot, $application, $this->roleDna->profileFor($application->requisition)->current_version);
+    }
+
+    /**
+     * isStale() with the requisition's current Role DNA version already known.
+     */
+    private function isStaleAgainst(TalentSignalSnapshot $snapshot, CandidateApplication $application, ?int $currentDnaVersion): bool
+    {
         return $snapshot->rules_version !== TalentSignalCalculator::RULES_VERSION
-            || $snapshot->roleDnaVersion?->version !== $profile->current_version
+            || $snapshot->roleDnaVersion?->version !== $currentDnaVersion
             || $application->candidate->updated_at?->gt($snapshot->computed_at)
             || $application->updated_at?->gt($snapshot->computed_at);
     }

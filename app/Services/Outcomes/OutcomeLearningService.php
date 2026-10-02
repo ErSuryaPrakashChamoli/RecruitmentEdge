@@ -154,7 +154,11 @@ class OutcomeLearningService
     {
         $checkpoint = $this->learningCheckpoint();
         $minimum = (int) config('outcomes.sample.insufficient_below', 3);
-        $hires = collect();
+
+        // Phase 8.9 (P89-PERF-014, P87-BACKLOG-010): the checkpoint outcomes are streamed and folded
+        // into per-designation counters — the figures the insights state, in the same order — instead
+        // of every hire of the history held in memory. Same sample, same counts, same wording.
+        $groups = [];
 
         HiringOutcome::query()->current()
             ->where('hiring_outcomes.outcome_type', $checkpoint->value)
@@ -164,37 +168,58 @@ class OutcomeLearningService
             ->whereNotNull('hiring_outcome_snapshots.designation_id')
             ->select(['hiring_outcomes.id', 'hiring_outcomes.result', 'hiring_outcome_snapshots.id as snapshot_id', 'hiring_outcome_snapshots.designation_id', 'hiring_outcome_snapshots.joined_on', 'hiring_outcome_snapshots.facts'])
             ->lazyById(500, 'hiring_outcomes.id', 'id')
-            ->each(function (HiringOutcome $row) use ($hires): void {
+            ->each(function (HiringOutcome $row) use (&$groups): void {
                 $facts = json_decode((string) $row->getRawOriginal('facts'), true) ?: [];
-                $hires->push([
-                    'outcome_id' => $row->id,
-                    'snapshot_id' => (int) $row->getAttribute('snapshot_id'),
-                    'designation_id' => (int) $row->getAttribute('designation_id'),
-                    'joined_on' => (string) $row->getAttribute('joined_on'),
-                    'active' => $row->result === OutcomeResult::Active,
-                    'skills' => collect($facts['skills'] ?? [])->filter(fn ($skill) => is_string($skill) && str_starts_with($skill, 'skill:'))->unique()->values()->all(),
-                ]);
+                $skills = collect($facts['skills'] ?? [])->filter(fn ($skill) => is_string($skill) && str_starts_with($skill, 'skill:'))->unique()->values()->all();
+                $active = $row->result === OutcomeResult::Active;
+                $designationId = (int) $row->getAttribute('designation_id');
+                $joinedOn = (string) $row->getAttribute('joined_on');
+                $group = &$groups[$designationId];
+                $group ??= ['observed' => 0, 'active' => 0, 'active_skills' => [], 'with' => [], 'with_active' => [], 'first_joined' => $joinedOn, 'last_joined' => $joinedOn, 'outcome_ids' => [], 'snapshot_ids' => []];
+
+                $group['observed']++;
+                $group['active'] += $active ? 1 : 0;
+                $group['first_joined'] = min($group['first_joined'], $joinedOn);
+                $group['last_joined'] = max($group['last_joined'], $joinedOn);
+
+                if (count($group['outcome_ids']) < 50) {
+                    $group['outcome_ids'][] = $row->id;
+                    $group['snapshot_ids'][] = (int) $row->getAttribute('snapshot_id');
+                }
+
+                foreach ($skills as $skill) {
+                    $group['with'][$skill] = ($group['with'][$skill] ?? 0) + 1;
+
+                    if ($active) {
+                        $group['active_skills'][$skill] = ($group['active_skills'][$skill] ?? 0) + 1;
+                        $group['with_active'][$skill] = ($group['with_active'][$skill] ?? 0) + 1;
+                    }
+                }
+
+                unset($group);
             });
 
-        $designations = Designation::query()->whereIn('id', $hires->pluck('designation_id')->unique())->pluck('name', 'id');
+        $designations = Designation::query()->whereIn('id', array_keys($groups))->pluck('name', 'id');
         $insights = [];
 
-        foreach ($hires->groupBy('designation_id') as $designationId => $group) {
-            $observed = $group->count();
-            $active = $group->where('active', true);
+        foreach ($groups as $designationId => $group) {
+            $observed = $group['observed'];
+            $activeCount = $group['active'];
 
-            if ($observed < $minimum || $active->count() < $minimum) {
+            if ($observed < $minimum || $activeCount < $minimum) {
                 continue;
             }
 
-            $skillCounts = $active->flatMap(fn (array $hire) => $hire['skills'])->countBy()
-                ->filter(fn (int $count) => $count / $active->count() >= self::SKILL_SHARE)
+            $skillCounts = collect($group['active_skills'])
+                ->filter(fn (int $count) => $count / $activeCount >= self::SKILL_SHARE)
                 ->sortDesc()
                 ->take(self::SKILLS_PER_DESIGNATION);
 
             foreach ($skillCounts as $skill => $activeWith) {
-                $with = $group->filter(fn (array $hire) => in_array($skill, $hire['skills'], true));
-                $without = $group->reject(fn (array $hire) => in_array($skill, $hire['skills'], true));
+                $withCount = $group['with'][$skill] ?? 0;
+                $withActive = $group['with_active'][$skill] ?? 0;
+                $withoutCount = $observed - $withCount;
+                $withoutActive = $activeCount - $withActive;
                 $label = Str::of(Str::after($skill, 'skill:'))->replace('-', ' ')->title()->toString();
                 $designation = $designations[$designationId] ?? 'this designation';
                 $band = OutcomeSampleBand::forSize($observed);
@@ -204,28 +229,28 @@ class OutcomeLearningService
                     'kind' => OutcomeInsightKind::RoleDnaLearning,
                     'designation_id' => $designationId,
                     'subject_key' => $skill,
-                    'insight' => "Among {$observed} completed hires for {$designation} with an observed {$days}-day status, {$activeWith} of the {$active->count()} observed active listed {$label}. "
-                        ."Of hires listing it, {$with->where('active', true)->count()} of {$with->count()} were observed active; of hires not listing it, {$without->where('active', true)->count()} of {$without->count()}.",
+                    'insight' => "Among {$observed} completed hires for {$designation} with an observed {$days}-day status, {$activeWith} of the {$activeCount} observed active listed {$label}. "
+                        ."Of hires listing it, {$withActive} of {$withCount} were observed active; of hires not listing it, {$withoutActive} of {$withoutCount}.",
                     'suggested_change' => "Consider {$label} as a preferred skill in Role DNA for {$designation} requisitions.",
                     'evidence' => [
                         'skill' => $skill,
                         'skill_label' => $label,
                         'checkpoint_days' => $days,
                         'observed' => $observed,
-                        'observed_active' => $active->count(),
+                        'observed_active' => $activeCount,
                         'active_with_skill' => $activeWith,
-                        'with_skill' => ['observed' => $with->count(), 'active' => $with->where('active', true)->count()],
-                        'without_skill' => ['observed' => $without->count(), 'active' => $without->where('active', true)->count()],
+                        'with_skill' => ['observed' => $withCount, 'active' => $withActive],
+                        'without_skill' => ['observed' => $withoutCount, 'active' => $withoutActive],
                     ],
                     'sample_size' => $observed,
                     'sample_band' => $band,
-                    'period_start' => $group->min('joined_on'),
-                    'period_end' => $group->max('joined_on'),
+                    'period_start' => $group['first_joined'],
+                    'period_end' => $group['last_joined'],
                     'confidence' => $band === OutcomeSampleBand::Stronger ? OutcomeConfidence::Medium : OutcomeConfidence::Low,
                     'limitations' => "Observational association in a {$band->label()} sample — not a cause, and not a reason to exclude anyone. "
                         .'Status is observed on the checkpoint day (medium confidence); observed inactive is not confirmed as an exit. Hires never observed at the checkpoint are left out. '
                         .'Only skills recorded on the candidate profile at joining are compared.',
-                    'source_refs' => ['outcomes' => $group->pluck('outcome_id')->take(50)->values()->all(), 'snapshots' => $group->pluck('snapshot_id')->take(50)->values()->all()],
+                    'source_refs' => ['outcomes' => $group['outcome_ids'], 'snapshots' => $group['snapshot_ids']],
                 ];
             }
         }

@@ -13,6 +13,7 @@ use App\Services\Metrics\MetricPeriod;
 use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricService;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -110,9 +111,27 @@ class RecruitmentSlaService
      */
     public function openBreaches(?User $user = null): Collection
     {
-        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+        $breaches = collect();
+        $this->eachOpenBreach(fn (array $breach) => $breaches->push($breach), $user);
 
-        return collect(self::LEGS)->unique(fn (array $leg) => $leg['from']->value)->flatMap(function (array $leg) use ($visibleIds) {
+        return $breaches;
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-004): openBreaches() as a stream — the breaching applications of each leg
+     * are paged by id ($chunk at a time) and handed to $callback one by one, so the hourly alert
+     * sweep holds one page in memory instead of every breach of the organisation (585 MB at 100k
+     * applications before), and never binds an unbounded id list. Same breaches, same rules.
+     *
+     * @param  Closure(array{application: CandidateApplication, leg_label: string, days_open: int, target_days: int}): void  $callback
+     * @return int breaches handed to $callback
+     */
+    public function eachOpenBreach(Closure $callback, ?User $user = null, int $chunk = 500): int
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+        $count = 0;
+
+        foreach (collect(self::LEGS)->unique(fn (array $leg) => $leg['from']->value) as $leg) {
             $targetDays = (int) RecruitmentSetting::get($leg['setting_key'], $leg['default_days']);
             $threshold = now()->subDays($targetDays + 1)->format('Y-m-d H:i:s');
 
@@ -124,22 +143,25 @@ class RecruitmentSlaService
                 ->selectSub($this->legEntrySubquery($leg['from']), 'stage_entered_at')
                 ->addSelect('last_activity_at', 'application_date');
 
-            $breaching = DB::query()->fromSub($reached, 'reached')
+            DB::query()->fromSub($reached, 'reached')
                 ->whereRaw('coalesce(reached.stage_entered_at, reached.last_activity_at, reached.application_date) <= ?', [$threshold])
-                ->pluck('reached.stage_entered_at', 'reached.id');
+                ->select(['reached.id', 'reached.stage_entered_at'])
+                ->chunkById($chunk, function (Collection $rows) use ($leg, $targetDays, $callback, &$count): void {
+                    $breaching = $rows->pluck('stage_entered_at', 'id');
 
-            if ($breaching->isEmpty()) {
-                return collect();
-            }
+                    CandidateApplication::query()->whereIn('id', $breaching->keys())->with('candidate', 'recruiter')->get()
+                        ->each(function (CandidateApplication $application) use ($breaching, $leg, $targetDays, $callback, &$count): void {
+                            $application->stage_entered_at = $breaching->get($application->id);
 
-            return CandidateApplication::query()->whereIn('id', $breaching->keys())->with('candidate', 'recruiter')->get()
-                ->map(function (CandidateApplication $application) use ($breaching, $leg, $targetDays) {
-                    $application->stage_entered_at = $breaching->get($application->id);
+                            if (($breach = $this->legBreach($application, $leg, $targetDays)) !== null) {
+                                $callback($breach);
+                                $count++;
+                            }
+                        });
+                }, 'reached.id', 'id');
+        }
 
-                    return $this->legBreach($application, $leg, $targetDays);
-                })
-                ->filter();
-        })->values();
+        return $count;
     }
 
     /**
@@ -155,18 +177,40 @@ class RecruitmentSlaService
      */
     public function openPipelineStageBreaches(?User $user = null): Collection
     {
-        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+        $breaches = collect();
+        $this->eachOpenPipelineStageBreach(fn (array $breach) => $breaches->push($breach), $user);
 
-        return CandidateApplication::query()
+        return $breaches;
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-004): openPipelineStageBreaches() as a stream, $chunk applications at a time.
+     *
+     * @param  Closure(array{application: CandidateApplication, stage_name: string, hours_open: int, target_hours: int}): void  $callback
+     * @return int breaches handed to $callback
+     */
+    public function eachOpenPipelineStageBreach(Closure $callback, ?User $user = null, int $chunk = 500): int
+    {
+        $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
+        $count = 0;
+
+        CandidateApplication::query()
             ->where('status', ApplicationStatus::Active)
             ->whereHas('pipelineStage', fn (Builder $q) => $q->whereNotNull('sla_hours'))
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
+            ->select('candidate_applications.*')
             ->addSelect(['stage_entered_at' => $this->pipelineEntrySubquery()])
             ->with('candidate', 'recruiter', 'pipelineStage')
-            ->get()
-            ->map(fn (CandidateApplication $application): ?array => $this->pipelineStageBreach($application))
-            ->filter()
-            ->values();
+            ->chunkById($chunk, function (Collection $applications) use ($callback, &$count): void {
+                foreach ($applications as $application) {
+                    if (($breach = $this->pipelineStageBreach($application)) !== null) {
+                        $callback($breach);
+                        $count++;
+                    }
+                }
+            }, 'candidate_applications.id', 'id');
+
+        return $count;
     }
 
     /**
