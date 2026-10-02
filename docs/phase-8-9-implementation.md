@@ -196,7 +196,10 @@ At send time, a message sent by a staff member is Blocked (with the reason, audi
   - `COMMUNICATIONS_REQUEUE_MAX_PER_RUN`;
   - `APP_IMAGE_TAG`;
   - `LOG_STACK=daily`, `LOG_DAILY_DAYS=0`.
-- The `queue-priority` worker must run; otherwise OTP, reset and alert traffic stops (`queue:health-check` reports it).
+- The `queue-priority` worker must run; otherwise OTP, reset and alert traffic stops.
+  - With `QUEUE_EXPECT_PROCESSES=true`, `queue:health-check` detects the silent worker.
+  - Its in-app alert cannot arrive while that worker is down: the alert is written by a job on the `notifications` queue, which only `queue-priority` serves.
+  - The condition is visible in the log (the `platform.alert` warning; the command also exits non-zero) and at `/health/queue`.
 - Keep `queue-automation` at one process.
 
 **Data and files**
@@ -216,7 +219,7 @@ All runs below are on the final application commit `1acd789`, except where marke
 | Full suite, parallel (`php artisan test --parallel`) | **2,064 passed, 0 failed, 0 risky; 21,555 assertions** (baseline `dce11d9`: 1,979 / 21,010) |
 | Full suite, serial | **2,064 passed, 0 failed, 0 risky; 21,555 assertions** |
 | Files written to `storage/app` by either run | **0** (P89-DQ-016) |
-| MySQL concurrency suite (`phpunit.concurrency.xml`, 2 processes, real InnoDB locks) | **8 / 8 passed in 7 consecutive runs** on the final code. Two earlier runs that day stopped inside the harness's own `migrate:fresh` ("table already exists" / "doesn't exist"), the signature of a second process migrating the same database at that moment; no race test ran in those two, and the cause was not established. Against the baseline application code (a temporary worktree at `dce11d9` with these tests): **8 / 8 fail**. |
+| MySQL concurrency suite (`phpunit.concurrency.xml`, 2 processes, real InnoDB locks) | **8 / 8 passed in 7 consecutive runs** on the final code. Two earlier runs that day stopped inside the harness's own `migrate:fresh` ("table already exists" / "doesn't exist", and in one of them a deadlock on `DROP TABLE`). No race test ran in those two, and the cause was not established. Against the baseline application code (a temporary worktree at `dce11d9` with these tests): **8 / 8 fail**. |
 | Browser regression matrix (real Chromium, 8.9 four-worker topology) | **184 / 184** across Phases 6 – 8.8, plus **18 / 18** for Phase 8.9 = **202 / 202** (§12.1) |
 | Phase 8.9 browser smoke (18 checks) | **18 / 18**, no console or page errors, no HTTP 5xx (§12.1) |
 | `migrate:fresh --seed` on a new throwaway MySQL database | OK, 164 migrations (baseline 160 + 4), about 73 s |

@@ -303,7 +303,7 @@ Severity reflects impact at the tier where it appears.
 | **P89-PERF-029** | **High** (≥ ≈ 250k) | Metric algorithm: `pipeline.time_in_stage` | `TimeInStage.php:71-75` calls `->chunk(2000)` on `whereIn('id', <stage-history subquery>)`. `chunk` paginates with **OFFSET**, so every chunk re-runs the subquery and skips past all earlier rows. The cost is quadratic in the number of applications that moved in the period. **BENCHMARK:** 31.9 s at 100k; at 1M **stopped after 22.4 min** at offset 150,000, with each 2,000-row chunk taking ≈ 12 s and growing. | never completes at 1M organisation-wide; exceeds the 120 s `max_execution_time` long before that (PROJECTED ≈ 250k) | 600 s cache only after a success | `chunkById` / `lazyById` on a materialized or joined set (same rows, same result) | small | — (ED-13) |
 | P89-PERF-026 | Medium | Intelligence time series | new Hiring Health snapshot (≈ 3.6 KB) + ≈ 21 evidence rows per open requisition every 6 h; nothing pruned | ≈ 24 GB / year per 1,000 open requisitions (PROJECTED), more than all core data at 1M candidates; larger backups | none | write only on change, or compact superseded snapshots (behaviour / retention decision) | small | D8.9-024 |
 
-## 9. Implementation re-validation and acceptance (final code)
+## 9. Implementation re-validation and acceptance
 
 ### 9.1 Method
 
@@ -314,8 +314,22 @@ Severity reflects impact at the tier where it appears.
 
 **Reading the numbers**
 - **Times are BENCHMARK, and the tier-to-tier growth is the signal.**
-- Most rows come from a re-validation run at commit `74b7295`, which already had every query and memory change except those named in §9.3. Rows marked † were re-measured on the final code.
-- "Before" is the discovery run on `dce11d9` (§2).
+- "Before" is the discovery run on `dce11d9` (§2), except in two rows that discovery did not measure: the alert sweep and `source.source_to_join`. Those rows say where their figures come from.
+- Every "after" figure comes from one of the runs below, all on 2 October 2026 (times IST), on the 1M benchmark unless a tier is named.
+
+**Provenance**
+
+| Run | When | Code state | Supplies |
+|---|---|---|---|
+| R1: re-validation of the first implementation | 100k 15:25; 500k 15:28–15:42; 1M 15:46–16:04 | `762a136` (`ad43ea9` plus a rules-only commit), before every §9.3 fix | Every unmarked "after" figure, at every tier. `74b7295` was committed at 15:49, during the 1M tier, but it changes only the SLA alert sweep, which that tier skipped. |
+| R2: alert-sweep tiers | 1M 16:04–16:07; 500k 16:13–16:16; 100k 16:25–16:27 (two runs) | `74b7295`: the first step of §9.3 fix 1 only | The alert sweep's `74b7295` figures; the candidate-code exact search at 100k and 500k |
+| One-off profiling run | 100k, 16:28 | the final sweep code (committed later as `d6eee3c`), with the query log on | The alert sweep's 28.3 s at 100k. **Its output was not saved.** |
+| R3: 1M with §9.3 fixes 1, 2 and 4 | 16:31–17:01 | every final change except `1acd789`: fixes 1, 2 and 4 were in the working tree and committed unchanged at 17:03 (`d6eee3c`, `05f6863`, `06b105a`); query log on | Figures marked **†**. `1acd789` changes only `source.source_to_join`, so a † figure is a final-code measurement. A figure marked **‡** includes `source.source_to_join` and is **not** a final-code measurement. |
+| R4: memory without the query log | 17:02–17:26 | as R3 (before `1acd789`) | The memory of `pipeline.time_in_stage` and `sla.leg_compliance`; the 398 MB all-metrics run; `source.source_to_join` before its fix |
+| R5: `source.source_to_join`, old and new back to back | 17:31 | the definition before `1acd789` (unchanged since `dce11d9`), then `1acd789`; query log off | The `source.source_to_join` row |
+| R6: all metrics without the query log | 17:33–17:41 | final code (`1acd789` committed at 17:33) | 490.7 s, +102.5 MB, process peak 182 MB |
+
+The final code was not re-measured at 100k or 500k, except the alert sweep's one-off 28.3 s run at 100k.
 
 **Parity: the results did not change**
 - Candidate scope: the pre-8.9 OR / EXISTS SQL and the 8.9 semi-join returned identical counts and maximum ids, for a manager and a recruiter, at 100k, 500k and 1M (manager 964 / 4,820 / 9,640; recruiter 61 / 305 / 610).
@@ -333,69 +347,88 @@ Severity reflects impact at the tier where it appears.
 | Candidate list + count, CHRO (whole table) | 36 → 53 ms | 434 → 350 ms | 778 → 676 ms |
 | Name search `LIKE`, manager | 596 ms → 9 ms | 4.0 s → 457 ms | 8.0 s → 628 ms † |
 | Name search `LIKE`, CHRO | 149 → 172 ms | 1.16 → 1.0 s | 2.2 → 2.1 s |
-| Exact search — email / mobile, manager (new path) | — → 3.5 / 4.4 ms | — → 16 / 15 ms | — → 8.3 / 6.6 ms † |
-| Exact search — candidate code, CHRO (new path) | — → 1.2 ms | — → 1.1 ms | — → 0.9 ms † |
+| Exact search — email / mobile, manager (new path) | — → 3.5 / 4.4 ms (1 row each) | — → 16 / 15 ms (**0 rows**, see note) | — → 8.3 / 6.6 ms † (**0 rows**, see note) |
+| Exact search — candidate code, CHRO (new path; R2 at 100k and 500k, 1 row each) | — → 1.2 ms | — → 1.1 ms | — → 0.9 ms † (1 row) |
 | Export scope count, manager | 498 ms → 6 ms | 2.8 s → 500 ms | 6.2 s → 648 ms † |
 | Audit list, filter by action | 22 → 0.6 ms | 98 → 0.7 ms | 273 → 1.0 ms |
 | Action Center, manager | 56 → 62 ms | 1.1 → 1.0 s | 4.0 → 3.8 s |
 | All metrics, CHRO, this month | 3.4 → 2.4 s | 26.0 → 22.6 s | 83.3 → 66.7 s |
-| All metrics, CHRO, **365 days** | 53.6 → 26.0 s | **FAILED** (MySQL 1390) → 163 s | not run (would fail) → **514 s †** |
+| All metrics, CHRO, **365 days** | 53.6 → 26.0 s | **FAILED** (MySQL 1390) → 163 s | not run (would fail) → 514 s ‡ (R3, before `1acd789`); **490.7 s** on the final code without the query log (R6) |
 | All metrics, manager, 365 days | 0.59 → 0.58 s | 23.6 → 5.5 s | 27.3 → 19.5 s |
 | `joining.offer_to_join`, 365 d | ok → 205 ms | **FAILED** → 1.1 s | **FAILED** → 3.0 s |
 | `hiring.time_to_hire`, 365 d | 1.0 s / 40 MB → 0.8 s / 10 MB | 6.8 s / 197 MB → 4.8 s / 11 MB | 13.1 s / **395 MB** → 10.7 s / 13 MB † |
-| `sla.leg_compliance`, 365 d | 11.8 s / 37 MB → 12.4 s / 13 MB | 181 s / 223 MB → 96 s / 66 MB | **880 s / 446 MB** → 240 s / 56 MB † |
-| `pipeline.time_in_stage`, 365 d | 31.9 s → 3.0 s | not run (quadratic) → 17.2 s | **stopped after 22 min** → 103 s / 102 MB † |
-| `source.source_to_join`, 365 d, CHRO | — | — | 10.5 s / **314 MB** → 5.3 s / 7.4 MB † |
+| `sla.leg_compliance`, 365 d | 11.8 s / 37 MB → 12.4 s / 13 MB | 181 s / 223 MB → 96 s / 66 MB | **880 s / 446 MB** → 240 s † / 56 MB (R4) |
+| `pipeline.time_in_stage`, 365 d | 31.9 s → 3.0 s | not run (quadratic) → 17.2 s | **stopped after 22 min** → 103 s † / 102 MB (R4) |
+| `source.source_to_join`, 365 d, CHRO | not measured in discovery | not measured | 10.5 s / **314 MB** (definition before `1acd789`, R5) → 5.3 s / 7.4 MB (`1acd789`, R5) |
 | `pipeline.funnel`, 365 d | 2.1 → 2.0 s | 19.7 → 15.7 s | 35.7 → 33.4 s |
-| Alert sweep, SLA breaches (hourly) | 17 s → 28 s † | 434 s → 121 s † | not measurable (quadratic) → **139 s / 48 MB †** (491,130 breaches) |
+| Alert sweep, SLA breaches (hourly) | not measured in discovery: see the alert-sweep table below | | |
 | Pipeline board, one requisition | 38 → 33 ms | 64 → 38 ms | 38 → 35 ms |
 | Indexed paths (duplicate check, timeline, audit newest, notifications, portal, outcome due) | flat, unchanged | flat | flat |
 
-**Memory check without the probe's query log (1M, 365 days, CHRO, final code):**
-- `pipeline.time_in_stage`: +102 MB (process peak 182 MB);
-- `sla.leg_compliance`: +56 MB (139 MB);
-- all governed metrics in one run: **+102.5 MB, process peak 182 MB, 491 s**. Before the §9.3 fixes the same run peaked at 398 MB.
+For `sla.leg_compliance` and `pipeline.time_in_stage` at 1M, the time is from R3 (†) and the memory from R4, without the query log. R3, with the log, showed 117 MB and 114 MB.
 
-Before this phase, `source.source_to_join` alone needed +314 MB, which is over the 256 MB `memory_limit`.
+**Exact email / mobile search: 0 rows at 500k and 1M.**
+- Both searches returned no row at 500k (R1) and at 1M (R1, and R3 before and after the covering index). At 100k each returned 1 row.
+- The sample record (`PC1-C01`) is a copy made by the benchmark's data generator, which writes the identity and normalized columns in SQL rather than through the application. Why the sample was not found at 500k and 1M was not established.
+- These timings therefore measure an index lookup that found nothing. **They do not demonstrate a successful exact email or mobile lookup at 500k or 1M.**
+- The candidate-code search did find its record at every tier.
+
+**Alert sweep (discovery did not measure it).** The only earlier figure is Phase 8.5's 585 MB at 100k. Each column below is a different implementation state, so read them as a sequence of Phase 8.9 states, not as baseline → final.
+
+| Tier | First implementation, `762a136` (R1) | `74b7295` (R2) | Final sweep code, `d6eee3c` |
+|---|---|---|---|
+| 100k | 17 s | 29.9 s and 31.4 s (two saved runs) | 28.3 s (one-off profiling run, query log on, output not saved) |
+| 500k | 434 s | 121 s | not re-measured |
+| 1M | skipped (434 s at 500k) | 139.9 s / 42 MB | **139 s / 48 MB †** (R3; 491,130 breaches) |
+
+**Memory check without the probe's query log (1M, 365 days, CHRO):**
+- `pipeline.time_in_stage`: +102 MB (process peak 182 MB). R4, before `1acd789`, which does not touch this metric.
+- `sla.leg_compliance`: +56 MB (139 MB). Same run.
+- All governed metrics in one run, **final code (R6): +102.5 MB, process peak 182 MB, 490.7 s.**
+- The same all-metrics check in R4 (553.7 s, +314.8 MB, process peak 398 MB) already had §9.3 fixes 1, 2 and 4. Only fix 3 (`source.source_to_join`, `1acd789`) was missing. It is **not** a measurement of the code before all the §9.3 fixes.
+
+With the definition as it stood before `1acd789` (unchanged since `dce11d9`), `source.source_to_join` alone needed +314 MB at 1M (R4 and R5; discovery never measured it on its own). That is over the 256 MB `memory_limit`.
 
 ### 9.3 Found and fixed during re-validation
 
-The benchmark of the first implementation exposed four problems. They were fixed and re-measured (†):
+The benchmark of the first implementation (R1) exposed four problems. They were fixed and re-measured; §9.1 gives the run and code state of each figure below.
 1. **Alert sweep quadratic** (`74b7295`, `d6eee3c`).
-   - Cause: paging a derived table made MySQL rebuild it for every page (434 s at 500k).
+   - Cause: paging a derived table made MySQL rebuild it for every page (434 s at 500k, first implementation, R1).
    - Fix: applications are now paged by id on the `current_stage` index; entry times are computed per page.
-   - Result: linear (121 s at 500k, 139 s at 1M), memory bounded by a page.
+   - Result: linear. On `74b7295` (R2): 121 s at 500k and 139.9 s at 1M. On the final sweep code (`d6eee3c`, R3): 139 s / 48 MB at 1M, memory bounded by a page. The final sweep code was not re-measured at 500k.
 2. **`pipeline.time_in_stage` memory** (`05f6863`).
-   - Cause: Collection copies of every duration, 426 MB at 1M.
+   - Cause: Collection copies of every duration, 426 MB at 1M (first implementation, R1).
    - Fix: in-place medians.
-   - Result: +102 MB at 1M.
+   - Result: +102 MB at 1M (R4).
 3. **`source.source_to_join` memory** (`1acd789`).
-   - Cause: every joining hydrated with three relations, 314 MB at 1M. Not seen in discovery: it is part of the "all metrics" run and was never measured on its own.
+   - Cause: every joining hydrated with three relations, 314 MB at 1M (R4, R5). Not seen in discovery: it is part of the "all metrics" run and was never measured on its own.
    - Fix: counted while paging.
-   - Result: 7.4 MB.
+   - Result: 7.4 MB (R5).
 4. **Candidate-scope lookups** (`06b105a`).
-   - Cause: the visible set read every application row (1.26 s per query at 1M).
+   - Cause: the visible set read every application row (1.26 s per query at 1M, R3 before the index).
    - Fix: a covering index `(recruiter_id, deleted_at, candidate_id)`.
-   - Result: manager list 2.66 → 1.57 s; exact searches 363 → 8 ms.
+   - Result (R3, before → after the index): manager list 2.66 → 1.57 s; exact email / mobile searches 363 → 8 ms. Those searches **matched no row** (see the note under §9.2), so the 8 ms is an index lookup that found nothing, not a successful lookup.
 
 ### 9.4 Regressions and costs (not hidden)
 
 | Where | Change | Why it is accepted |
 |---|---|---|
-| Alert sweep at 100k | 17 s → 28 s | It pages every application at the leg's stage, not only the breaching ones, so that it stays linear. Old: 434 s at 500k and quadratic. Hourly, background, `withoutOverlapping(55)`. |
-| Query counts of `sla.leg_compliance` and `hiring.time_to_hire` | for example 160 → 362 queries (100k), 1,372 → 3,397 (1M) | Pages of 2,000 / 1,000 rows instead of one materialized set: memory bounded, time down at scale. |
+| Alert sweep at 100k | first implementation 17 s (R1) → 29.9 s and 31.4 s on `74b7295` (R2, saved runs); 28.3 s on the final sweep code (one-off run, query log on, not saved) | This compares Phase 8.9 implementation states with one another, **not** the `dce11d9` baseline: discovery did not measure the sweep. It pages every application at the leg's stage, not only the breaching ones, so that it stays linear. The first implementation took 434 s at 500k and grew quadratically. Hourly, background, `withoutOverlapping(55)`. |
+| Query counts of `sla.leg_compliance` and `hiring.time_to_hire` | for example 160 → 362 queries (100k, discovery → R1), 1,372 → 3,397 (1M, discovery → R3) | Pages of 2,000 / 1,000 rows instead of one materialized set: memory bounded, time down at scale. |
 | CHRO candidate list at 100k | 36 → 53 ms (p95 90 ms) | Whole-table count for a view-all user; the path is unchanged (full scan in both). Within run-to-run noise on a shared host; at 500k and 1M it is lower than before. |
 | `recruiter.outcomes` at 1M | 99 → 148 ms | Unchanged code path; noise on a shared host. |
 | Writes to `candidate_applications` | one more secondary index (the covering index) | Small write cost; it serves the most-used page for every non-admin user. |
 
 ### 9.5 Acceptance per finding
 
+**Provenance.** Figures repeated from §9.2–§9.3 carry the run labels of §9.1: unmarked "after" figures are R1, the first implementation, and † marks R3. The PERF-009, PERF-010 and PERF-014 figures come from single-query checks on the 100k benchmark during implementation (2 October, 10:56–12:19). Each times one query, without and then with the new index for PERF-009 and PERF-010, and once for PERF-014. They are not discovery figures.
+
 | ID | Before | After | Change | Evidence | Remaining risk |
 |---|---|---|---|---|---|
-| **PERF-001** governed metrics (High) | 365-day organisation-wide run failed at 500k; manager 15–27 s at 500k–1M | completes at every tier (514 s at 1M); manager 5.5 s (500k), 19.5 s (1M) | **partly addressed**: the P0 failures are fixed; live computation remains | §9.2; `5c39c0d`, `05f6863`, `1acd789` | Organisation-wide multi-month views still take minutes cold at 1M. Materialization / longer caching is decision D8.9-016 (P89-BACKLOG-005). |
-| **PERF-002** candidate scope (High) | 7.1 s (manager, 1M) | 1.57 s (1M); 24 ms (100k) | **fixed** (ED-02 + covering index) | §9.2; scope parity identical; `217b116`, `06b105a` | Grows with the viewer's own visible set (about 10k candidates here), not with the whole table. |
-| **PERF-003** search (High) | name 8.0 s (manager, 1M) | exact identifiers 1–8 ms at 1M; manager name 628 ms; CHRO name 2.1 s | **partly addressed** | §9.2; `217b116` | Substring search of the whole table for view-all users (D8.9-015, P89-BACKLOG-006). |
-| **PERF-004** alert sweep (High) | 585 MB at 100k (8.5); a fatal skips the other checks | 48 MB at 1M; linear (139 s at 1M) | **fixed** | §9.2–9.3; `AlertSweepStreamingTest` | It runs minutes when hundreds of thousands of applications are breaching (benchmark data are old). |
+| **PERF-001** governed metrics (High) | 365-day organisation-wide run failed at 500k; manager 15–27 s at 500k–1M | completes at every tier (1M: 514 s with the query log before `1acd789`, R3; 490.7 s without it on the final code, R6); manager 5.5 s (500k), 19.5 s (1M), both R1 | **partly addressed**: the P0 failures are fixed; live computation remains | §9.2; `5c39c0d`, `05f6863`, `1acd789` | Organisation-wide multi-month views still take minutes cold at 1M. Materialization / longer caching is decision D8.9-016 (P89-BACKLOG-005). |
+| **PERF-002** candidate scope (High) | 7.1 s (manager, 1M) | 1.57 s (1M, †); 24 ms (100k, R1, before the covering index) | **fixed** (ED-02 + covering index) | §9.2; scope parity identical; `217b116`, `06b105a` | Grows with the viewer's own visible set (about 10k candidates here), not with the whole table. |
+| **PERF-003** search (High) | name 8.0 s (manager, 1M) | exact candidate code 0.9 ms at 1M (†, 1 row); exact email / mobile 3.5 / 4.4 ms at 100k (R1, 1 row each), but at 500k and 1M they matched no row, so a successful email / mobile lookup there is **not demonstrated** (§9.2 note); manager name 628 ms (†); CHRO name 2.1 s (R1) | **partly addressed** | §9.2; `217b116` | Substring search of the whole table for view-all users (D8.9-015, P89-BACKLOG-006). |
+| **PERF-004** alert sweep (High) | 585 MB at 100k (8.5); a fatal skips the other checks | 48 MB at 1M; linear (139 s at 1M; †, final sweep code) | **fixed** | §9.2–9.3; `AlertSweepStreamingTest` | It runs minutes when hundreds of thousands of applications are breaching (benchmark data are old). |
 | **PERF-005** intelligence refresh (High) | exceeds the hour at about 4,500 open requisitions | stalest first within a 2,700 s budget; the rest are deferred and logged | **fixed (cadence)** | `8705b86`; `IntelligenceRefreshTest` | The cost of one Risk Radar scan is unchanged (1.9 s first scan); coverage per hour is bounded by the budget (P87-BACKLOG-004). |
 | **PERF-006** notification starvation (High) | OTP / reset / alerts behind candidate messages | own `queue-priority` worker | **fixed** | `4607de3`; browser 8.8 / 8.9 | Throughput per worker unchanged (D8.9-018). |
 | PERF-007 reliability sweep | O(backlog) re-dispatch every 5 min | ≤ 1,000 per run, oldest first | **fixed** | `cbc5475` | none |
@@ -419,5 +452,5 @@ The benchmark of the first implementation exposed four problems. They were fixed
 | PERF-025 `queue-background` single process | — | `documents` added ahead of `intelligence` / `integrations` | **open** | — | Long conversions or embeddings can delay calendar and job-board jobs (D8.9-018). |
 | PERF-026 Hiring Health growth | — | unchanged | **deferred** (decision) | — | D8.9-024 |
 | **PERF-027** placeholder failure (High) | FAILED (MySQL 1390) | completes | **fixed** | §9.2; `MetricScaleShapeTest` | — |
-| **PERF-028** metric memory (High) | 395 MB / 446 MB (1M) | 13 MB / 56 MB; same family: `source_to_join` 314 → 7.4 MB | **fixed** | §9.2–9.3 | — |
-| **PERF-029** quadratic time in stage (High) | stopped after 22 min (1M) | 103 s, +102 MB | **fixed** | §9.2 | Memory is linear in the period's stage visits: an exact median needs every value. |
+| **PERF-028** metric memory (High) | 395 MB / 446 MB (1M) | 13 MB (†) / 56 MB (R4); same family: `source_to_join` 314 → 7.4 MB (R5) | **fixed** | §9.2–9.3 | — |
+| **PERF-029** quadratic time in stage (High) | stopped after 22 min (1M) | 103 s (†), +102 MB (R4) | **fixed** | §9.2 | Memory is linear in the period's stage visits: an exact median needs every value. |

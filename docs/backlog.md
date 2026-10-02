@@ -297,6 +297,7 @@ See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/w
 ### P85-BACKLOG-003 — Metric cache invalidation by expiry only
 
 - **Status:** Open (low) [8.9]
+- **Phase 8.9 outcome:** not implemented; still open. Carried forward under P89-BACKLOG-005 (P89-PERF-001), where smarter invalidation waits for the materialization decision D8.9-016. Cache invalidation is unchanged.
 - A cached period metric can lag an edit by up to `metrics.cache_ttl` (600 s). Event-driven invalidation (or materialised facts) belongs with 8.9 materialisation.
 
 ### P85-BACKLOG-004 — Incentive pricing treats "no target" as 0% achievement
@@ -317,6 +318,7 @@ See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/w
 ### P85-BACKLOG-007 — Stage-entry fact table
 
 - **Status:** Open (medium) [8.9] (D15 deferred)
+- **Phase 8.9 outcome:** the table was not built; still open. It is one of the options of the materialization decision D8.9-016, tracked under P89-BACKLOG-005 (P89-PERF-001). Phase 8.9 changed only how `pipeline.time_in_stage` is computed live: paging by id instead of OFFSET (P89-PERF-029) and in-place medians (P89-PERF-028 family, `05f6863`). Its results are unchanged.
 - Time in stage and stage activity read the stage history directly (≈ 5.6 s and 1.8 s for view-all at 100k over 90 days). An event-maintained stage-entry table would make them constant-time.
 
 ### P85-BACKLOG-008 — Outcome filters use live requisition attributes
@@ -489,11 +491,11 @@ What Phase 8.9 did not resolve, with the reason. Fixed items are in `phase-8-9-i
 
 ### P89-BACKLOG-004 — Supported scale, capacity, concurrency, SLOs (P89-OPS-003)
 
-- **Status:** Open (Product / Operations; D8.9-001…006, 026). Benchmarks on the final code are in `phase-8-9-performance.md` §9. No supported-scale claim is made.
+- **Status:** Open (Product / Operations; D8.9-001…006, 026). Benchmarks are in `phase-8-9-performance.md` §9. §9.1 states the code state behind each figure: most are from the first implementation, and the final code was measured mainly at 1M. No supported-scale claim is made.
 
 ### P89-BACKLOG-005 — Governed metrics computed live over full fact tables (P89-PERF-001)
 
-- **Status:** Open (D8.9-016). The P0 failures are fixed. Organisation-wide cold runs still scan; see §9 for the remaining timings. Materialization, a settings-aware cache key (P86-BACKLOG-010) and smarter invalidation (P85-BACKLOG-003) wait for the decision. Definitions must not change.
+- **Status:** Open (D8.9-016). The P0 failures are fixed. Organisation-wide cold runs still scan; see §9 for the remaining timings. Materialization (including the stage-entry fact table, P85-BACKLOG-007), a settings-aware cache key (P86-BACKLOG-010) and smarter invalidation (P85-BACKLOG-003) wait for the decision. Definitions must not change.
 
 ### P89-BACKLOG-006 — Substring search scans (P89-PERF-003 residual)
 
