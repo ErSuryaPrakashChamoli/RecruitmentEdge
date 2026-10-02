@@ -7,16 +7,31 @@ cd /var/www/html
 # idempotent, so it is safe for several containers to run it against the same volumes.
 
 # Named volumes (storage/app, storage/logs) can come up root-owned; Apache serves as www-data.
+# Phase 8.9 (P89-OPS-008): the directories are fixed on every start, but the recursive walk over
+# every stored file runs once per volume (a marker file records it) — not on every start of every
+# container, which grew with the document volume. After restoring files as root, set
+# FIX_STORAGE_OWNERSHIP=true for one start (or delete the marker) to walk them again.
 if [ "$(id -u)" = "0" ]; then
-    mkdir -p storage/app/public storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
-    chown -R www-data:www-data storage bootstrap/cache
+    mkdir -p storage/app/public storage/app/private storage/logs storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
+    chown www-data:www-data storage storage/app storage/app/public storage/app/private storage/logs storage/framework storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
+
+    for volume in storage/app storage/logs; do
+        if [ "$FIX_STORAGE_OWNERSHIP" = "true" ] || [ ! -f "$volume/.ownership-fixed" ]; then
+            chown -R www-data:www-data "$volume"
+            touch "$volume/.ownership-fixed" && chown www-data:www-data "$volume/.ownership-fixed"
+        fi
+    done
+
+    chown -R www-data:www-data storage/framework bootstrap/cache
 fi
 
 if [ ! -L public/storage ]; then
     php artisan storage:link --no-interaction || true
 fi
 
-# Only the web container sets RUN_MIGRATIONS=true; scheduler/queue containers never migrate.
+# Phase 8.9: with docker compose the one-shot `migrate` service runs the migrations before anything
+# else starts, and every container has RUN_MIGRATIONS=false. RUN_MIGRATIONS=true remains for a
+# single-container deployment without that ordering.
 if [ "$RUN_MIGRATIONS" = "true" ]; then
     php artisan migrate --force --no-interaction
 fi

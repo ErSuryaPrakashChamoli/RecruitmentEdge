@@ -1,23 +1,25 @@
 # Runbook: Queues, Workers, Scheduler and Recovery
 
-For whoever deploys and operates Recruitment Edge. Describes the system as shipped in Phase 8.7 (D8.7-029). Commands run from the application directory; in Docker prefix them with `docker compose exec app`.
+For whoever deploys and operates Recruitment Edge. Describes the system as shipped in Phase 8.7 (D8.7-029), revised in Phase 8.9 (ordered deploys, the `queue-priority` worker, heartbeats). Commands run from the application directory; in Docker prefix them with `docker compose exec app`.
 
 ## 1. Deployment
 
-1. **Drain the workers:** `php artisan queue:restart`. Each worker finishes its current job and exits; Docker restarts it after the code changes. Wait until no job is reserved:
-   `php artisan tinker --execute 'echo DB::table("jobs")->whereNotNull("reserved_at")->count();'` → `0`.
-   Drain `communications` fully before a release that changes message handling (a message still queued at deploy time skips the send-time checks that need its queue-time snapshot).
-2. **Back up the database.**
-3. **Deploy code:** `composer install --no-dev --optimize-autoloader`, `npm ci && npm run build`.
-4. **Migrate:** `php artisan migrate --force`. Never roll back migrations in production.
-5. **Caches:** `php artisan optimize:clear && php artisan optimize`.
-6. **Start** the four workers and the one scheduler (§2, §5). With Docker: `docker compose up -d`. `stop_grace_period: 330s` lets a stopping worker finish a job up to the longest timeout.
-7. **Verify:**
-   - `php artisan schedule:list` lists 17 tasks;
-   - Administration → **Queue health**: every queue listed, nothing under "Needs attention", scheduler heartbeat present within five minutes;
-   - `php artisan queue:health-check` → "Queue health OK." (exit code 0).
+Phase 8.9 (D8.9-022, P89-OPS-004/005): the compose stack starts itself in a safe order — the one-shot `migrate` service runs the migrations and exits; `app` starts only after it succeeded and is healthy when `GET /up` answers (which checks the database); the four workers start once the app is healthy; the scheduler starts last, once every worker reports a heartbeat. No serving container migrates on start.
 
-**Environment** (see `.env.example`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, optional `QUEUE_HEALTH_TOKEN`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeat live there.
+1. **Prerequisites:** the production environment checklist (`docs/runbooks/production-environment.md`) is satisfied, and a **verified backup** exists (`docs/runbooks/backup-restore.md` §2). Without one, do not migrate.
+2. **Drain the workers:** `docker compose exec queue php artisan queue:restart`. Each worker finishes its current job and exits. Wait until no job is reserved:
+   `docker compose exec app php artisan tinker --execute 'echo DB::table("jobs")->whereNotNull("reserved_at")->count();'` → `0`.
+   Drain `communications` fully before a release that changes message handling (a message still queued at deploy time skips the send-time checks that need its queue-time snapshot).
+3. **Build the release image, tagged:** `export APP_IMAGE_TAG=$(git rev-parse --short HEAD) && docker compose build`.
+4. **Start:** `APP_IMAGE_TAG=… docker compose up -d`. Compose runs `migrate` (watch `docker compose logs -f migrate`), then the app, workers and scheduler as each becomes healthy. If `migrate` fails, nothing else starts on the new image: fix the cause and run `docker compose up -d` again. MySQL DDL is not transactional — a failed migration can leave a partial table; read the full error before retrying (`.ai/rules/migrations.md`).
+5. **Caches:** each container rebuilds the config, route, view and event caches on start. **Never run `optimize:clear` or `cache:clear` on a live system**: the cache store is the database, and clearing it deletes sign-in lockouts and rate limits, pending step-up codes, the provider circuit breaker, the scheduler and worker heartbeats, alert de-duplication and held delivery statuses. To drop only compiled files: `php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan event:clear`.
+6. **Verify:**
+   - `docker compose ps`: every service `healthy` (`migrate` exited 0);
+   - `GET /up` → 200; `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
+   - `php artisan schedule:list` lists 17 tasks; Administration → **Queue health**: nothing under "Needs attention", scheduler and worker heartbeats present.
+7. **Roll back:** `APP_IMAGE_TAG=<previous tag> docker compose up -d`. Migrations are never rolled back in production; Phase 8.9's migrations only add indexes, so the previous image runs against the new schema.
+
+**Environment** (see `.env.example` and `docs/runbooks/production-environment.md`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, `QUEUE_HEALTH_TOKEN`, `QUEUE_EXPECT_PROCESSES=true`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeats live there.
 
 ## 2. Queue topology
 
@@ -94,9 +96,11 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
   - work stuck over 30 minutes (§4);
   - no scheduled task for 15 minutes;
   - a provider paused;
-  - `retry_after` not above the worker timeout.
+  - `retry_after` not above the worker timeout;
+  - (Phase 8.9, where `QUEUE_EXPECT_PROCESSES=true`) a worker whose heartbeat is older than 5 minutes, or a scheduler that has never reported.
+- **These in-app alerts travel on the `notifications` queue of the `queue-priority` worker, and `queue:health-check` runs in the scheduler** — so a dead scheduler or priority worker cannot alert in-app about itself. **An external monitor must poll** `GET /up` (database-aware) and `GET /health/queue` (worker and scheduler heartbeats); which monitor and who it pages is decision D8.9-020 (operations).
 - **External monitoring:** `GET /health/queue` with `Authorization: Bearer <QUEUE_HEALTH_TOKEN>` returns JSON (queues, failed jobs, stuck counts, heartbeat) — **200** when healthy, **503** when something needs attention. It contains counts and job class names only.
-- **Logs** are redacted centrally. Useful keys: `platform.alert`, `communications.circuit_opened`, `communications.held_while_provider_paused`, `queue.listener_failed`, `identity.handoff_failed`.
+- **Logs** are redacted centrally, written daily (`laravel-YYYY-MM-DD.log`, nothing deleted until the retention decision R-13 sets `LOG_DAILY_DAYS`), level `info` in production. Useful keys: `platform.alert`, `communications.circuit_opened`, `communications.held_while_provider_paused`, `queue.listener_failed`, `identity.handoff_failed`, `queue.job_processed` (every job: class, queue, attempt, duration), `intelligence.refresh_deferred` (requisitions left for the next hourly run). Each line of a job carries `job` (uuid, class, queue, attempt) and the `request_id` of what queued it. The Apache access log has no query strings (signed links) and carries the same request id.
 - **Tracing:** every audit row, automation run and message carries a request id (`cmd:…` for commands, `job:…` for jobs without a caller). Filter the audit log by it to follow one action through its queued effects; the audit log's Actor column shows automation, AI, scheduler, console or queue.
 
 ## 9. Troubleshooting
@@ -110,4 +114,5 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
 | A scheduled task always "skipped" | stale overlap lock after a crash | wait for expiry or `php artisan schedule:clear-cache` |
 | Messages "Blocked" that used to send | send-time check: opt-out, closed application, moved interview, withdrawn offer, joined candidate or archived template | the reason is on the message and in the audit (`communication_suppressed`) |
 | A delayed automation run "Skipped" | record left the rule's scope, owner can no longer see it, or owner lost an action's permission | the reason is on the execution; `automation_skipped_authority` / `automation_action_skipped_authority` audit |
-| Risk register not refreshed | `intelligence:refresh` still running (up to ~7 min cold at 500 requisitions) or its lock held | wait; the next hourly run continues; a concurrent full scan is skipped by design |
+| Risk register not refreshed | `intelligence:refresh` still running, its lock held, or requisitions deferred by its time budget (`intelligence.refresh_deferred` in the log; `INTELLIGENCE_REFRESH_TIME_BUDGET`, 2700 s) | wait; the next hourly run takes the deferred, stalest requisitions first; deferred requisitions keep their open risks |
+| A container keeps restarting / shows `unhealthy` | app: `/up` fails (database unreachable); worker or scheduler: no heartbeat (crashed or hung) | `docker compose logs <service>`; `docker compose exec app php artisan ops:heartbeat worker --queues=…` |

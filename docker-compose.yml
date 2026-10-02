@@ -1,6 +1,12 @@
-# The web app, scheduler and queue workers share one image, env and storage volumes. Only `app`
-# runs migrations on start (RUN_MIGRATIONS); the scheduler/queue containers set it to "false" so
-# they never race the app container's migration run.
+# The web app, scheduler and queue workers share one image, env and storage volumes.
+#
+# Start order (Phase 8.9, P89-OPS-005 — D8.9-022): `migrate` runs the migrations once and exits;
+# `app` starts only after it completed successfully and is "healthy" when GET /up answers (which
+# checks the database); the workers start once the app is healthy and are healthy while their
+# heartbeat is fresh (ops:heartbeat); the scheduler starts last, once the workers are healthy. No
+# container migrates on start any more, so a worker can never run new code against an old schema.
+# The image is tagged by APP_IMAGE_TAG (set it to the release, e.g. a git commit), so a rollback is
+# `APP_IMAGE_TAG=<previous> docker compose up -d` — migrations are never rolled back.
 #
 # Queue topology (Phase 8.3, revised in Phase 8.7 — D8.7-001/002/020 — and Phase 8.9 — ED-05/06;
 # runbook: docs/runbooks/queue-operations.md). Every application queue is consumed:
@@ -22,7 +28,7 @@ x-app-base: &app-base
   build:
     context: .
     dockerfile: Dockerfile
-  image: recruitment-edge-app
+  image: recruitment-edge-app:${APP_IMAGE_TAG:-local}
   env_file:
     - .env
   volumes:
@@ -40,15 +46,40 @@ x-app-environment: &app-environment
   DB_USERNAME: ${DB_USERNAME:-recruitment_edge}
   DB_PASSWORD: ${DB_PASSWORD:-secret}
   DB_QUEUE_RETRY_AFTER: "330"
+  # Phase 8.9: queue health reports a silent worker or a scheduler that never reported.
+  QUEUE_EXPECT_PROCESSES: "true"
 
 services:
+  # Runs the migrations once per deploy and exits; everything else waits for it to succeed.
+  migrate:
+    <<: *app-base
+    restart: "no"
+    command: ["php", "artisan", "migrate", "--force", "--no-interaction"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+
   app:
     <<: *app-base
+    restart: unless-stopped
+    # Long requests (offer letters, Copilot) finish before the container stops.
+    stop_grace_period: 130s
     ports:
       - "${APP_PORT:-8080}:80"
     environment:
       <<: *app-environment
-      RUN_MIGRATIONS: "true"
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost/up') === false ? 1 : 0);"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # The only scheduler (D8.7-011): never add a cron `schedule:run` beside it.
   scheduler:
@@ -62,8 +93,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      app:
-        condition: service_started
+      queue:
+        condition: service_healthy
+      queue-priority:
+        condition: service_healthy
+      queue-automation:
+        condition: service_healthy
+      queue-background:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "scheduler"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 15m
 
   queue:
     <<: *app-base
@@ -77,7 +120,13 @@ services:
       db:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=communications,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
 
   queue-priority:
     <<: *app-base
@@ -91,7 +140,13 @@ services:
       db:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=security,notifications,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
 
   queue-automation:
     <<: *app-base
@@ -105,7 +160,13 @@ services:
       db:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=automation,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
 
   queue-background:
     <<: *app-base
@@ -119,7 +180,13 @@ services:
       db:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=intelligence,integrations,exports,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
 
   db:
     image: mysql:8.4
