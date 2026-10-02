@@ -117,6 +117,34 @@ test('snapshotFor upserts a single snapshot per recruiter and period', function 
         ->and((float) RecruiterPerformanceSnapshot::query()->first()->score)->toBe(100.0);
 });
 
+test('a month frozen after the recompute read it is never rewritten, unless forced', function (): void {
+    $recruiter = Employee::factory()->create();
+    RecruitmentDailyTarget::factory()->create([
+        'employee_id' => $recruiter->id, 'metric' => TargetMetric::Calls, 'target_value' => 10, 'period_type' => TargetPeriodType::Monthly, 'effective_from' => $this->start,
+    ]);
+    RecruiterPerformanceRule::factory()->create(['metric' => TargetMetric::Calls, 'weightage' => 100, 'effective_from' => $this->start]);
+    makeCallActivities($recruiter, total: 5, connected: 0);
+    $snapshot = $this->engine->snapshotFor($recruiter, $this->start, $this->end);
+    makeCallActivities($recruiter, total: 5, connected: 0);
+
+    // Phase 8.9 (P89-DQ-012): the month is finalised between the recompute's read and its write.
+    $freezeOnce = true;
+    RecruiterPerformanceSnapshot::retrieved(function (RecruiterPerformanceSnapshot $read) use (&$freezeOnce): void {
+        if ($freezeOnce) {
+            $freezeOnce = false;
+            RecruiterPerformanceSnapshot::query()->whereKey($read->id)->update(['frozen_at' => now()]);
+        }
+    });
+
+    $returned = $this->engine->snapshotFor($recruiter, $this->start, $this->end);
+
+    expect((float) $returned->score)->toBe(50.0)
+        ->and($returned->frozen_at)->not->toBeNull()
+        ->and((float) $snapshot->fresh()->score)->toBe(50.0);
+
+    expect((float) $this->engine->snapshotFor($recruiter, $this->start, $this->end, force: true)->score)->toBe(100.0);
+});
+
 test('compositeScoreFor returns the live composite score, or null when no targets resolve', function (): void {
     $recruiter = Employee::factory()->create();
 

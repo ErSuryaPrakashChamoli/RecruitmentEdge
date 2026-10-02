@@ -107,9 +107,15 @@ class PerformanceEngine
         ];
 
         if ($existing !== null) {
-            $existing->update($attributes);
+            // Phase 8.9 (P89-DQ-012): the month may have been frozen after it was read above; the
+            // write itself refuses a frozen row (unless forced), so a finalised month never changes.
+            $existing->fill($attributes);
+            RecruiterPerformanceSnapshot::query()
+                ->whereKey($existing->getKey())
+                ->when(! $force, fn ($query) => $query->whereNull('frozen_at'))
+                ->update($existing->getDirty());
 
-            return $existing;
+            return $existing->refresh();
         }
 
         return RecruiterPerformanceSnapshot::query()->create([
