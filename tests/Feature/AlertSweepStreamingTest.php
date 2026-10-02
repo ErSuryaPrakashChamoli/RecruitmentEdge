@@ -51,3 +51,24 @@ test('the alert sweep never binds more than one page of ids', function (): void 
 
     expect($maxBindings)->toBeLessThanOrEqual(500);
 });
+
+test('the paged sweep finds exactly the applications breachFor() reports, whichever clock they run on', function (): void {
+    RecruitmentSetting::put('sla_days_selection_to_offer', '3', 'int');
+    $breaching = alertSweepBreachingApplications(3);
+    $recent = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Selected]);
+    $recent->stageHistory()->forceCreate(['previous_stage' => null, 'new_stage' => CandidateStage::Selected, 'created_at' => now()->subDay()]);
+    // No stage history: the clock falls back to the last activity.
+    $quietSinceLongAgo = CandidateApplication::factory()->create(['current_stage' => CandidateStage::Selected, 'last_activity_at' => now()->subDays(20)]);
+    $service = app(RecruitmentSlaService::class);
+
+    $streamed = [];
+    $service->eachOpenBreach(function (array $breach) use (&$streamed): void {
+        $streamed[] = $breach['application']->id;
+    }, chunk: 2);
+
+    $oracle = CandidateApplication::query()->get()->filter(fn (CandidateApplication $application): bool => $service->breachFor($application) !== null)->modelKeys();
+
+    expect(collect($streamed)->sort()->values()->all())->toBe(collect($oracle)->sort()->values()->all())
+        ->and($streamed)->toContain($quietSinceLongAgo->id, ...$breaching)
+        ->not->toContain($recent->id);
+});

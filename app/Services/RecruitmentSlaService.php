@@ -17,7 +17,6 @@ use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Turn-Around-Time between pipeline checkpoints, computed entirely from candidate_stage_histories
@@ -133,21 +132,31 @@ class RecruitmentSlaService
 
         foreach (collect(self::LEGS)->unique(fn (array $leg) => $leg['from']->value) as $leg) {
             $targetDays = (int) RecruitmentSetting::get($leg['setting_key'], $leg['default_days']);
-            $threshold = now()->subDays($targetDays + 1)->format('Y-m-d H:i:s');
+            $threshold = now()->subDays($targetDays + 1);
 
-            $reached = CandidateApplication::query()
+            // The applications at the leg's stage are paged by id (the current_stage index keeps them
+            // in id order); each page's stage-entry times are computed for that page only. Paging a
+            // derived table instead made MySQL rebuild it — every application's entry time — for
+            // every page: quadratic (434 s at 500k).
+            CandidateApplication::query()
                 ->where('current_stage', $leg['from'])
                 ->where('status', ApplicationStatus::Active)
                 ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
                 ->select('id')
-                ->selectSub($this->legEntrySubquery($leg['from']), 'stage_entered_at')
-                ->addSelect('last_activity_at', 'application_date');
+                ->chunkById($chunk, function (Collection $page) use ($leg, $targetDays, $threshold, $callback, &$count): void {
+                    $breaching = CandidateApplication::query()
+                        ->whereKey($page->modelKeys())
+                        ->select('id', 'last_activity_at', 'application_date')
+                        ->selectSub($this->legEntrySubquery($leg['from']), 'stage_entered_at')
+                        ->toBase()
+                        ->get()
+                        ->filter(fn (object $row): bool => ($reached = $row->stage_entered_at ?? $row->last_activity_at ?? $row->application_date) !== null
+                            && Carbon::parse($reached)->lte($threshold))
+                        ->pluck('stage_entered_at', 'id');
 
-            DB::query()->fromSub($reached, 'reached')
-                ->whereRaw('coalesce(reached.stage_entered_at, reached.last_activity_at, reached.application_date) <= ?', [$threshold])
-                ->select(['reached.id', 'reached.stage_entered_at'])
-                ->chunkById($chunk, function (Collection $rows) use ($leg, $targetDays, $callback, &$count): void {
-                    $breaching = $rows->pluck('stage_entered_at', 'id');
+                    if ($breaching->isEmpty()) {
+                        return;
+                    }
 
                     CandidateApplication::query()->whereIn('id', $breaching->keys())->with('candidate', 'recruiter')->get()
                         ->each(function (CandidateApplication $application) use ($breaching, $leg, $targetDays, $callback, &$count): void {
@@ -158,7 +167,7 @@ class RecruitmentSlaService
                                 $count++;
                             }
                         });
-                }, 'reached.id', 'id');
+                });
         }
 
         return $count;
