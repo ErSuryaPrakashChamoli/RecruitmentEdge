@@ -3,16 +3,14 @@
 namespace App\Filament\Resources\Interviewers\Pages;
 
 use App\Filament\Resources\Interviewers\InterviewerResource;
+use App\Jobs\ImportInterviewersJob;
 use App\Services\InterviewerImportService;
-use DomainException;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ManageRecords;
-use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ManageInterviewers extends ManageRecords
@@ -52,29 +50,17 @@ class ManageInterviewers extends ManageRecords
         ];
     }
 
+    /**
+     * Phase 8.9 (P89-PERF-024): the sheet is imported on the documents queue; the summary arrives as an alert.
+     */
     private function performImport(string $storedPath): void
     {
-        try {
-            $result = app(InterviewerImportService::class)->import(Storage::disk('local')->path($storedPath), auth()->user());
-        } catch (DomainException $exception) {
-            Notification::make()->danger()->title('Import failed')->body($exception->getMessage())->send();
-
-            throw new Halt;
-        } finally {
-            Storage::disk('local')->delete($storedPath);
-        }
-
-        $skipped = collect($result['skipped']);
-        $inactive = collect($result['inactive_not_reactivated']);
+        ImportInterviewersJob::dispatch($storedPath, (int) auth()->id());
 
         Notification::make()
-            ->title("{$result['added']} interviewer(s) added")
-            ->body(collect([
-                $result['already_listed'] > 0 ? "{$result['already_listed']} already on the list." : null,
-                $inactive->isNotEmpty() ? "{$inactive->count()} deactivated, not reactivated: ".$inactive->take(10)->implode('; ') : null,
-                $skipped->isNotEmpty() ? "{$skipped->count()} skipped: ".$skipped->take(10)->implode('; ') : null,
-            ])->filter()->implode(' '))
-            ->when($skipped->isNotEmpty() || $inactive->isNotEmpty(), fn (Notification $notification) => $notification->warning(), fn (Notification $notification) => $notification->success())
+            ->info()
+            ->title('Import started')
+            ->body('The spreadsheet is being imported. You will be notified when it finishes.')
             ->send();
     }
 }
