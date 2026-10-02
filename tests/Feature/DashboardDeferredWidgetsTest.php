@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\RecruitmentAnalyticsService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 
 use function Pest\Laravel\actingAs;
 
@@ -16,6 +17,8 @@ use function Pest\Laravel\actingAs;
  * computed once per request however many widgets read it.
  */
 beforeEach(function (): void {
+    // Lazy loading must be on: Livewire::withoutLazyLoading() in another test is process-wide.
+    Livewire::flushState();
     $this->seed(RolePermissionSeeder::class);
 
     $this->chro = User::factory()->create(['employee_id' => Employee::factory()->create()->id]);

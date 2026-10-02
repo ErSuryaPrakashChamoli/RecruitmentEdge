@@ -15,6 +15,11 @@ beforeEach(function (): void {
     Livewire::withoutLazyLoading();
 });
 
+afterEach(function (): void {
+    // The switch is process-wide; leave lazy loading on for the tests that follow.
+    Livewire::flushState();
+});
+
 test('dashboard sections other than the KPI row render collapsed by default with a collapse toggle', function (): void {
     $recruiter = Employee::factory()->create();
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
