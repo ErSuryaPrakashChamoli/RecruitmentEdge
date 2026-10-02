@@ -26,6 +26,12 @@ use Illuminate\Support\Str;
  */
 class TalentPoolService
 {
+    /**
+     * Phase 8.9 (P89-PERF-024, PF-88-05): one request adds or moves at most this many candidates —
+     * each is a locked row, a timeline entry, an audit row and an event inside one transaction.
+     */
+    public const int MAX_CANDIDATES_PER_REQUEST = 500;
+
     public function __construct(private readonly CandidateTimelineService $timeline) {}
 
     /**
@@ -88,6 +94,10 @@ class TalentPoolService
         $this->ensureActive($pool);
 
         $ids = collect($candidateIds)->map(fn ($id) => (int) $id)->unique()->values();
+
+        if ($ids->count() > self::MAX_CANDIDATES_PER_REQUEST) {
+            throw new DomainException('Add at most '.number_format(self::MAX_CANDIDATES_PER_REQUEST).' candidates at a time. Select fewer, or filter the list first.');
+        }
 
         return DB::transaction(function () use ($pool, $ids, $actor, $source, $reason, $notes): array {
             $existing = TalentPoolMembership::query()

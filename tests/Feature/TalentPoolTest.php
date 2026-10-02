@@ -123,6 +123,14 @@ test('an archived pool accepts no new candidates', function (): void {
     $this->pools->addCandidates(TalentPool::factory()->archived()->create(), [Candidate::factory()->create()->id]);
 })->throws(DomainException::class, 'archived');
 
+test('one request adds at most the per-request limit of candidates, and adds nothing beyond it (Phase 8.9, PF-88-05)', function (): void {
+    $pool = TalentPool::factory()->create();
+
+    expect(fn () => $this->pools->addCandidates($pool, range(1, TalentPoolService::MAX_CANDIDATES_PER_REQUEST + 1)))
+        ->toThrow(DomainException::class, 'at most 500 candidates at a time')
+        ->and(TalentPoolMembership::query()->count())->toBe(0);
+});
+
 test('pool visibility follows the hierarchy and the pool visibility setting', function (TalentPoolVisibility $visibility, string $viewer, bool $canSee): void {
     $vp = poolUser('vp_hr');
     $manager = poolUser('manager', $vp->employee);
