@@ -40,6 +40,11 @@ Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping(
 // Phase 8.7 (D8.7-012): failed jobs (payload and redacted exception) are kept for the retention
 // window only — the queue health page shows them until then.
 Schedule::command('queue:prune-failed', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:30')->withoutOverlapping(30)->onOneServer();
+// Phase 8.9 (P89-OPS-009, ED-08): technical housekeeping only — entries that have already expired
+// (cache, password-reset tokens) and finished job batches past the failed-job window. Not retention.
+Schedule::command('cache:prune-expired')->dailyAt('02:40')->withoutOverlapping(30)->onOneServer();
+Schedule::command('auth:clear-resets')->dailyAt('02:45')->withoutOverlapping(15)->onOneServer();
+Schedule::command('queue:prune-batches', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:50')->withoutOverlapping(15)->onOneServer();
 // Phase 8.7 (D8.7-013): re-queue lost messages; fail work a crashed worker or request left stuck.
 Schedule::command('reliability:sweep')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 // Phase 8.7 (D8.7-028): raise failed jobs, backlogs, stuck work and a silent scheduler.
