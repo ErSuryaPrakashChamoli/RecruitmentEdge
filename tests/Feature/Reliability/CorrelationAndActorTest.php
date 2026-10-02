@@ -15,7 +15,11 @@ use App\Services\Identity\StaffAccessService;
 use App\Services\Intelligence\IntelligenceAiService;
 use App\Services\InterviewService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Bus\Queueable;
+use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Context;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -40,7 +44,42 @@ test('an artisan command gets a command correlation id and its audit rows say co
     expect(Context::get('request_id'))->toStartWith('cmd:')
         ->and($row->request_id)->toBe(Context::get('request_id'))
         ->and($row->actor_kind)->toBe('console');
+
+    // Phase 8.9: when the command finishes, the kind in force before it applies again.
+    event(new CommandFinished('governance:audit', new ArrayInput([]), new NullOutput, 0));
+
+    expect(AuditLog::record(Candidate::factory()->create(), 'probe', null, null)->actor_kind)->toBe('system');
 });
+
+test('a job leaves no actor kind behind however it ends, and a sync job inside another keeps the outer job\'s (Phase 8.9)', function (): void {
+    $candidate = Candidate::factory()->create();
+
+    dispatch(function () use ($candidate): void {
+        dispatch(fn () => AuditLog::record($candidate, 'inner-job', null, null));
+        AuditLog::record($candidate, 'outer-after-inner', null, null);
+    });
+
+    expect(fn () => dispatch(new CorrelationDeletedThenFailingJob))->toThrow(RuntimeException::class);
+
+    expect(AuditLog::query()->where('action', 'inner-job')->sole()->actor_kind)->toBe('queue')
+        ->and(AuditLog::query()->where('action', 'outer-after-inner')->sole()->actor_kind)->toBe('queue')
+        ->and(AuditLog::record($candidate, 'after-jobs', null, null)->actor_kind)->toBe('system');
+});
+
+/**
+ * Deletes itself, then fails — the queue then raises neither JobProcessed nor JobFailed.
+ */
+class CorrelationDeletedThenFailingJob implements ShouldQueue
+{
+    use InteractsWithQueue, Queueable;
+
+    public function handle(): void
+    {
+        $this->delete();
+
+        throw new RuntimeException('failed after deleting itself');
+    }
+}
 
 test('a queued job carries the dispatching correlation id and its audit rows say queue', function (): void {
     config(['queue.default' => 'database']);

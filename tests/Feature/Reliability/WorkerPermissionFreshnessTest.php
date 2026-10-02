@@ -3,6 +3,7 @@
 use App\Models\Employee;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Facades\Cache;
@@ -31,8 +32,11 @@ test('a role permission changed elsewhere applies from the worker\'s next job', 
 
     expect($user->fresh()->can('settings.manage'))->toBeFalse();
 
-    event(new JobProcessing('sync', new SyncJob(app(), json_encode(['job' => 'x', 'data' => []]), 'sync', 'default')));
+    $job = new SyncJob(app(), json_encode(['job' => 'x', 'data' => []]), 'sync', 'default');
+    event(new JobProcessing('sync', $job));
 
     expect($user->fresh()->can('settings.manage'))->toBeTrue()
         ->and(app(PermissionRegistrar::class))->toBe(app(PermissionRegistrar::class));
+
+    event(new JobAttempted('sync', $job));
 });

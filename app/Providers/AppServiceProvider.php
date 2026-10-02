@@ -45,6 +45,7 @@ use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskFailed;
@@ -55,6 +56,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Events\DiagnosingHealth;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
@@ -298,6 +300,15 @@ class AppServiceProvider extends ServiceProvider
      */
     private static array $jobStartedAt = [];
 
+    /**
+     * Phase 8.9: the default audit actor kind in force before each running command / job, restored
+     * when it ends — so a sync job nested in a request or another job, or a job deleted before it
+     * failed (no JobProcessed / JobFailed), never leaves its kind behind.
+     *
+     * @var array<int, string|null>
+     */
+    private static array $actorKindsBefore = [];
+
     private function configureAsyncContext(): void
     {
         Event::listen(CommandStarting::class, function (CommandStarting $event): void {
@@ -306,7 +317,13 @@ class AppServiceProvider extends ServiceProvider
             }
 
             if ($event->command !== null && ! str_starts_with($event->command, 'queue:')) {
+                self::$actorKindsBefore[] = AuditLog::defaultActorKind();
                 AuditLog::setDefaultActorKind(self::isScheduledRun($event->command) ? 'scheduler' : 'console');
+            }
+        });
+        Event::listen(CommandFinished::class, function (CommandFinished $event): void {
+            if ($event->command !== null && ! str_starts_with($event->command, 'queue:') && self::$actorKindsBefore !== []) {
+                AuditLog::setDefaultActorKind(array_pop(self::$actorKindsBefore));
             }
         });
 
@@ -315,6 +332,7 @@ class AppServiceProvider extends ServiceProvider
                 Context::add('request_id', 'job:'.($event->job->uuid() ?? Str::uuid()));
             }
 
+            self::$actorKindsBefore[] = AuditLog::defaultActorKind();
             AuditLog::setDefaultActorKind('queue');
 
             // Phase 8.9 (P89-SEC-003, ED-11): a long-lived worker re-reads role permissions for every
@@ -331,8 +349,6 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Queue::after(function (JobProcessed $event): void {
-            AuditLog::setDefaultActorKind(null);
-
             // Phase 8.9 (P89-OPS-006): a successful job leaves a trace — class, queue, attempt and
             // duration — correlated by request id with what it changed (audit rows carry the same id).
             $started = self::$jobStartedAt[(string) $event->job->uuid()] ?? null;
@@ -344,7 +360,12 @@ class AppServiceProvider extends ServiceProvider
                 'duration_ms' => $started !== null ? (int) round((hrtime(true) - $started) / 1e6) : null,
             ]);
         });
-        Queue::failing(fn () => AuditLog::setDefaultActorKind(null));
+        // Fired once per attempt, whatever happened (processed, failed, released, deleted).
+        Event::listen(JobAttempted::class, function (): void {
+            if (self::$actorKindsBefore !== []) {
+                AuditLog::setDefaultActorKind(array_pop(self::$actorKindsBefore));
+            }
+        });
 
         // Phase 8.9 (P89-OPS-002/007): a looping worker records its heartbeat (at most once a minute).
         Event::listen(Looping::class, fn (Looping $event) => app(WorkerHeartbeat::class)->beat($event->queue));

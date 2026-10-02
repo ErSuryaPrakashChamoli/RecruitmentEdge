@@ -175,6 +175,11 @@ class AuditLog extends Model
         self::$defaultActorKind = $kind;
     }
 
+    public static function defaultActorKind(): ?string
+    {
+        return self::$defaultActorKind;
+    }
+
     /**
      * @param  array<string, mixed>|null  $values
      * @return array<string, mixed>|null
