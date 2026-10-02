@@ -839,26 +839,39 @@ class RecruitmentAnalyticsService
         $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
 
         $period = MetricPeriod::between($start, $end);
+
+        // Phase 8.9 (P89-PERF-027): one grouped query with per-application EXISTS flags — never every
+        // application of the period loaded into PHP and its ids bound as parameters (MySQL refuses
+        // more than 65,535). Same population and the same "reached" facts as before.
         $applications = $period->whereTimestampColumn(CandidateApplication::query(), 'created_at')
             ->whereNotNull('origin_channel')
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
-            ->get(['id', 'origin_channel']);
+            ->select(['id', 'origin_channel'])
+            ->withExists([
+                'interviews as was_interviewed' => fn (Builder $q) => $q->where('status', InterviewStatus::Completed),
+                'offers as was_offered',
+                'joining as has_joined' => fn (Builder $q) => $q->where('status', JoiningStatus::Joined),
+            ]);
 
-        $ids = $applications->pluck('id');
-        $interviewed = Interview::query()->whereIn('candidate_application_id', $ids)->where('status', InterviewStatus::Completed)->distinct()->pluck('candidate_application_id')->flip();
-        $offered = Offer::query()->whereIn('candidate_application_id', $ids)->distinct()->pluck('candidate_application_id')->flip();
-        $joined = CandidateJoining::query()->whereIn('candidate_application_id', $ids)->where('status', JoiningStatus::Joined)->pluck('candidate_application_id')->flip();
+        $channels = DB::query()->fromSub($applications, 'channel_applications')
+            ->selectRaw('origin_channel, count(*) as applications, sum(was_interviewed) as interviewed, sum(was_offered) as offers, sum(has_joined) as joined')
+            ->groupBy('origin_channel')
+            ->orderByDesc('applications')
+            ->orderBy('origin_channel')
+            ->get()
+            ->map(fn (object $row): array => [
+                'channel' => (string) $row->origin_channel,
+                'applications' => (int) $row->applications,
+                'interviewed' => (int) $row->interviewed,
+                'offers' => (int) $row->offers,
+                'joined' => (int) $row->joined,
+            ])
+            ->values();
 
         return [
             'published_postings' => $period->whereTimestampColumn(JobPosting::query(), 'published_at')->count(),
             'live_postings' => JobPosting::query()->live()->count(),
-            'channels' => $applications->groupBy('origin_channel')->map(fn (Collection $group, string $channel) => [
-                'channel' => $channel,
-                'applications' => $group->count(),
-                'interviewed' => $group->filter(fn ($a) => $interviewed->has($a->id))->count(),
-                'offers' => $group->filter(fn ($a) => $offered->has($a->id))->count(),
-                'joined' => $group->filter(fn ($a) => $joined->has($a->id))->count(),
-            ])->sortByDesc('applications')->values(),
+            'channels' => $channels,
         ];
     }
 

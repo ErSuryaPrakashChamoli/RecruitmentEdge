@@ -16,6 +16,7 @@ use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
 use App\Services\RecruitmentAnalyticsService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 
 /**
  * hiring.time_to_hire (D1, D1a, D2): median whole days from the start point frozen for each hire to
@@ -62,31 +63,26 @@ class TimeToHire extends MetricDefinition
     {
         $currentStartPoint = (string) RecruitmentSetting::get('time_to_hire_start_point', 'candidate_applied');
         $live = 0;
+        $hires = 0;
+        $validDays = [];
 
-        $days = $this->hires($query)
+        // Phase 8.9 (P89-PERF-028): the hires are streamed in id-ordered chunks and only each hire's
+        // whole-day count is kept — never every hire of the period hydrated with its relations at
+        // once (395 MB at 1M candidates, over the 256 MB request limit). Same hires, same arithmetic.
+        $this->hires($query)
             ->with(['outcomeSnapshot:id,candidate_joining_id,facts', 'candidateApplication.requisition:id,opening_date,created_at', 'candidateApplication.candidate:id,created_at'])
-            ->get()
-            ->map(function (CandidateJoining $joining) use ($currentStartPoint, &$live): ?int {
-                $frozen = $joining->outcomeSnapshot?->facts['time_to_hire'] ?? null;
+            ->chunkById(1000, function (Collection $joinings) use ($currentStartPoint, &$live, &$hires, &$validDays): void {
+                foreach ($joinings as $joining) {
+                    $hires++;
+                    $days = $this->daysToHire($joining, $currentStartPoint, $live);
 
-                if ($joining->outcomeSnapshot !== null) {
-                    $start = $frozen['start_date'] ?? null;
-                    $start = $start !== null ? CarbonImmutable::parse($start) : null;
-                } else {
-                    $live++;
-                    $start = RecruitmentAnalyticsService::timeToHireStart($joining->candidateApplication, $currentStartPoint);
+                    if ($days !== null) {
+                        $validDays[] = $days;
+                    }
                 }
+            }, 'candidate_joinings.id', 'id');
 
-                if ($start === null) {
-                    return null;
-                }
-
-                $days = (int) CarbonImmutable::parse($start->toDateString())->diffInDays(CarbonImmutable::parse($joining->actual_doj->toDateString()), false);
-
-                return $days >= 0 ? $days : null;
-            });
-
-        $valid = $days->filter(fn (?int $d) => $d !== null)->values();
+        $valid = collect($validDays);
 
         return $this->result(
             $query,
@@ -94,11 +90,36 @@ class TimeToHire extends MetricDefinition
             $valid->count(),
             [
                 'mean' => $this->withheld($valid->isNotEmpty() ? (float) $valid->avg() : null, $valid->count()),
-                'hires' => $days->count(),
+                'hires' => $hires,
                 'start_point_live_for' => $live,
                 'current_start_point' => $currentStartPoint,
             ],
-            unknown: $days->count() - $valid->count(),
+            unknown: $hires - $valid->count(),
         );
+    }
+
+    /**
+     * Whole days from the hire's frozen (or, before a snapshot exists, live) start point to its
+     * actual joining date; null when the start is unknown or after the join.
+     */
+    private function daysToHire(CandidateJoining $joining, string $currentStartPoint, int &$live): ?int
+    {
+        $frozen = $joining->outcomeSnapshot?->facts['time_to_hire'] ?? null;
+
+        if ($joining->outcomeSnapshot !== null) {
+            $start = $frozen['start_date'] ?? null;
+            $start = $start !== null ? CarbonImmutable::parse($start) : null;
+        } else {
+            $live++;
+            $start = RecruitmentAnalyticsService::timeToHireStart($joining->candidateApplication, $currentStartPoint);
+        }
+
+        if ($start === null) {
+            return null;
+        }
+
+        $days = (int) CarbonImmutable::parse($start->toDateString())->diffInDays(CarbonImmutable::parse($joining->actual_doj->toDateString()), false);
+
+        return $days >= 0 ? $days : null;
     }
 }

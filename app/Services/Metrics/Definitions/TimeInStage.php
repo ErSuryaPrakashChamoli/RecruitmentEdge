@@ -8,6 +8,7 @@ use App\Enums\MetricKind;
 use App\Enums\MetricMaterialization;
 use App\Enums\MetricScopeModel;
 use App\Enums\MetricUnit;
+use App\Models\CandidateApplication;
 use App\Models\CandidateStageHistory;
 use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricQuery;
@@ -61,21 +62,26 @@ class TimeInStage extends MetricDefinition
         $periodStart = $period->startInstant()->getTimestamp();
         $periodEnd = $period->endInstant()->format('Y-m-d H:i:s');
 
-        $exiting = $this->scope->throughApplication(CandidateStageHistory::query()->milestoneEntries(), $query)
-            ->tap(fn ($q) => $period->whereTimestampColumn($q, 'candidate_stage_histories.created_at'))
-            ->select('candidate_stage_histories.candidate_application_id')
-            ->distinct()
+        // The in-scope applications with a milestone entry in the period (the same population as
+        // "stage-history rows of the period, through the application scope"). Phase 8.9
+        // (P89-PERF-029): paged by id with an EXISTS per application — the previous OFFSET chunks
+        // re-ran a subquery over the period's stage history for every chunk (quadratic; it did not
+        // finish at 1M candidates).
+        $exiting = $this->scope->applications(CandidateApplication::query(), $query)
+            ->whereExists(fn ($entries) => $entries->selectRaw('1')
+                ->from('candidate_stage_histories')
+                ->whereColumn('candidate_stage_histories.candidate_application_id', 'candidate_applications.id')
+                ->tap(fn ($q) => CandidateStageHistory::constrainToMilestoneEntries($q))
+                ->tap(fn ($q) => $period->whereTimestampColumn($q, 'candidate_stage_histories.created_at')))
+            ->select(['candidate_applications.id', 'candidate_applications.created_at'])
             ->toBase();
 
         // Plain rows and integer timestamps: this runs over every application that moved in the
         // period, so it avoids hydrating models and Carbon instances (PF-6).
         $durations = [];
 
-        DB::table('candidate_applications')
-            ->whereIn('id', $exiting)
-            ->select(['id', 'created_at'])
-            ->orderBy('id')
-            ->chunk(2000, function ($applications) use ($periodStart, $periodEnd, &$durations): void {
+        $exiting
+            ->chunkById(2000, function ($applications) use ($periodStart, $periodEnd, &$durations): void {
                 $created = $applications->mapWithKeys(fn ($a) => [$a->id => strtotime((string) $a->created_at)])->all();
 
                 $entries = DB::table('candidate_stage_histories')
@@ -91,7 +97,7 @@ class TimeInStage extends MetricDefinition
                         $durations[$stage][] = $days;
                     }
                 }
-            });
+            }, 'candidate_applications.id', 'id');
 
         $byStage = collect($durations)->map(function (array $days, string $stage) {
             $values = collect($days);

@@ -15,6 +15,7 @@ use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
+use Illuminate\Support\Facades\DB;
 
 /**
  * joining.offer_to_join (D5, DF-4): of the applications whose offer was accepted in the period, how
@@ -59,25 +60,35 @@ class OfferToJoin extends MetricDefinition
 
     protected function evaluate(MetricQuery $query): MetricResult
     {
-        $applicationIds = $this->offers($query)
+        $acceptedApplications = $this->offers($query)
             ->where('offers.status', OfferStatus::Accepted->value)
             ->tap(fn ($q) => $query->requirePeriod()->whereTimestampColumn($q, 'offers.accepted_at'))
+            ->select('offers.candidate_application_id')
             ->distinct()
-            ->pluck('offers.candidate_application_id');
+            ->toBase();
 
-        $statuses = CandidateJoining::query()->whereIn('candidate_application_id', $applicationIds)->pluck('status', 'candidate_application_id');
-        $count = fn (JoiningStatus ...$s) => $statuses->filter(fn (JoiningStatus $status) => in_array($status, $s, true))->count();
+        // Phase 8.9 (P89-PERF-027): counted in the database through the subquery — never a list of
+        // ids bound as parameters, which MySQL refuses above 65,535. One joining per application, so
+        // the status counts equal the per-application statuses the definition reads.
+        $accepted = DB::query()->fromSub($acceptedApplications, 'accepted_applications')->count();
+        $statuses = CandidateJoining::query()
+            ->whereIn('candidate_application_id', $acceptedApplications)
+            ->toBase()
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+        $count = fn (JoiningStatus ...$s): int => (int) collect($s)->sum(fn (JoiningStatus $status): int => (int) ($statuses[$status->value] ?? 0));
 
         $joined = $count(JoiningStatus::Joined);
         $decided = $count(JoiningStatus::Joined, JoiningStatus::NoShow, JoiningStatus::Dropout);
         $cancelled = $count(JoiningStatus::Cancelled);
 
         return $this->result($query, $this->rate($joined, $decided), $decided, [
-            'accepted_applications' => $applicationIds->count(),
+            'accepted_applications' => $accepted,
             'joined' => $joined,
             'not_joined' => $decided - $joined,
-            'awaiting' => $applicationIds->count() - $decided - $cancelled,
+            'awaiting' => $accepted - $decided - $cancelled,
             'cancelled' => $cancelled,
-        ], unknown: $applicationIds->count() - $decided - $cancelled, excluded: $cancelled);
+        ], unknown: $accepted - $decided - $cancelled, excluded: $cancelled);
     }
 }
