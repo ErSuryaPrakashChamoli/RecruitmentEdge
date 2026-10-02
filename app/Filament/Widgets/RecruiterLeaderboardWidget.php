@@ -4,6 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Filament\Pages\Leaderboard;
 use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
@@ -22,11 +23,7 @@ use Illuminate\Support\Collection;
  */
 class RecruiterLeaderboardWidget extends Widget
 {
-    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.recruiter-leaderboard';
 

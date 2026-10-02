@@ -30,6 +30,7 @@ use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
+use App\Services\RecruitmentAnalyticsService;
 use App\Services\SchedulerHeartbeat;
 use App\Services\WorkerHeartbeat;
 use Filament\Actions\ExportAction;
@@ -96,8 +97,10 @@ class AppServiceProvider extends ServiceProvider
         // Phase 8.4: one access gate per process, so its per-user decisions are memoised for the
         // request (every identity change invalidates them — StaffAccessService::invalidateDecisions).
         $this->app->singleton(StaffAccessService::class);
-        // Phase 8.9 (P89-PERF-012): one subtree memo per request / queued job.
+        // Phase 8.9 (P89-PERF-012, P89-PERF-015): one subtree memo and one position-health memo per
+        // request / queued job.
         $this->app->scoped(HierarchyMemo::class);
+        $this->app->scoped(RecruitmentAnalyticsService::class);
         // Phase 8.9: one heartbeat writer per worker process (it throttles its own writes).
         $this->app->singleton(WorkerHeartbeat::class);
 

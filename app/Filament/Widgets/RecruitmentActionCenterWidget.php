@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentActionCenterService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -18,16 +19,12 @@ use Illuminate\Support\Collection;
  */
 class RecruitmentActionCenterWidget extends Widget
 {
-    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected static function requiredPermission(): string
     {
         return 'candidates.viewAny';
     }
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
 
     protected string $view = 'filament.widgets.recruitment-action-center';
 

@@ -3,11 +3,16 @@
 use App\Models\Employee;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
+use Livewire\Livewire;
 
 use function Pest\Laravel\actingAs;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
+
+    // Phase 8.9 (P89-PERF-015): the widgets below the day's numbers load after first paint; these
+    // tests are about how each widget renders once loaded, so they render everything in one pass.
+    Livewire::withoutLazyLoading();
 });
 
 test('dashboard sections other than the KPI row render collapsed by default with a collapse toggle', function (): void {

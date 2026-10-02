@@ -60,6 +60,11 @@ use Illuminate\Support\Facades\DB;
  */
 class RecruitmentAnalyticsService
 {
+    /**
+     * @var array<int|string, Collection<int, array<string, mixed>>>
+     */
+    private array $positionHealthMemo = [];
+
     public function __construct(
         private readonly HierarchyService $hierarchy,
         private readonly MetricService $metrics,
@@ -468,9 +473,20 @@ class RecruitmentAnalyticsService
      * all). Phase 8.5: a requisition with no openings has no fulfilment (null, not 0%), and the
      * counts are preloaded instead of queried per requisition.
      *
+     * Phase 8.9 (P89-PERF-015, ED-09): computed once per viewer per request (or per queued job) —
+     * the dashboard, Action Center, insights and recommendations all read it in the same request.
+     *
      * @return Collection<int, array{requisition: RecruitmentRequisition, required: int, filled: int, remaining: int, fulfilment_percent: float|null, pipeline: int, ageing_days: int, is_overdue: bool, risk: string}>
      */
     public function positionHealth(?User $user = null): Collection
+    {
+        return collect($this->positionHealthMemo[$user?->getKey() ?? 'organisation'] ??= $this->computePositionHealth($user));
+    }
+
+    /**
+     * @return Collection<int, array{requisition: RecruitmentRequisition, required: int, filled: int, remaining: int, fulfilment_percent: float|null, pipeline: int, ageing_days: int, is_overdue: bool, risk: string}>
+     */
+    private function computePositionHealth(?User $user): Collection
     {
         $minPipelineRatio = (float) RecruitmentSetting::get('position_risk_min_pipeline_ratio', 2.0);
         $maxDaysOpen = (int) RecruitmentSetting::get('position_risk_max_days_open', 45);

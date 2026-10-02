@@ -5,6 +5,7 @@ namespace App\Filament\Widgets;
 use App\Enums\CandidateStage;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentAnalyticsService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -22,11 +23,7 @@ use Illuminate\Support\Collection;
  */
 class RecruitmentFunnelWidget extends Widget
 {
-    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.recruitment-funnel';
 
