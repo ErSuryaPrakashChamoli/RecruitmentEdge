@@ -6,6 +6,7 @@ paths:
   - app/Services/OfferService.php
   - app/Services/StageTransitionService.php
   - app/Services/RecruitmentActivityService.php
+  - 'app/Services/**'
 ---
 
 # App Services
@@ -29,3 +30,6 @@ UI/Copilot/automation canonical moves must call StageTransitionService::advance(
 
 ## Recruiter activity is created only through RecruitmentActivityService
 Phase 8.5 (SEC-4): activities feed call targets, scores and incentive slabs. RecruitmentActivityService::log/update/delete is the only writer (arch test): actor needs activities.log; recruiter must be self or in the actor's hierarchy; activity_datetime not in the future and at most activity_backdate_days (setting, default 7) back in the business timezone; created_by is always the actor's employee; edits/deletes are refused once the recruiter has an Approved/Payable/Paid incentive calculation covering that day (correct via incentive adjustment); every write is audited (activity_logged/corrected/deleted). Filament create/edit/delete/bulk-delete call the service.
+
+## Lock with RowLock, application first
+Phase 8.9 (P89-DQ-001..006/009, PERF-021): a transition decides on the latest row via App\Services\Lifecycle\RowLock::fresh($model) inside a transaction. Never lockForUpdate() then refresh(): at MySQL REPEATABLE READ, refresh() returns the transaction's stale snapshot. To serialise children on a parent, use RowLock::key(Parent::class, $id). Lock order is always the candidate application first, then its interviews, offers, joining or incentive rows. Re-run the guard checks after the lock. For a status flip that must not overwrite a concurrent one, use a conditional update (whereKey()->where('status', expected)->update()) and act on the affected-row count; see AutomationEngine::cancel()/finish() and PerformanceEngine::snapshotFor().

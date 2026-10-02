@@ -19,3 +19,6 @@ Livewire's "a component rendered this request" flag (SupportAutoInjectedAssets) 
 
 ## assertNotified() consumes the session notifications
 Filament's assertNotified()/Notification::assertNotified() mounts the Notifications Livewire component, which pulls 'filament.notifications' out of the session. Reading session('filament.notifications') afterwards sees nothing, so a "the link is never shown" assertion becomes vacuous (it survived a mutation in SEC8804PortalLinkNeverShownToStaffTest). To inspect what staff were shown, mount Filament\Notifications\Livewire\Notifications yourself and read ->notifications (title/getBody()) before any assertNotified call.
+
+## Feature tests run on faked local and public disks
+Phase 8.9 (P89-DQ-016): tests/Pest.php fakes the local and public disks before every Feature test, then re-registers PrivateFileController::registerTemporaryUrls(). No test writes offer letters, templates or uploads into storage/app. A test that calls Storage::fake('local') again must also call registerTemporaryUrls() again if it needs signed preview URLs. To check for leaks: run a suite, then `find storage/app -newer <marker>` should be empty.
