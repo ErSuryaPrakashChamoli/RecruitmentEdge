@@ -35,6 +35,7 @@ use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Models\Export;
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
 use Filament\Auth\Notifications\ResetPassword;
+use Filament\Auth\Notifications\VerifyEmailChange;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\FileUpload;
 use Filament\Tables\Enums\RecordActionsPosition;
@@ -59,6 +60,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Component;
+use Spatie\Permission\PermissionRegistrar;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -77,6 +79,8 @@ class AppServiceProvider extends ServiceProvider
         // resolve encrypted subclasses (Filament builds them through the container).
         $this->app->bind(ResetPassword::class, \App\Notifications\Auth\ResetPassword::class);
         $this->app->bind(NoticeOfEmailChangeRequest::class, \App\Notifications\Auth\NoticeOfEmailChangeRequest::class);
+        // Phase 8.9 (P89-SEC-002): the email-change verification link is encrypted in the queue too.
+        $this->app->bind(VerifyEmailChange::class, \App\Notifications\Auth\VerifyEmailChange::class);
         $this->app->singleton(AutomationEventRegistry::class);
         $this->app->singleton(AutomationFieldRegistry::class);
         $this->app->singleton(AutomationActionRegistry::class);
@@ -288,6 +292,13 @@ class AppServiceProvider extends ServiceProvider
             }
 
             AuditLog::setDefaultActorKind('queue');
+
+            // Phase 8.9 (P89-SEC-003, ED-11): a long-lived worker re-reads role permissions for every
+            // job — Spatie keeps the role → permission map in memory for the process, so a role
+            // edited in the panel would otherwise be honoured with its old permissions for up to an
+            // hour (--max-time). The cached map (flushed by Spatie on every role/permission change)
+            // is read again on the job's first permission check.
+            app(PermissionRegistrar::class)->clearPermissionsCollection();
         });
 
         Queue::after(fn () => AuditLog::setDefaultActorKind(null));

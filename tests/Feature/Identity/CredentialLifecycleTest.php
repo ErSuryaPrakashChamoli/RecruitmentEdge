@@ -8,11 +8,11 @@ use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\User;
 use App\Notifications\Auth\ResetPassword as ResetPasswordNotification;
+use App\Notifications\Auth\VerifyEmailChange;
 use App\Services\Identity\CredentialService;
-use App\Services\Identity\StaffAccessService;
 // Phase 8.7 (SEC-87-02): Filament resolves this encrypted subclass of its reset-password mail.
+use App\Services\Identity\StaffAccessService;
 use Database\Seeders\RolePermissionSeeder;
-use Filament\Auth\Notifications\VerifyEmailChange;
 use Filament\Auth\Pages\PasswordReset\RequestPasswordReset;
 use Filament\Auth\Pages\PasswordReset\ResetPassword;
 use Illuminate\Support\Facades\DB;

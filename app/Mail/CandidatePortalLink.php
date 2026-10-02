@@ -26,7 +26,7 @@ class CandidatePortalLink extends Mailable implements ShouldBeEncrypted, ShouldQ
         public readonly string $url,
         public readonly bool $isInvitation,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue('security');
     }
 
     public function envelope(): Envelope

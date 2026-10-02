@@ -13,6 +13,7 @@ use App\Services\OfferService;
 use Database\Seeders\RolePermissionSeeder;
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
 use Filament\Auth\Notifications\ResetPassword;
+use Filament\Auth\Notifications\VerifyEmailChange;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\SerializesModels;
@@ -61,12 +62,19 @@ test('password-reset and email-change notices never put their token URLs in the 
 
     $user->notify(app(ResetPassword::class, ['token' => 'RESET-TOKEN-SECRET-123']));
     $user->notify(app(NoticeOfEmailChangeRequest::class, ['newEmail' => 'new.address@example.test', 'blockVerificationUrl' => 'https://example.test/block?signature=BLOCK-SIGNATURE-SECRET']));
+    // Phase 8.9 (P89-SEC-002): the verification link of an email change, too.
+    $verify = app(VerifyEmailChange::class);
+    $verify->url = 'https://example.test/verify?signature=VERIFY-SIGNATURE-SECRET';
+    $user->notify($verify);
 
     $payloads = queuedPayloads();
 
-    expect(DB::table('jobs')->where('queue', 'notifications')->count())->toBe(2)
+    // Phase 8.9 (ED-05): auth mail runs on `security`, consumed by its own worker.
+    expect(DB::table('jobs')->where('queue', 'security')->count())->toBe(3)
+        ->and(DB::table('jobs')->where('queue', 'default')->count())->toBe(0)
         ->and(str_contains($payloads, 'RESET-TOKEN-SECRET-123'))->toBeFalse()
         ->and(str_contains($payloads, 'BLOCK-SIGNATURE-SECRET'))->toBeFalse()
+        ->and(str_contains($payloads, 'VERIFY-SIGNATURE-SECRET'))->toBeFalse()
         ->and(str_contains($payloads, 'new.address@example.test'))->toBeFalse();
 });
 
@@ -108,7 +116,7 @@ test('the candidate portal password link is queued encrypted, so neither its tok
     app(CandidatePortalService::class)->sendPasswordLink('portal.person@example.test');
     app(CandidatePortalService::class)->sendPasswordLink('nobody@example.test');
 
-    expect(DB::table('jobs')->where('queue', 'notifications')->count())->toBe(1)
+    expect(DB::table('jobs')->where('queue', 'security')->count())->toBe(1)
         ->and(str_contains(queuedPayloads(), 'portal.person@example.test'))->toBeFalse()
         ->and(str_contains(queuedPayloads(), 'signature='))->toBeFalse()
         ->and($account->fresh()->email)->toBe('portal.person@example.test');

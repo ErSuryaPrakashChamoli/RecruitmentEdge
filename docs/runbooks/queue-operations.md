@@ -11,7 +11,7 @@ For whoever deploys and operates Recruitment Edge. Describes the system as shipp
 3. **Deploy code:** `composer install --no-dev --optimize-autoloader`, `npm ci && npm run build`.
 4. **Migrate:** `php artisan migrate --force`. Never roll back migrations in production.
 5. **Caches:** `php artisan optimize:clear && php artisan optimize`.
-6. **Start** the three workers and the one scheduler (§2, §5). With Docker: `docker compose up -d`. `stop_grace_period: 330s` lets a stopping worker finish a job up to the longest timeout.
+6. **Start** the four workers and the one scheduler (§2, §5). With Docker: `docker compose up -d`. `stop_grace_period: 330s` lets a stopping worker finish a job up to the longest timeout.
 7. **Verify:**
    - `php artisan schedule:list` lists 17 tasks;
    - Administration → **Queue health**: every queue listed, nothing under "Needs attention", scheduler heartbeat present within five minutes;
@@ -23,9 +23,10 @@ For whoever deploys and operates Recruitment Edge. Describes the system as shipp
 
 | Worker (compose service) | Queues, in priority order | `--timeout` | What runs there |
 |---|---|---|---|
-| `queue` | communications, notifications, default | 120 | candidate messages, `SendCandidateCommunications`; in-app alerts, password-reset / email-change / portal-link mails |
+| `queue` | communications, default | 120 | candidate messages, `SendCandidateCommunications` |
+| `queue-priority` (Phase 8.9) | security, notifications, default | 120 | `security`: password reset, email-change verification and notice, candidate portal links, step-up OTP codes; `notifications`: in-app and platform alerts. Never behind a burst of candidate messages (ED-05). |
 | `queue-automation` | automation, default | 120 | automation runs, ownership handoffs |
-| `queue-background` | intelligence, integrations, default | 300 | AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs |
+| `queue-background` | intelligence, integrations, exports, default | 300 | AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
 
 Rules:
 - **`retry_after` (330) must stay above the longest `--timeout` (300)**, or a job still running is handed to a second worker. `queue:health-check` alerts if it is not. `stop_grace_period` (330 s) must be at least `retry_after`.
@@ -102,7 +103,7 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
 
 | Symptom | Likely cause | Check / fix |
 |---|---|---|
-| Nobody receives in-app alerts or password-reset mails | nothing consumes `notifications` | the `queue` worker's `--queue` includes `notifications` |
+| Nobody receives in-app alerts, password-reset mails or OTP codes | `queue-priority` down, or nothing consumes `security` / `notifications` | `docker compose ps queue-priority`; its `--queue` is `security,notifications,default` |
 | Automation runs stay Pending | `queue-automation` worker down, or the scheduler is not running | Queue health: automation queue age; heartbeat |
 | The same job runs twice | `retry_after` below a job's runtime | `DB_QUEUE_RETRY_AFTER=330`; Queue health alert |
 | Jobs killed mid-run on every deploy | no grace period, or a shell between Docker and the worker | `stop_grace_period: 330s`; the entrypoint uses `exec setpriv` |

@@ -3,6 +3,12 @@
 use App\Jobs\AI\IndexAiDocumentJob;
 use App\Jobs\AI\ReindexKnowledgeArticleJob;
 use App\Jobs\SendCommunicationJob;
+use App\Mail\CandidatePortalLink;
+use App\Mail\CandidateStepUpCode;
+use App\Notifications\Auth\NoticeOfEmailChangeRequest;
+use App\Notifications\Auth\ResetPassword;
+use App\Notifications\Auth\VerifyEmailChange;
+use App\Notifications\StaffDatabaseNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
@@ -99,6 +105,27 @@ test('slow provider work runs on the background worker, not beside candidate mes
         ->and($produced[SendCommunicationJob::class])->toBe('communications');
 });
 
+test('security mail and staff alerts never share a worker with candidate messages (Phase 8.9, ED-05)', function (): void {
+    preg_match_all('/"--queue=([^"]+)"/', queueTopologyCompose(), $matches);
+    $workers = collect($matches[1])->map(fn (string $list) => explode(',', $list));
+    $produced = queueTopologyProduced();
+
+    foreach ([ResetPassword::class, NoticeOfEmailChangeRequest::class, VerifyEmailChange::class, CandidatePortalLink::class, CandidateStepUpCode::class] as $class) {
+        expect($produced[$class])->toBe('security');
+    }
+
+    expect($produced[StaffDatabaseNotification::class])->toBe('notifications');
+
+    foreach (['security', 'notifications'] as $queue) {
+        $consumers = $workers->filter(fn (array $queues) => in_array($queue, $queues, true));
+
+        expect($consumers)->not->toBeEmpty()
+            ->and($consumers->every(fn (array $queues) => ! in_array('communications', $queues, true)))->toBeTrue("{$queue} shares a worker with candidate messages");
+    }
+
+    expect($workers->first(fn (array $queues) => in_array('security', $queues, true))[0])->toBe('security');
+});
+
 test('a job is never handed to a second worker while it is still running', function (): void {
     preg_match_all('/"--timeout=(\d+)"/', queueTopologyCompose(), $timeouts);
     preg_match('/DB_QUEUE_RETRY_AFTER: "(\d+)"/', queueTopologyCompose(), $retryAfter);
@@ -134,5 +161,5 @@ test('automation has its own worker, so candidate messages never starve it', fun
 
     expect(explode(',', $automation[1] ?? ''))->toContain('automation')
         ->and(explode(',', $messages[1] ?? ''))->not->toContain('automation')
-        ->and(explode(',', $messages[1] ?? ''))->toContain('communications', 'notifications');
+        ->and(explode(',', $messages[1] ?? ''))->toContain('communications');
 });

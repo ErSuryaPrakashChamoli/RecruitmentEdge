@@ -12,7 +12,7 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * Phase 8.8 (D8.8-001): the email one-time code for a candidate portal step-up. Email is the only
- * approved channel. Queued on `notifications` and encrypted, because the payload carries the code
+ * approved channel. Queued on `security` (Phase 8.9: its own worker) and encrypted, because the payload carries the code
  * (the code is stored nowhere else in plaintext).
  */
 class CandidateStepUpCode extends Mailable implements ShouldBeEncrypted, ShouldQueue
@@ -24,7 +24,7 @@ class CandidateStepUpCode extends Mailable implements ShouldBeEncrypted, ShouldQ
         public readonly string $code,
         public readonly int $validMinutes,
     ) {
-        $this->onQueue('notifications');
+        $this->onQueue('security');
     }
 
     public function envelope(): Envelope

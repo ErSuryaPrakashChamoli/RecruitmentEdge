@@ -2,14 +2,17 @@
 # runs migrations on start (RUN_MIGRATIONS); the scheduler/queue containers set it to "false" so
 # they never race the app container's migration run.
 #
-# Queue topology (Phase 8.3, revised in Phase 8.7 — D8.7-001/002/020; runbook:
-# docs/runbooks/queue-operations.md). Every application queue is consumed:
-# - `queue`: candidate messages and in-app / auth notifications (time-sensitive);
+# Queue topology (Phase 8.3, revised in Phase 8.7 — D8.7-001/002/020 — and Phase 8.9 — ED-05/06;
+# runbook: docs/runbooks/queue-operations.md). Every application queue is consumed:
+# - `queue`: candidate messages (bulk, provider-latency bound);
+# - `queue-priority` (Phase 8.9): `security` first — password reset, email-change verification
+#   and notice, candidate portal links, step-up OTP codes — then `notifications` (in-app and
+#   platform alerts), so neither ever waits behind a burst of candidate messages;
 # - `queue-automation`: automation runs and ownership handoffs, so a burst of messages never
 #   starves automation (and the reverse);
 # - `queue-background`: slow provider calls (AI, embeddings, calendar and job-board APIs, Outcome
-#   Loop / Hiring Memory capture).
-# All three also take `default` as a fallback (it should stay empty).
+#   Loop / Hiring Memory capture) and Filament exports (`exports`).
+# All four also take `default` as a fallback (it should stay empty).
 #
 # Timeouts: DB_QUEUE_RETRY_AFTER (330) must stay above the longest worker --timeout (300), or a job
 # still running is handed to a second worker. stop_grace_period (330s) lets a worker finish its
@@ -66,7 +69,21 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=communications,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=communications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+  queue-priority:
+    <<: *app-base
+    restart: unless-stopped
+    stop_grace_period: 330s
+    command: ["php", "artisan", "queue:work", "--queue=security,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -94,7 +111,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=intelligence,integrations,default", "--tries=3", "--timeout=300", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"

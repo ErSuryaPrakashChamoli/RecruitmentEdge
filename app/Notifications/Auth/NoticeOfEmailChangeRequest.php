@@ -7,7 +7,7 @@ use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 
 /**
  * Phase 8.7 (D8.7-001/017, SEC-87-02): the email-change notice carries the new address and a
- * signed block URL — encrypted in the queue payload, on the `notifications` queue.
+ * signed block URL — encrypted in the queue payload, on the `security` queue (Phase 8.9, ED-05: its own worker).
  */
 class NoticeOfEmailChangeRequest extends FilamentNotice implements ShouldBeEncrypted
 {
@@ -21,6 +21,6 @@ class NoticeOfEmailChangeRequest extends FilamentNotice implements ShouldBeEncry
     public function __construct(string $newEmail, string $blockVerificationUrl)
     {
         parent::__construct($newEmail, $blockVerificationUrl);
-        $this->onQueue('notifications');
+        $this->onQueue('security');
     }
 }

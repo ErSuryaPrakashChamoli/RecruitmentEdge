@@ -49,13 +49,13 @@ function d88LastCode(): string
     return (string) Mail::queued(CandidateStepUpCode::class)->last()->code;
 }
 
-test('a code is emailed only, to the portal email, on the encrypted notifications queue', function (): void {
+test('a code is emailed only, to the portal email, on the encrypted security queue', function (): void {
     $this->stepUp->issue($this->account, 'sensitive_action');
 
     $code = d88IssuedCode($this->account);
 
     expect($code)->toMatch('/^\d{6}$/')
-        ->and(Mail::queued(CandidateStepUpCode::class)->sole()->queue)->toBe('notifications')
+        ->and(Mail::queued(CandidateStepUpCode::class)->sole()->queue)->toBe('security')
         ->and(new CandidateStepUpCode('x', '000000', 10))->toBeInstanceOf(ShouldBeEncrypted::class);
     Http::assertNothingSent();
 });
