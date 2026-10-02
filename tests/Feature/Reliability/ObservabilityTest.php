@@ -4,6 +4,7 @@ use App\Jobs\SummarizeHiringMemoryJob;
 use App\Services\QueueHealthService;
 use App\Services\SchedulerHeartbeat;
 use App\Services\WorkerHeartbeat;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
@@ -62,6 +63,7 @@ test('a processed job logs its class, queue, attempt and duration', function ():
 
     event(new JobProcessing('sync', $job = new SyncJob(app(), json_encode(['uuid' => 'p89-job', 'displayName' => SummarizeHiringMemoryJob::class, 'job' => 'x', 'data' => []]), 'sync', 'intelligence')));
     event(new JobProcessed('sync', $job));
+    event(new JobAttempted('sync', $job));
 
     Log::shouldHaveReceived('info')->withArgs(fn (string $message, array $context): bool => $message === 'queue.job_processed'
         && $context['job'] === SummarizeHiringMemoryJob::class
