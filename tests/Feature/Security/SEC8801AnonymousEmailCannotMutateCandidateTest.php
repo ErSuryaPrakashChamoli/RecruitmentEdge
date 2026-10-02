@@ -3,7 +3,10 @@
 use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
+use App\Services\CandidateIdentityNormalizer;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 
 require_once __DIR__.'/Sec88ContainmentHelpers.php';
 
@@ -61,4 +64,20 @@ test('a weak name-only resemblance still creates a new candidate for HR duplicat
 
     expect(Candidate::query()->count())->toBe(2)
         ->and(CandidateApplication::query()->sole()->candidate->email)->toBe('someone.else@example.net');
+});
+
+test('a second submission of the same details while the first is still being saved creates nothing and answers neutrally (Phase 8.9, P89-DQ-011)', function (): void {
+    Sleep::fake(syncWithCarbon: true);
+    $inFlight = Cache::lock('career-apply:'.sha1(CandidateIdentityNormalizer::email('someone.else@example.net').'|'.CandidateIdentityNormalizer::mobile('9900000001')), 60);
+    $inFlight->get();
+
+    sec88Apply($this->posting)->assertRedirect(route('careers.applied', $this->posting->public_slug));
+
+    expect(Candidate::query()->count())->toBe(1)
+        ->and(CandidateApplication::query()->count())->toBe(0);
+
+    $inFlight->release();
+    sec88Apply($this->posting)->assertRedirect(route('careers.applied', $this->posting->public_slug));
+
+    expect(Candidate::query()->where('email', 'someone.else@example.net')->count())->toBe(1);
 });

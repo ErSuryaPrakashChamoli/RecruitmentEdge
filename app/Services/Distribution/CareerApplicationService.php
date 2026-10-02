@@ -20,13 +20,17 @@ use App\Models\CandidateSource;
 use App\Models\Employee;
 use App\Models\JobPosting;
 use App\Services\CandidateDuplicateDetector;
+use App\Services\CandidateIdentityNormalizer;
 use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\NotificationDispatchService;
 use App\Services\SequenceCodeGenerator;
 use DomainException;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Turns a career-site application into the existing records (Phase 5): Candidate Master →
@@ -88,6 +92,28 @@ class CareerApplicationService
         if ($recruiterId === null) {
             throw new DomainException('This position is not accepting online applications yet.');
         }
+
+        // Phase 8.9 (P89-DQ-011): submissions with the same contact details are decided one at a time,
+        // so a double submit finds the candidate the first one created and is held like any match.
+        // One still waiting after the wait gets the same neutral response (SEC-88-09).
+        try {
+            return Cache::lock('career-apply:'.sha1(CandidateIdentityNormalizer::email($data['email'] ?? null).'|'.CandidateIdentityNormalizer::mobile($data['mobile'] ?? null)), 60)
+                ->block(10, fn (): array => $this->applyOnce($posting, $data, $resume, $attribution, $recruiterId));
+        } catch (LockTimeoutException) {
+            Log::info('careers.submission_in_flight', ['job_posting_id' => $posting->id]);
+
+            return ['outcome' => 'held', 'application' => null];
+        }
+    }
+
+    /**
+     * @param  array{full_name: string, email: string, mobile: string, current_city?: string|null, total_experience?: float|string|null, current_company?: string|null, consent_email?: bool, consent_whatsapp?: bool}  $data
+     * @param  array{channel?: string|null, source?: string|null, campaign_id?: int|null}  $attribution
+     * @return array{outcome: 'received'|'held', application: CandidateApplication|null}
+     */
+    private function applyOnce(JobPosting $posting, array $data, ?UploadedFile $resume, array $attribution, int $recruiterId): array
+    {
+        $requisition = $posting->requisition;
 
         // SEC-88-01: an anonymous submission never acts on an existing candidate it merely matches.
         if (($matched = $this->matchingCandidate($data)) !== null) {
