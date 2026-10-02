@@ -1,6 +1,6 @@
 # Phase 8.9 Security Review: Security at Scale (Discovery)
 
-**Status:** discovery only. Nothing was fixed and no security decision was made.
+**Status:** discovery (§1–§5), then **re-reviewed after the approved implementation (§6)**. The discovery text is kept unchanged as the record of what was found.
 
 **Baseline:** `dce11d9` (Phase 8.8 freeze; application `05a9fd3`).
 
@@ -77,3 +77,83 @@ These are races between near-simultaneous actions by authorised staff, not exter
 | Informational | **1** (P89-SEC-012) |
 
 Carried forward, **not counted as new**: the production delete-authorization gap (Phase 8.6 SEC-1, Critical; P86-BACKLOG-007; D8.9-027). Also the four High data-integrity races, catalogued as P89-DQ.
+
+## 6. Implementation re-review (Phase 8.9 implementation)
+
+**Scope.** The approved implementation on `feature/sep_25_hrm`, from `dce11d9` to the final application commit named in `phase-8-9-implementation.md`. Every finding was re-checked in the new code. Each disposition below names its evidence: the commit, the test, and the browser check where one exists.
+
+**Unchanged.** The Phase 8.8 dispositions stay as they were:
+- SEC-88-02 is deferred to the data-governance / retention phase;
+- SEC-88-05, 07 and 14 are accepted (B);
+- SEC-88-10, 16, 18, 20–23 and 25–28 are deferred (C).
+
+No audit row is deleted and no retention behaviour changed.
+
+### 6.1 Dispositions
+
+| ID | Sev | Disposition | What changed | Evidence | Residual |
+|---|---|---|---|---|---|
+| **P89-SEC-001** | **High** | **FIXED** | Targets are scoped to the viewer's hierarchy (`RecruitmentDailyTarget::visibleTo` / `isVisibleTo`, used by the resource query and the policy). Every write goes through `RecruitmentTargetService` (Gate plus scope check per record). The bulk delete authorises each record (`authorizeIndividualRecords('delete')`) and deletes through the service. The form offers only visible employees; department / designation-level targets need `hierarchy.view-all`. | `d939533`; `tests/Feature/Security/SEC8901TargetScopeTest.php`; browser `p89` checks 15–16 | none |
+| P89-SEC-002 | Medium | **FIXED** | `App\Notifications\Auth\VerifyEmailChange` is bound in place of Filament's. It is encrypted and runs on the `security` queue. | `4607de3`; `CredentialLifecycleTest`, `QueuePayloadPrivacyTest` | none |
+| P89-SEC-003 | Medium | **FIXED** | `Queue::before` clears Spatie's permission collection before every job, so a worker decides on the current role permissions. | `4607de3`; `tests/Feature/Reliability/WorkerPermissionFreshnessTest.php` | none |
+| P89-SEC-004 | Medium | **FIXED** | `AuthorityGuard::protecting()` opens the transaction and locks the CHRO role row first. The remaining effective CHROs are then counted with a locking read. Two concurrent removals are serialised, and the second sees the first. | `3797c71`; MySQL race test in `tests/Concurrency/IntegrityRaceTest.php` (fails on the baseline) | none |
+| P89-SEC-005 | Medium | **FIXED** | `.dockerignore` excludes `storage/app/private/*` and `storage/app/public/*`. Feature tests now run on faked disks and no longer write into `storage/app` (P89-DQ-016). | `88c10b8`, `95b2f58`, `d8f9e3e`; a full suite run leaves no new file under `storage/app` | Files written by earlier test runs are still on this development host (offer-letter PDFs). They are excluded from builds and were left for the developer: deleting files is not done without a request. At the last `storage:audit` there were 277; `storage:audit --list` lists them. |
+| P89-SEC-006 | Medium | **FIXED in the shipped compose file**; production unverified | `MYSQL_ALLOW_EMPTY_PASSWORD` removed; `MYSQL_RANDOM_ROOT_PASSWORD: "yes"`. | `88c10b8`; `DeploymentTopologyTest` | Whether production uses this compose file is unknown (D8.9-026); `production-environment.md` lists it. |
+| P89-SEC-007 | Low | **FIXED** | `StaffDatabaseSessionHandler` records `user_id` only for staff sessions. A candidate session stores none, so revoking a staff user's sessions can never end a candidate's. | `88c10b8`; `tests/Feature/Security/SEC8907SessionOwnershipTest.php` | Candidate rows written before deployment keep their old `user_id` until they expire (historical data is not repaired). |
+| P89-SEC-008 | Low | **FIXED** | Apache logs without the query string or Referer and adds `X-Request-Id` and the duration. Every file channel (`single`, `daily`, `monthly`, `slack`, `papertrail`, `stderr`) has the redaction tap. The default is `daily`, at level `info` in production. | `88c10b8`; `docker/apache/000-default.conf`; `config/logging.php` | The framework `emergency` channel (used only when logging itself fails) accepts no tap; **accepted**. |
+| P89-SEC-009 | Low | **FIXED** | The Zoom server-to-server token is cached encrypted, under a new key (`zoom:s2s-token:v2`). The old plaintext entry expires within 50 minutes. | `88c10b8` | none |
+| P89-SEC-010 | Low | **FIXED (application part)** | Per-user throttles: `files/private` 300/min; calendar OAuth routes 20/min. | `88c10b8`; route list | The careers index and feed remain **SEC-88-21 / PF-88-10, deferred (C)**. The collapse of IP limits behind a proxy remains **SEC-88-10, deferred** on the stated topology. |
+| P89-SEC-011 | Low | **FIXED** | `SendTimeGuard::senderReason`: the sending staff member must still hold `communications.send` and still see the candidate when the message is sent. Otherwise the message is Blocked with the reason and audited (never Failed, never sent). | `094bd04`; `CommunicationDeliveryIntegrityTest` | none |
+| P89-SEC-012 | Info | **FIXED (queue)**; payload **accepted** | Filament exports run on the named `exports` queue (`RunsOnExportQueue`). | `4607de3`; `QueueTopologyTest` | The export jobs are Filament's own classes and carry a serialized query and column map (no row contents) unencrypted. **Accepted:** metadata only, as found in discovery. |
+
+**Carried forward, not new:**
+- The production delete-authorization gap (Phase 8.6 SEC-1, Critical) remains open **in production**. See §6.3.
+- The four High data-integrity races P89-DQ-001…004 are **fixed** (`b55683e`), proven on MySQL by `tests/Concurrency/IntegrityRaceTest.php`. Each race test fails on the baseline code and passes now. DQ-005, DQ-006, DQ-009, DQ-010, DQ-011 and DQ-012 are also fixed. See `phase-8-9-implementation.md`.
+
+### 6.2 New code reviewed
+
+| Change | Security review |
+|---|---|
+| Queued interviewer import (`ImportInterviewersJob`) | The payload is the stored path and the user id only. When the job runs it re-checks the requester's access (`StaffAccessService::permits`) and `create` on `Interviewer`; without them it imports nothing. The uploaded file is deleted in every outcome. The result arrives as an encrypted staff alert. |
+| Queued Word→PDF conversion (`ConvertOfferLetterJob`) | The payload is the conversion id only. The filled `.docx` stays on the private disk. `failed()` stores a redacted error (`SensitiveDataRedactor::text`) and alerts the releaser. The issued letter keeps its SHA-256, and `issued_at` is the release time. Downloads still need `view` plus `compensation.view`. |
+| Lazy, bundled dashboard widgets | The visible widgets are still filtered by `canView()` (`AuthorizesWidget`). A lazy load can only mount a component from a server-signed snapshot that was issued to the same user. The position-health memo is keyed per viewer and lives for one request or job (scoped binding). It is never shared across requests or users. |
+| Candidate scope semi-join / covering index / exact search | The same visibility as before (applications of visible recruiters, plus candidates the user created). On the benchmark, the old and new scope return identical candidate counts for a manager and a recruiter at every tier (`phase-8-9-performance.md` §9). The visibility tests pass unchanged. Exact search adds no new field; email search stays off where it was off (Command Palette, Candidate Picker). |
+| `storage:audit` | Console only; read-only. Paths are printed only with `--list`; no file contents. |
+| `cache:prune-expired` and the housekeeping schedule | Deletes only expired cache rows, expired reset tokens and old finished batches. A live lockout, step-up code or heartbeat is never touched (tested). |
+| Career-site submission lock | The key is a SHA-1 of the normalized email and mobile (no plaintext in the cache key). A submission still waiting after the lock gets the same neutral response (SEC-88-09). The log line carries the posting id only. |
+| Conditional automation cancel / finish, performance snapshot freeze, assignment locks | Integrity only. No authorization path changed. |
+| Observability (`queue.job_processed`, heartbeats, `/up`) | Logs job class, queue, attempt and duration; never payloads. Heartbeats are timestamps. `/up` returns no detail. |
+
+### 6.3 Hotfix `2fab3fd` — re-checked, not merged
+
+- `2fab3fd` ("Security hotfix: close Filament's missing-policy-method delete bypass") exists only on `hotfix/filament-delete-authorization`.
+  - It is **not** an ancestor of this branch.
+  - It is **not** in `main` or `production`, which are both still at `9cba8e3`.
+  - It was **not merged** in this phase: merging it is outside the approved scope and needs its own release decision (D8.9-027).
+- This branch closes the same gap differently. Filament strict authorization (`AdminPanelProvider`; `tests/Feature/Security/StrictAuthorizationTest.php`) also carries SEC-86-I-01.
+- The hotfix branch still lacks SEC-86-I-01. It must not be deployed without it (Phase 8.8 freeze §11).
+- **The production exposure is unchanged.** It is an open production-release item (P89-OPS-012), not a defect of this branch.
+
+### 6.4 Security regression
+
+On the final application commit `1acd789`:
+
+| Check | Result |
+|---|---|
+| Full suite, parallel and serial, including the 27 files in `tests/Feature/Security` and the reliability, privacy and identity suites | **2,064 / 2,064** passed each way, 0 risky |
+| MySQL concurrency suite (DQ-001…006, lock order, SEC-004) | **8 / 8** in seven consecutive runs. Two earlier runs stopped during the harness's database setup; see `phase-8-9-implementation.md` §12. Against the baseline code: **8 / 8 fail**. |
+| Browser matrix, Phases 6 – 8.9 | **202 / 202**, including the 8.8 containment (7 / 7) and authentication (19 / 19) smokes, and the SEC-001 checks in the 8.9 smoke |
+| Checked against pre-fix code | **Fail before the fix, pass after:**<br>• the eight MySQL races (DQ-001…006, lock order, SEC-004), run against the baseline worktree;<br>• DQ-009, DQ-010, DQ-011, DQ-012;<br>• the reliability-sweep bound, the queued portal alert and the talent-pool cap;<br>• the Word-download fix, the dashboard on-load trigger and the audit actor-kind restore (each with its fix reverted). |
+
+Full verification: `phase-8-9-implementation.md` §12.
+
+### 6.5 Summary after implementation
+
+| | Fixed | Fixed with accepted residual | Deferred (existing ID) | Open |
+|---|---|---|---|---|
+| High (1) | SEC-001 | — | — | 0 |
+| Medium (5) | SEC-002, 003, 004, 005 | SEC-006 (production unverified) | — | 0 |
+| Low (5) | SEC-007, 009, 011 | SEC-008 (`emergency` channel), SEC-010 (careers: SEC-88-21; proxy: SEC-88-10) | — | 0 |
+| Info (1) | — | SEC-012 (payload metadata accepted) | — | 0 |
+
+**No unresolved High or Critical security finding remains in this branch.** The carried-forward production gap (§6.3) stays open until the release decision D8.9-027.

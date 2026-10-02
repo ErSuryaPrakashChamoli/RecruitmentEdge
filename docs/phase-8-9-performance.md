@@ -1,7 +1,7 @@
-# Phase 8.9 Performance (Discovery)
+# Phase 8.9 Performance
 
-**Status:** discovery only.
-- No index, query, cache, queue, worker or scheduler change was made.
+**Status:** discovery (§1–§8), then the **implementation re-validation and per-finding acceptance table (§9)**. The discovery figures are kept unchanged as the "before".
+- Discovery changed no index, query, cache, queue, worker or scheduler.
 - Every measurement ran against throwaway databases (`hrms_p87_perf` → `hrms_p89_bench`), which were dropped afterwards.
 
 **Labels:** ACTUAL / BENCHMARK / PROJECTED, as defined in `phase-8-9-discovery.md`.
@@ -175,7 +175,7 @@ None of these was added; each is tied to a path above. ED-03 proposes adding the
 - **Lock-order inversion** (P89-PERF-021):
   - offer / interview transitions lock offer (or interview) → application;
   - the closure cascade locks application → interviews → offers.
-  
+
   A concurrent reject and accept-offer on the same application can deadlock. The outcome is an error, not corruption.
 - **I/O inside transactions:** an offer-letter PDF is rendered and stored while offer and application rows are locked.
 - **Long transactions:**
@@ -302,3 +302,122 @@ Severity reflects impact at the tier where it appears.
 | **P89-PERF-028** | **High** (≥ ≈ 600k) | Metric memory: `hiring.time_to_hire`, `sla.leg_compliance` | **BENCHMARK, 365-day organisation-wide peak PHP memory:** `time_to_hire` **39.6 MB at 100k → 394.8 MB at 1M**; `sla.leg_compliance` **37.4 MB → 445.9 MB** (and 11.8 s → 880 s, 1,372 queries). `TimeToHire.php:66-68` hydrates every hire with three eager-loaded relations. `SlaLegCompliance` collects every leg end and start into PHP arrays. | above the 256 MB `memory_limit` the web request dies with a fatal error, so the CHRO dashboard tile or report fails. Linear projection crosses 256 MB at about 600–650k candidates. | none | stream with `lazyById` / plain rows and aggregate incrementally (same arithmetic, same result) | small–medium | — (ED-13) |
 | **P89-PERF-029** | **High** (≥ ≈ 250k) | Metric algorithm: `pipeline.time_in_stage` | `TimeInStage.php:71-75` calls `->chunk(2000)` on `whereIn('id', <stage-history subquery>)`. `chunk` paginates with **OFFSET**, so every chunk re-runs the subquery and skips past all earlier rows. The cost is quadratic in the number of applications that moved in the period. **BENCHMARK:** 31.9 s at 100k; at 1M **stopped after 22.4 min** at offset 150,000, with each 2,000-row chunk taking ≈ 12 s and growing. | never completes at 1M organisation-wide; exceeds the 120 s `max_execution_time` long before that (PROJECTED ≈ 250k) | 600 s cache only after a success | `chunkById` / `lazyById` on a materialized or joined set (same rows, same result) | small | — (ED-13) |
 | P89-PERF-026 | Medium | Intelligence time series | new Hiring Health snapshot (≈ 3.6 KB) + ≈ 21 evidence rows per open requisition every 6 h; nothing pruned | ≈ 24 GB / year per 1,000 open requisitions (PROJECTED), more than all core data at 1M candidates; larger backups | none | write only on change, or compact superseded snapshots (behaviour / retention decision) | small | D8.9-024 |
+
+## 9. Implementation re-validation and acceptance (final code)
+
+### 9.1 Method
+
+**Data and probe**
+- The same throwaway benchmark (`hrms_p89_bench`), built the same way: the 100k base, plus 4 and then 9 id-offset copies for 500k and 1M.
+- The same probe (`p89_probe`), plus operations for the new paths, with each tier measured after `ANALYZE TABLE`.
+- MySQL 8.4 with default settings (128 MB buffer pool), on the development workstation. Another project's test runs shared the host for part of the time.
+
+**Reading the numbers**
+- **Times are BENCHMARK, and the tier-to-tier growth is the signal.**
+- Most rows come from a re-validation run at commit `74b7295`, which already had every query and memory change except those named in §9.3. Rows marked † were re-measured on the final code.
+- "Before" is the discovery run on `dce11d9` (§2).
+
+**Parity: the results did not change**
+- Candidate scope: the pre-8.9 OR / EXISTS SQL and the 8.9 semi-join returned identical counts and maximum ids, for a manager and a recruiter, at 100k, 500k and 1M (manager 964 / 4,820 / 9,640; recruiter 61 / 305 / 610).
+- Four governed metrics (`joining.offer_to_join`, `hiring.time_to_hire`, `sla.leg_compliance`, `pipeline.time_in_stage`) and the distribution analytics: CHRO and manager × this month / 90 days / 365 days, old code against new. **Byte-identical**, twice: for the query changes, and again for the in-place medians.
+- `source.source_to_join`: every figure is identical. The only difference is that sources tied on sample size may appear in another order. The old order was MySQL's unordered row order; the new one is first seen by joining id.
+
+**Not claimed:** no supported scale (D8.9-001) and no SLO (D8.9-004). This is not production hardware.
+
+### 9.2 Before and after (BENCHMARK, median)
+
+| Operation | 100k before → after | 500k before → after | 1M before → after |
+|---|---|---|---|
+| Candidate list + count, manager (30 employees) | 467 ms → 24 ms | 3.1 s → 1.0 s | 7.1 s → **1.57 s †** |
+| Candidate list + count, recruiter | 722 ms → 4.6 ms | 3.5 s → 7.0 ms | 6.9 s → 9.2 ms † |
+| Candidate list + count, CHRO (whole table) | 36 → 53 ms | 434 → 350 ms | 778 → 676 ms |
+| Name search `LIKE`, manager | 596 ms → 9 ms | 4.0 s → 457 ms | 8.0 s → 628 ms † |
+| Name search `LIKE`, CHRO | 149 → 172 ms | 1.16 → 1.0 s | 2.2 → 2.1 s |
+| Exact search — email / mobile, manager (new path) | — → 3.5 / 4.4 ms | — → 16 / 15 ms | — → 8.3 / 6.6 ms † |
+| Exact search — candidate code, CHRO (new path) | — → 1.2 ms | — → 1.1 ms | — → 0.9 ms † |
+| Export scope count, manager | 498 ms → 6 ms | 2.8 s → 500 ms | 6.2 s → 648 ms † |
+| Audit list, filter by action | 22 → 0.6 ms | 98 → 0.7 ms | 273 → 1.0 ms |
+| Action Center, manager | 56 → 62 ms | 1.1 → 1.0 s | 4.0 → 3.8 s |
+| All metrics, CHRO, this month | 3.4 → 2.4 s | 26.0 → 22.6 s | 83.3 → 66.7 s |
+| All metrics, CHRO, **365 days** | 53.6 → 26.0 s | **FAILED** (MySQL 1390) → 163 s | not run (would fail) → **514 s †** |
+| All metrics, manager, 365 days | 0.59 → 0.58 s | 23.6 → 5.5 s | 27.3 → 19.5 s |
+| `joining.offer_to_join`, 365 d | ok → 205 ms | **FAILED** → 1.1 s | **FAILED** → 3.0 s |
+| `hiring.time_to_hire`, 365 d | 1.0 s / 40 MB → 0.8 s / 10 MB | 6.8 s / 197 MB → 4.8 s / 11 MB | 13.1 s / **395 MB** → 10.7 s / 13 MB † |
+| `sla.leg_compliance`, 365 d | 11.8 s / 37 MB → 12.4 s / 13 MB | 181 s / 223 MB → 96 s / 66 MB | **880 s / 446 MB** → 240 s / 56 MB † |
+| `pipeline.time_in_stage`, 365 d | 31.9 s → 3.0 s | not run (quadratic) → 17.2 s | **stopped after 22 min** → 103 s / 102 MB † |
+| `source.source_to_join`, 365 d, CHRO | — | — | 10.5 s / **314 MB** → 5.3 s / 7.4 MB † |
+| `pipeline.funnel`, 365 d | 2.1 → 2.0 s | 19.7 → 15.7 s | 35.7 → 33.4 s |
+| Alert sweep, SLA breaches (hourly) | 17 s → 28 s † | 434 s → 121 s † | not measurable (quadratic) → **139 s / 48 MB †** (491,130 breaches) |
+| Pipeline board, one requisition | 38 → 33 ms | 64 → 38 ms | 38 → 35 ms |
+| Indexed paths (duplicate check, timeline, audit newest, notifications, portal, outcome due) | flat, unchanged | flat | flat |
+
+**Memory check without the probe's query log (1M, 365 days, CHRO, final code):**
+- `pipeline.time_in_stage`: +102 MB (process peak 182 MB);
+- `sla.leg_compliance`: +56 MB (139 MB);
+- all governed metrics in one run: **+102.5 MB, process peak 182 MB, 491 s**. Before the §9.3 fixes the same run peaked at 398 MB.
+
+Before this phase, `source.source_to_join` alone needed +314 MB, which is over the 256 MB `memory_limit`.
+
+### 9.3 Found and fixed during re-validation
+
+The benchmark of the first implementation exposed four problems. They were fixed and re-measured (†):
+1. **Alert sweep quadratic** (`74b7295`, `d6eee3c`).
+   - Cause: paging a derived table made MySQL rebuild it for every page (434 s at 500k).
+   - Fix: applications are now paged by id on the `current_stage` index; entry times are computed per page.
+   - Result: linear (121 s at 500k, 139 s at 1M), memory bounded by a page.
+2. **`pipeline.time_in_stage` memory** (`05f6863`).
+   - Cause: Collection copies of every duration, 426 MB at 1M.
+   - Fix: in-place medians.
+   - Result: +102 MB at 1M.
+3. **`source.source_to_join` memory** (`1acd789`).
+   - Cause: every joining hydrated with three relations, 314 MB at 1M. Not seen in discovery: it is part of the "all metrics" run and was never measured on its own.
+   - Fix: counted while paging.
+   - Result: 7.4 MB.
+4. **Candidate-scope lookups** (`06b105a`).
+   - Cause: the visible set read every application row (1.26 s per query at 1M).
+   - Fix: a covering index `(recruiter_id, deleted_at, candidate_id)`.
+   - Result: manager list 2.66 → 1.57 s; exact searches 363 → 8 ms.
+
+### 9.4 Regressions and costs (not hidden)
+
+| Where | Change | Why it is accepted |
+|---|---|---|
+| Alert sweep at 100k | 17 s → 28 s | It pages every application at the leg's stage, not only the breaching ones, so that it stays linear. Old: 434 s at 500k and quadratic. Hourly, background, `withoutOverlapping(55)`. |
+| Query counts of `sla.leg_compliance` and `hiring.time_to_hire` | for example 160 → 362 queries (100k), 1,372 → 3,397 (1M) | Pages of 2,000 / 1,000 rows instead of one materialized set: memory bounded, time down at scale. |
+| CHRO candidate list at 100k | 36 → 53 ms (p95 90 ms) | Whole-table count for a view-all user; the path is unchanged (full scan in both). Within run-to-run noise on a shared host; at 500k and 1M it is lower than before. |
+| `recruiter.outcomes` at 1M | 99 → 148 ms | Unchanged code path; noise on a shared host. |
+| Writes to `candidate_applications` | one more secondary index (the covering index) | Small write cost; it serves the most-used page for every non-admin user. |
+
+### 9.5 Acceptance per finding
+
+| ID | Before | After | Change | Evidence | Remaining risk |
+|---|---|---|---|---|---|
+| **PERF-001** governed metrics (High) | 365-day organisation-wide run failed at 500k; manager 15–27 s at 500k–1M | completes at every tier (514 s at 1M); manager 5.5 s (500k), 19.5 s (1M) | **partly addressed**: the P0 failures are fixed; live computation remains | §9.2; `5c39c0d`, `05f6863`, `1acd789` | Organisation-wide multi-month views still take minutes cold at 1M. Materialization / longer caching is decision D8.9-016 (P89-BACKLOG-005). |
+| **PERF-002** candidate scope (High) | 7.1 s (manager, 1M) | 1.57 s (1M); 24 ms (100k) | **fixed** (ED-02 + covering index) | §9.2; scope parity identical; `217b116`, `06b105a` | Grows with the viewer's own visible set (about 10k candidates here), not with the whole table. |
+| **PERF-003** search (High) | name 8.0 s (manager, 1M) | exact identifiers 1–8 ms at 1M; manager name 628 ms; CHRO name 2.1 s | **partly addressed** | §9.2; `217b116` | Substring search of the whole table for view-all users (D8.9-015, P89-BACKLOG-006). |
+| **PERF-004** alert sweep (High) | 585 MB at 100k (8.5); a fatal skips the other checks | 48 MB at 1M; linear (139 s at 1M) | **fixed** | §9.2–9.3; `AlertSweepStreamingTest` | It runs minutes when hundreds of thousands of applications are breaching (benchmark data are old). |
+| **PERF-005** intelligence refresh (High) | exceeds the hour at about 4,500 open requisitions | stalest first within a 2,700 s budget; the rest are deferred and logged | **fixed (cadence)** | `8705b86`; `IntelligenceRefreshTest` | The cost of one Risk Radar scan is unchanged (1.9 s first scan); coverage per hour is bounded by the budget (P87-BACKLOG-004). |
+| **PERF-006** notification starvation (High) | OTP / reset / alerts behind candidate messages | own `queue-priority` worker | **fixed** | `4607de3`; browser 8.8 / 8.9 | Throughput per worker unchanged (D8.9-018). |
+| PERF-007 reliability sweep | O(backlog) re-dispatch every 5 min | ≤ 1,000 per run, oldest first | **fixed** | `cbc5475` | none |
+| PERF-008 automation storm | executions created, then skipped at run time | the limit is decided when due; no job queued | **fixed** | `a5984ab` | — |
+| PERF-009 automation sweep | 163 ms daily-limit count (60k history) | 1.7 ms (index) | **partly** | `a5984ab` | The dispatch `max(id)` ordering is unchanged, bounded by 500 per run (P89-BACKLOG-011). |
+| PERF-010 pipeline page | 113 ms column page (100k) | 20.5 ms | **fixed** | `217b116` | — |
+| PERF-011 indexes | 31 gaps | 6 indexes added (5 + covering), each EXPLAIN-justified | **partly** | migrations | The other proposals wait for a measured need (P89-BACKLOG-007). |
+| PERF-012 hierarchy memo | no memo | per request / job | **fixed** | `ad2a428` | — |
+| PERF-013 audit and notification growth | audit filter 273 ms (1M) | 1.0 ms; simple paging | **partly** | §9.2 | Notification JSON dedupe (P89-BACKLOG-009); growth itself is retention (deferred). |
+| PERF-014 outcomes nightly | full history in memory | streamed counters | **fixed** | `8705b86` | Offer scan ≈ 139 ms per 20,800 offers (P89-BACKLOG-011). |
+| PERF-015 dashboard | 16+ eager widgets; `positionHealth` 3–5× | 2 eager; 15 in one bundled on-load request; `positionHealth` once (3.9 s at 500k / 8.5 s at 1M, 5,200 open requisitions) | **fixed** | browser 8.9 (`[15,1]`); `DashboardDeferredWidgetsTest` | The deferred request still computes every widget. |
+| PERF-016 MySQL as cache | expired rows never pruned | pruned daily | **partly** | `9ef9c1b` | Redis is decision D8.9-014. |
+| PERF-017 exports on `default` | default queue | `exports` queue | **fixed** | `4607de3` | — |
+| PERF-018 RAG vector search | — | unchanged | **deferred** | — | P89-BACKLOG-011 |
+| PERF-019 talent rediscovery | — | unchanged | **deferred** | — | P89-BACKLOG-011 |
+| PERF-020 `code_sequences` | — | unchanged | **deferred** | — | P89-BACKLOG-011 |
+| PERF-021 deadlocks | lock-order inversion; PDF in transaction; unbounded DELETE | application-first order (MySQL-proven); Word PDF out of the transaction; batched deletes; outcome record retries on deadlock | **fixed** | `b55683e`, `50f434f`, `a5984ab`, `cc6da61`; concurrency suite | The DomPDF letter is still rendered in the release transaction (fast; not LibreOffice). |
+| PERF-022 incentive N+1 | 1 query per row | 1 query per page | **fixed** | `69b96ca` | — |
+| PERF-023 talent signals | 6 queries per application; first 200 only | one query per page; stale ones only; all covered | **fixed** | `8705b86` | — |
+| PERF-024 heavy work in requests | LibreOffice ≤ 120 s; interviewer import; portal alert; uncapped pool add | queued / capped | **fixed** | `50f434f`, `a0e58ec`, `447ee7c`, `487f30b`; browser 8.9 | Word conversions share `queue-background` with integrations (see PERF-025). |
+| PERF-025 `queue-background` single process | — | `documents` added ahead of `intelligence` / `integrations` | **open** | — | Long conversions or embeddings can delay calendar and job-board jobs (D8.9-018). |
+| PERF-026 Hiring Health growth | — | unchanged | **deferred** (decision) | — | D8.9-024 |
+| **PERF-027** placeholder failure (High) | FAILED (MySQL 1390) | completes | **fixed** | §9.2; `MetricScaleShapeTest` | — |
+| **PERF-028** metric memory (High) | 395 MB / 446 MB (1M) | 13 MB / 56 MB; same family: `source_to_join` 314 → 7.4 MB | **fixed** | §9.2–9.3 | — |
+| **PERF-029** quadratic time in stage (High) | stopped after 22 min (1M) | 103 s, +102 MB | **fixed** | §9.2 | Memory is linear in the period's stage visits: an exact median needs every value. |

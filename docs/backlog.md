@@ -1,7 +1,7 @@
 # Backlog
 
 Known limitations and non-blocking improvements recorded at the Phase 7 freeze (2026-09-26),
-updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop), Phase 8.3 (Lifecycle Integrity), Phase 8.4 (Access & Identity), Phase 8.5 (Metric Governance) and Phase 8.6 (Data Governance). None of these block production. Items are not scheduled
+updated at Phase 8.1 (AI data boundary), Phase 8.2 (Outcome Loop), Phase 8.3 (Lifecycle Integrity), Phase 8.4 (Access & Identity), Phase 8.5 (Metric Governance), Phase 8.6 (Data Governance), Phase 8.7 (Platform Reliability) and Phase 8.8 (Authentication Foundation), and reconciled in Phase 8.9 (P89-DQ-018: stale items closed with evidence, P88 and P89 sections added; nothing removed). Unless marked **production action** or **production-blocking**, none of these block production. Items are not scheduled
 into a phase yet unless stated.
 
 Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expected behavior**
@@ -29,7 +29,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 
 ### P7-BACKLOG-003 — SLA health beyond 200 active candidates
 
-- **Status:** Open
+- **Status:** Closed (Phase 8.5, MG85 DF-12: no `take(200)` in the SLA health path, `RecruitmentAnalyticsService`). Reconciled in Phase 8.9 (P89-DQ-018).
 - **Today:** `RecruitmentAnalyticsService::requisitionMetrics` loads up to 500 active applications and evaluates stage SLA for the first 200 (`take(200)`), so Hiring Health's "Candidates beyond stage SLA" metric is a lower bound on very large requisitions.
 - **Improvement:** Compute SLA breaches in SQL (or from the Phase 6 SLA facts) so the full population is counted without loading every application, keeping the Hiring Health refresh bounded.
 
@@ -43,7 +43,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 
 ### P7-BACKLOG-005 — Hiring Memory AI summary: retry and failure audit
 
-- **Status:** Open (low)
+- **Status:** Closed (Phase 8.7: `SummarizeHiringMemoryJob` retries and audits failures). Reconciled in Phase 8.9 (P89-DQ-018).
 - **Today:** `IntelligenceAiService::summarizeMemory` catches every provider failure and marks the record `failed` straight away, so the queued job never uses its retry. Failures are not written to the audit log (requests and successes are). Role DNA suggestions already retry once and audit failures.
 - **Improvement:** Mirror the Role DNA path — rethrow `AiProviderUnavailableException` while a retry remains, and record `hiring_memory_ai_failed`.
 
@@ -58,7 +58,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 
 ### P7-BACKLOG-007 — Queued AI work records the actor in the payload only
 
-- **Status:** Open (low)
+- **Status:** Closed (Phase 8.7, D8.7-015: queued AI work records the `ai` actor on behalf of the requester, `AuditLog`). Reconciled in Phase 8.9 (P89-DQ-018).
 - **Today:** Audit rows written inside queued jobs (`role_dna_ai_suggestions_received`, `hiring_memory_ai_summarised`) have `user_id = null` because there is no authenticated user in the worker. The requesting user is recorded on the preceding `*_ai_requested` row (`by_user_id`).
 - **Improvement:** Pass the actor through to `AuditLog::record` so every row carries `user_id`.
 
@@ -73,7 +73,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 
 ### TD-002 — Development seeder default password
 
-- **Status:** Open (deployment hygiene, pre-existing)
+- **Status:** Open (deployment hygiene, pre-existing). Phase 8.9: on the production checklist (`docs/runbooks/production-environment.md`, P89-OPS-011).
 - `AdminUserSeeder` (called by `DatabaseSeeder`) creates an admin with the password `password`. Never run `db:seed` against production; seed production with `RolePermissionSeeder` and `RecruitmentReferenceDataSeeder` only, then create real users. See `docs/phase-7-production-readiness.md`.
 
 ### TD-003 — Provider error bodies are logged
@@ -106,7 +106,7 @@ Status values: **Open** (not started), **Closed** (fixed, with evidence), **Expe
 
 ### P81-BACKLOG-005 — `find_inactive_recruiters` lists non-recruiters
 
-- **Status:** Open (correctness, found in the Phase 8.1 audit)
+- **Status:** Closed (Phase 8.5, MG85 DF-2: `FindInactiveRecruitersTool` lists recruiters only). Reconciled in Phase 8.9 (P89-DQ-018).
 - It returns every active employee in the hierarchy without logged activity, including managers. Restrict it to real recruiters (e.g. `PerformanceEngine::activeRecruitersQuery`).
 
 ### P81-BACKLOG-006 — Recruiter performance through the Copilot
@@ -145,13 +145,13 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 
 ### P82-BACKLOG-006 — First evaluation after a large backfill
 
-- **Status:** Open (low)
+- **Status:** Open (low). Phase 8.9: learning refresh now streams (P87-BACKLOG-010 closed); the evaluator was already windowed by `outcomes.catch_up_days` — a large backfill still produces one long first run.
 - The first `outcomes:evaluate` after backfilling thousands of hires records every passed checkpoint once (measured: 6,571 observations in 31 s, ~3 queries each). Daily passes are small. If needed, batch inserts for "not observed" checkpoints.
 - **Phase 8.3:** batch transactions (savepoint per record), eager-loaded employee/separation and per-record failure isolation — measured with employees on MySQL: first pass 72.9 s / 50,854 queries → 49.7 s / 35,178; repeat 1.7 s → 1.4 s. Remaining cost is the per-record lock-and-insert that keeps recording idempotent (acceptable; revisit only with a much larger backfill).
 
 ### P82-BACKLOG-007 — Insight AI explanation: no retry
 
-- **Status:** Open (low)
+- **Status:** Closed (Phase 8.7: `SummarizeOutcomeInsightJob` retries). Reconciled in Phase 8.9 (P89-DQ-018).
 - Like P7-BACKLOG-005: a provider failure marks the explanation failed at once instead of using the job's retry. The deterministic insight is never affected.
 
 ### P82-BACKLOG-008 — Talent Signal does not go stale when an insight is accepted
@@ -173,7 +173,7 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 
 ### P83-BACKLOG-001 — Separation does not revoke system access
 
-- **Status:** Open (next phase — access and identity lifecycle)
+- **Status:** Closed (Phase 8.4: separation revokes access, `StaffAccessService`). Reconciled in Phase 8.9 (P89-DQ-018).
 - Recording a separation (Phase 8.2) leaves the employee's user and roles untouched, and `User::canAccessPanel` admits any user with a role. No new privilege path was added in 8.3. Needs a product decision on deactivation, role removal and timing.
 
 ### P83-BACKLOG-002 — Pre-8.3 lifecycle data reported by `lifecycle:audit`
@@ -188,7 +188,7 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 
 ### P83-BACKLOG-004 — `hiring_outcomes.observed_at` is not indexed
 
-- **Status:** Open (low)
+- **Status:** Open (low). Not added in Phase 8.9: the measured outcome due query is 0.7–0.8 ms at 100k–1M (`phase-8-9-performance.md`), so no path needed it.
 - `EXPLAIN` of the Outcome dashboard range filter scans the whole `(outcome_type, is_current, observation_end)` index (≈13k rows on 3,000 hires — milliseconds). Add `(outcome_type, is_current, observed_at)` when analytics volume makes it matter.
 
 ### P83-BACKLOG-005 — Accepted offers cannot be revised
@@ -218,7 +218,7 @@ Unavailable post-hire data is a **product limitation, not a defect**: the applic
 
 ### P83-BACKLOG-010 — Notification de-duplication while queued
 
-- **Status:** Open (low)
+- **Status:** Closed (Phase 8.7: alert de-duplication claims the key atomically, `NotificationDispatchService`). Reconciled in Phase 8.9 (P89-DQ-018).
 - `NotificationDispatchService` de-duplicates on the `notifications` table, which a queued Filament database notification writes only when the worker runs; with both workers deployed the lag is small, but concurrent dispatches can still race (no unique key).
 
 ## Access & Identity Lifecycle (Phase 8.4)
@@ -267,7 +267,7 @@ See `docs/phase-8-4-access-identity-lifecycle.md`.
 
 ### P84-BACKLOG-009 — Master data changes not audited
 
-- **Status:** Open (future)
+- **Status:** Closed (Phase 8.6: master data is Auditable, e.g. `Department`). Reconciled in Phase 8.9 (P89-DQ-018).
 - Departments, designations and locations (they drive targets and incentives) are still not audited — outside the 8.4 scope.
 
 ### P84-BACKLOG-010 — Metric catalogue
@@ -311,7 +311,7 @@ See `docs/phase-8-5-metric-governance.md`. None of these blocks release. Owner/w
 
 ### P85-BACKLOG-006 — SLA breach sweep returns every breaching application
 
-- **Status:** Open (medium) [8.9]
+- **Status:** Closed (Phase 8.9, P89-PERF-004: the alert sweep streams breaches a page at a time, `RecruitmentSlaService::eachOpenBreach`, `8705b86`; `AlertSweepStreamingTest`).
 - Set-based since 8.5 (24 queries instead of 78,100 at 100k), but it still loads every breaching application (≈ 10 s / 585 MB for a view-all sweep at 100k). Stream or chunk the alert dispatch.
 
 ### P85-BACKLOG-007 — Stage-entry fact table
@@ -397,7 +397,7 @@ Details and evidence: `docs/phase-8-7-implementation.md` §6 and §8, `docs/phas
 
 ### P87-BACKLOG-004 — Risk Radar and Hiring Health cost at scale
 
-- **Status:** Open (performance) — batch `last_seen_at` updates; per-requisition Hiring Health compute (with P85-BACKLOG-007). Cold hourly refresh ≈ 7 min at 520 open requisitions.
+- **Status:** Open (performance), partly addressed in Phase 8.9 (P89-PERF-005): `intelligence:refresh` takes the stalest requisitions first within a time budget (2,700 s) and defers the rest; deferred requisitions keep their open risks. The cost of one scan is unchanged — batch `last_seen_at` updates and Hiring Health compute (with P85-BACKLOG-007) remain.
 
 ### P87-BACKLOG-005 — Redis queue and horizontal workers (D8.7-027 c)
 
@@ -421,11 +421,144 @@ Details and evidence: `docs/phase-8-7-implementation.md` §6 and §8, `docs/phas
 
 ### P87-BACKLOG-010 — `OutcomeLearningService::refresh` loads full history (PF-87-08)
 
-- **Status:** Open (low).
+- **Status:** Closed (Phase 8.9, P89-PERF-014: learning refresh folds outcomes into counters while streaming — same figures and wording, `8705b86`).
 
 ### P87-BACKLOG-011 — Very large document embedding near the 300 s timeout (PF-87-09)
 
 - **Status:** Open (low).
+
+## Phase 8.8 (Authentication Foundation)
+
+Recorded at the Phase 8.8 freeze (`phase-8-8-freeze.md` §10). The section was missing here until Phase 8.9 (P89-DQ-018).
+
+### P88-BACKLOG-001 — Retention, erasure, anonymization, legal hold; export-file expiry (SEC-88-02)
+
+- **Status:** Deferred to the dedicated data-governance / retention phase (D8.8-RETENTION-001, R-1–R-13, Legal). Phase 8.9 changed no retention behaviour. Log, backup and export retention wait for it too.
+
+### P88-BACKLOG-002 — Export governance remainder
+
+- **Status:** Open: the role split, organisation-wide restriction, reason, approval and rate limits (D8.8-EXPORT-001 X-1, 2, 6, 7, 10). Phase 8.9 only moved exports to their own queue (P89-PERF-017).
+
+### P88-BACKLOG-003 — Deferred Medium security items
+
+- **Status:** Deferred, as classified in Phase 8.8: SEC-88-05, 07, 10 (re-open if a proxy is added), 14, 16; scanning (06); email-change notice (04).
+
+### P88-BACKLOG-004 — Deferred Low / Informational security items
+
+- **Status:** Deferred (C): SEC-88-18, 20–23, 25–28.
+
+### P88-BACKLOG-005 — Engineering defaults not delivered (E-*)
+
+- **Status:** Open (owner approval) for E-01, E-02, E-07 (request-id half), E-09, E-10, E-11, E-12 and E-13. **E-14 is closed in Phase 8.9**: the portal-upload recruiter listener is queued (P89-PERF-024).
+
+### P88-BACKLOG-006 — Performance PF-88-01 … 12
+
+- **Status:** Moved to Phase 8.9. What happened to each:
+  - **PF-88-01** — closed (P89-PERF-002: candidate scope semi-join).
+  - **PF-88-02** — partly: exact identifiers use the normalized indexes; substring search is still a scan (P89-BACKLOG-006).
+  - **PF-88-03** — queue closed (P89-PERF-017); file growth reported by `storage:audit`; expiry stays with SEC-88-02.
+  - **PF-88-04** — closed (interviewer import queued).
+  - **PF-88-05** — closed (talent-pool additions capped per request).
+  - **PF-88-06** — audit list indexed and paged; retention stays deferred.
+  - **PF-88-07** — growth and orphan report (`storage:audit`); cleanup waits for retention.
+  - **PF-88-08** — closed (P89-SEC-007).
+  - **PF-88-09** — closed (= E-14).
+  - **PF-88-10** — application part closed (P89-SEC-010); careers part stays SEC-88-21.
+  - **PF-88-11** — named queue; payload metadata accepted (P89-SEC-012).
+  - **PF-88-12** — design input only.
+
+### P88-BACKLOG-007 — Staff profile photos on the public disk are readable by URL
+
+- **Status:** Open (Security triage). Unchanged in Phase 8.9.
+
+## Phase 8.9 (Enterprise Scale, Performance, Observability & Operational Readiness)
+
+What Phase 8.9 did not resolve, with the reason. Fixed items are in `phase-8-9-implementation.md`. Accepted residuals are in the security review §6 and the performance doc §9.
+
+### P89-BACKLOG-001 — No backup system; no tested restore (P89-OPS-001)
+
+- **Status:** Open — **production-blocking** (Operations). The procedures are in `docs/runbooks/backup-restore.md`. Policy, RTO, RPO, DR and restore-test cadence: D8.9-007/008/009/010/028.
+
+### P89-BACKLOG-002 — Production release of the delete-authorization fix (P89-OPS-012)
+
+- **Status:** Open — **production-blocking** (release decision D8.9-027). Same item as P86-BACKLOG-007. Re-checked in Phase 8.9; not merged.
+
+### P89-BACKLOG-003 — External health monitor and alert channel (P89-OPS-002 residual)
+
+- **Status:** Open (Operations, D8.9-020); also P87-BACKLOG-006. `/up` and `/health/queue` are ready to be polled. Nothing restarts a hung (`unhealthy`) container on its own.
+
+### P89-BACKLOG-004 — Supported scale, capacity, concurrency, SLOs (P89-OPS-003)
+
+- **Status:** Open (Product / Operations; D8.9-001…006, 026). Benchmarks on the final code are in `phase-8-9-performance.md` §9. No supported-scale claim is made.
+
+### P89-BACKLOG-005 — Governed metrics computed live over full fact tables (P89-PERF-001)
+
+- **Status:** Open (D8.9-016). The P0 failures are fixed. Organisation-wide cold runs still scan; see §9 for the remaining timings. Materialization, a settings-aware cache key (P86-BACKLOG-010) and smarter invalidation (P85-BACKLOG-003) wait for the decision. Definitions must not change.
+
+### P89-BACKLOG-006 — Substring search scans (P89-PERF-003 residual)
+
+- **Status:** Open (D8.9-015). Exact identifiers use the indexes. Name substrings are still `LIKE '%x%'`.
+
+### P89-BACKLOG-007 — Remaining composite-index proposals (P89-PERF-011)
+
+- **Status:** Open. Six indexes were added where a measured path needed them (five of the 31 proposals, plus the candidate-scope covering index). Add the others with EXPLAIN evidence when a path needs them (ED-03).
+
+### P89-BACKLOG-008 — Worker scaling and Redis (P89-PERF-006 / 016 / 025, P89-OPS-007)
+
+- **Status:** Open (D8.9-014 / 018; also P87-BACKLOG-005 and 011).
+- **Before scaling `queue-automation` past one process:** add a locked per-record limit check (P89-DQ-010 residual).
+
+### P89-BACKLOG-009 — JSON dedupe lookup on `notifications` (P89-PERF-013 part)
+
+- **Status:** Open (same as P87-BACKLOG-009). The audit part of P89-PERF-013 is done.
+
+### P89-BACKLOG-010 — Hiring Health snapshot growth (P89-PERF-026)
+
+- **Status:** Open — needs a decision (D8.9-024): write snapshots only on change, or compact superseded ones. Retention stays deferred.
+
+### P89-BACKLOG-011 — Smaller performance items
+
+- **Status:** Open (Low or Medium; not in the approved brief):
+  - P89-PERF-009: automation dispatch sweep `max(id)` ordering, bounded by its 500-row limit;
+  - P89-PERF-018: RAG vector search loads every chunk;
+  - P89-PERF-019: talent rediscovery scope and index;
+  - P89-PERF-020: `code_sequences` contention at year start;
+  - P89-PERF-014 residual: the nightly evaluator's offer scan (≈ 139 ms per 20,800 offers, index-probed).
+
+### P89-BACKLOG-012 — Remaining data-integrity items
+
+- **Status:** Open:
+  - P89-DQ-007: slot bookings, with SEC-88-20 (deferred);
+  - P89-DQ-008: blind Filament edits (Product UX: optimistic check);
+  - the rest of P89-DQ-013: small races;
+  - P89-DQ-017: "Selected but no offer" alert status filter (Product confirms the intent).
+
+### P89-BACKLOG-013 — Load test (P89-OPS-013 residual)
+
+- **Status:** Open (D8.9-011). The MySQL two-process race suite exists; no multi-user load test has been run.
+
+### P89-BACKLOG-014 — Production configuration and secrets confirmation (P89-OPS-011, OPS-015)
+
+- **Status:** Open (Operations / Security). Work through `docs/runbooks/production-environment.md`, including the Gemini key rotation from Phase 7.
+
+### P89-BACKLOG-015 — Retention-dependent clean-ups
+
+- **Status:** Deferred to the retention phase (SEC-88-02, R-13):
+  - log deletion (`LOG_DAILY_DAYS`);
+  - export files and webhook events;
+  - orphaned files reported by `storage:audit`;
+  - audit archival and partitioning (D8.9-024).
+
+### P89-BACKLOG-016 — Tooling and topology decisions
+
+- **Status:** Open:
+  - APM / error tracking / structured logs (D8.9-019);
+  - zero downtime (D8.9-023);
+  - incident severity model and support boundary (D8.9-021 / 025).
+
+### P89-BACKLOG-017 — Development host test artefacts
+
+- **Status:** Open (developer). Earlier test runs left offer-letter PDFs in `storage/app/private/offer-letters` on this host (277 at the last `storage:audit`). They are excluded from builds, and tests no longer write there (P89-DQ-016). `php artisan storage:audit --list` lists them for removal.
 
 ## Recorded from the Phase 8 discovery (not addressed in 8.1)
 

@@ -16,7 +16,7 @@ Phase 8.9 (D8.9-022, P89-OPS-004/005): the compose stack starts itself in a safe
 6. **Verify:**
    - `docker compose ps`: every service `healthy` (`migrate` exited 0);
    - `GET /up` → 200; `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
-   - `php artisan schedule:list` lists 17 tasks; Administration → **Queue health**: nothing under "Needs attention", scheduler and worker heartbeats present.
+   - `php artisan schedule:list` lists 20 tasks; Administration → **Queue health**: nothing under "Needs attention", scheduler and worker heartbeats present.
 7. **Roll back:** `APP_IMAGE_TAG=<previous tag> docker compose up -d`. Migrations are never rolled back in production; Phase 8.9's migrations only add indexes, so the previous image runs against the new schema.
 
 **Environment** (see `.env.example` and `docs/runbooks/production-environment.md`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, `QUEUE_HEALTH_TOKEN`, `QUEUE_EXPECT_PROCESSES=true`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeats live there.
@@ -28,12 +28,12 @@ Phase 8.9 (D8.9-022, P89-OPS-004/005): the compose stack starts itself in a safe
 | `queue` | communications, default | 120 | candidate messages, `SendCandidateCommunications` |
 | `queue-priority` (Phase 8.9) | security, notifications, default | 120 | `security`: password reset, email-change verification and notice, candidate portal links, step-up OTP codes; `notifications`: in-app and platform alerts. Never behind a burst of candidate messages (ED-05). |
 | `queue-automation` | automation, default | 120 | automation runs, ownership handoffs |
-| `queue-background` | documents, intelligence, integrations, exports, default | 300 | `documents`: released Word offer letters converted to PDF (Phase 8.9 — the release request no longer waits for LibreOffice); AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
+| `queue-background` | documents, intelligence, integrations, exports, default | 300 | `documents`: released Word offer letters converted to PDF and interviewer spreadsheets imported (Phase 8.9 — neither request waits for the work); AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
 
 Rules:
 - **`retry_after` (330) must stay above the longest `--timeout` (300)**, or a job still running is handed to a second worker. `queue:health-check` alerts if it is not. `stop_grace_period` (330 s) must be at least `retry_after`.
 - `default` should stay empty; every class names its queue. A new queue name must be added to a worker; `tests/Feature/Lifecycle/QueueTopologyTest.php` fails otherwise.
-- **Scaling:** run more replicas of a worker service (`docker compose up -d --scale queue-background=2`). Every job is safe with several workers: messages are claimed under a row lock, automation runs and handoffs are unique, calendar and distribution jobs never overlap per record.
+- **Scaling:** run more replicas of a worker service (`docker compose up -d --scale queue-background=2`). Jobs are safe with several workers: messages are claimed under a row lock, automation runs and handoffs are unique, calendar and distribution jobs never overlap per record. **Exception — keep `queue-automation` at one process:** a rule's per-record limit and cooldown count only finished runs, so two automation processes could both run a rule for the same record at the same moment (P89-DQ-010 residual; a locked limit check is needed first, D8.9-018).
 - **Supported scale on the database queue** (measured, `phase-8-7-performance.md`): about 100k applications and 500 open requisitions. Beyond that, plan Redis and more workers (D8.7-027; needs approval).
 
 ## 3. Failed jobs
@@ -42,6 +42,22 @@ Rules:
 - **Retry:** the Retry button (asks for a reason, audited as `failed_job_retried`), or `php artisan queue:retry <uuid>`. Retrying is safe: a message job re-checks its row (a message already sent or failed is not sent again), automation runs re-check their status, handoffs are idempotent.
 - **Forget:** `php artisan queue:forget <uuid>` — only after the underlying work is confirmed done or no longer wanted.
 - **Pruning:** failed jobs older than `QUEUE_FAILED_RETENTION_HOURS` (30 days) are deleted daily at 02:30 (`queue:prune-failed`). Pruned rows cannot be recovered.
+
+## 3a. Housekeeping (technical data only)
+
+Phase 8.9 (P89-OPS-009, ED-08). Daily, removing only data the application can no longer use. Nothing with business, audit or legal meaning is pruned until the retention decision (SEC-88-02):
+
+| Time | Task | Removes |
+|---|---|---|
+| 02:00 | `recruitment:automation:cleanup` | automation runs skipped because their conditions failed or the daily limit was reached, after `automation.prune_skipped_after_days` (90); in batches |
+| 02:30 | `queue:prune-failed` | failed jobs older than `QUEUE_FAILED_RETENTION_HOURS` |
+| 02:40 | `cache:prune-expired` | `cache` rows that have already expired (invisible to the application) |
+| 02:45 | `auth:clear-resets` | expired password-reset tokens |
+| 02:50 | `queue:prune-batches` | finished job batches older than `QUEUE_FAILED_RETENTION_HOURS` |
+
+`--dry-run` on the first and third reports counts without deleting.
+
+**Storage audit** (read-only, run on demand): `php artisan storage:audit` prints the size of each storage area (for growth tracking), files no record references (orphans) and records whose file is missing; `--json` for monitoring, `--list` for the paths. It never deletes. Removing orphans waits for the retention decision. Run it after a restore (`docs/runbooks/backup-restore.md` §3) — missing files show a database and file backup taken at different times.
 
 ## 4. Stuck work
 
@@ -115,4 +131,4 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
 | Messages "Blocked" that used to send | send-time check: opt-out, closed application, moved interview, withdrawn offer, joined candidate or archived template | the reason is on the message and in the audit (`communication_suppressed`) |
 | A delayed automation run "Skipped" | record left the rule's scope, owner can no longer see it, or owner lost an action's permission | the reason is on the execution; `automation_skipped_authority` / `automation_action_skipped_authority` audit |
 | Risk register not refreshed | `intelligence:refresh` still running, its lock held, or requisitions deferred by its time budget (`intelligence.refresh_deferred` in the log; `INTELLIGENCE_REFRESH_TIME_BUDGET`, 2700 s) | wait; the next hourly run takes the deferred, stalest requisitions first; deferred requisitions keep their open risks |
-| A container keeps restarting / shows `unhealthy` | app: `/up` fails (database unreachable); worker or scheduler: no heartbeat (crashed or hung) | `docker compose logs <service>`; `docker compose exec app php artisan ops:heartbeat worker --queues=…` |
+| A container keeps restarting / shows `unhealthy` | app: `/up` fails (database unreachable); worker or scheduler: no heartbeat (crashed or hung) | `docker compose logs <service>`; `docker compose exec app php artisan ops:heartbeat worker --queues=…`. Compose restarts a container that exits, **not** one that is only `unhealthy` — restart it (`docker compose restart <service>`); see `incident-recovery.md` §4 |

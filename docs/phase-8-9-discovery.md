@@ -195,7 +195,7 @@ Each area lists what was found and the finding IDs. Evidence is in the reference
   - global search;
   - the command palette;
   - pickers.
-  
+
   It is a full scan in every case (P89-PERF-003).
 - The normalized identity columns are indexed but used only for duplicate detection.
 - No FULLTEXT index.
@@ -219,7 +219,7 @@ Each area lists what was found and the finding IDs. Evidence is in the reference
   - `offer_to_join`, too many placeholders (P89-PERF-027);
   - `time_to_hire` and `sla.leg_compliance`, memory above 256 MB (P89-PERF-028);
   - `time_in_stage`, quadratic (P89-PERF-029).
-  
+
   Each can be fixed without changing what the metric means (ED-13).
 - Manager scope: under 0.6 s at 100k but 15–27 s at 500k–1M. The scope narrows results, not scans.
 - The 600 s cache is per viewer fingerprint with no warm-up (P89-PERF-001; D8.9-016 for materialization).
