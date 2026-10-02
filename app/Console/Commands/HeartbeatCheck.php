@@ -13,8 +13,9 @@ use Illuminate\Support\Facades\Cache;
 
 /**
  * Phase 8.9 (P89-OPS-005/007): the container health check of a worker or the scheduler — exit 0 while
- * its heartbeat is fresh, 1 once it has gone quiet (crashed, hung or never started). Docker restarts
- * an unhealthy container and the deploy waits for healthy workers before starting the scheduler.
+ * its heartbeat is fresh, 1 once it has gone quiet (crashed, hung or never started). Compose starts
+ * the scheduler only once every worker is healthy, and reports an unhealthy container to whatever
+ * monitors it; Compose itself restarts a process that exits, not one that is merely unhealthy.
  * Reads the heartbeat only; never writes and never logs.
  */
 #[Signature('ops:heartbeat {component : worker or scheduler} {--queues= : The worker\'s --queue list} {--max-minutes= : How old the last beat may be}')]
