@@ -338,3 +338,35 @@ test('cleanup prunes old runs skipped by the daily limit in batches and keeps ru
         ->and(AutomationExecution::query()->whereKey($recentLimitSkip->id)->exists())->toBeTrue()
         ->and(AutomationExecution::query()->whereKey($oldCompleted->id)->exists())->toBeTrue();
 });
+
+test('a cancel that loses the race to a worker claim leaves the run to the worker (Phase 8.9, P89-DQ-010)', function (): void {
+    AutomationRule::factory()->active()->create(['timing' => ['mode' => 'delay', 'amount' => 1, 'unit' => 'hours', 'anchor' => 'event']]);
+    engineInterview(engineApplication($this->recruiter));
+    $seenAsPending = AutomationExecution::query()->sole();
+
+    AutomationExecution::query()->whereKey($seenAsPending->id)->update(['status' => AutomationExecutionStatus::Running, 'started_at' => now()]);
+
+    expect(fn () => app(AutomationEngine::class)->cancel($seenAsPending, reason: 'Stop it'))->toThrow(DomainException::class)
+        ->and($seenAsPending->fresh()->status)->toBe(AutomationExecutionStatus::Running)
+        ->and(AuditLog::query()->where('action', 'automation_cancelled')->exists())->toBeFalse();
+});
+
+test('a run the stuck-work sweep failed meanwhile is not overwritten when its worker finishes (Phase 8.9, P89-DQ-010)', function (): void {
+    AutomationRule::factory()->active()->create(['timing' => ['mode' => 'delay', 'amount' => 1, 'unit' => 'hours', 'anchor' => 'event']]);
+    engineInterview(engineApplication($this->recruiter));
+    $execution = AutomationExecution::query()->sole();
+    $this->travel(2)->hours();
+
+    $sweptOnce = true;
+    AutomationExecution::saved(function (AutomationExecution $saved) use (&$sweptOnce): void {
+        if ($sweptOnce && $saved->status === AutomationExecutionStatus::Running && $saved->conditions_passed !== null) {
+            $sweptOnce = false;
+            AutomationExecution::query()->whereKey($saved->id)->update(['status' => AutomationExecutionStatus::Failed, 'failure_reason' => 'The run was interrupted (worker stopped).']);
+        }
+    });
+
+    app(AutomationEngine::class)->run($execution->id);
+
+    expect($execution->fresh()->status)->toBe(AutomationExecutionStatus::Failed)
+        ->and($execution->fresh()->failure_reason)->toContain('interrupted');
+});

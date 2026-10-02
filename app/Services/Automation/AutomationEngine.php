@@ -220,12 +220,15 @@ class AutomationEngine
     {
         $pendingEscalations = $execution->escalations()->where('status', EscalationStatus::Pending)->exists();
 
-        if ($execution->status !== AutomationExecutionStatus::Pending && ! $pendingEscalations) {
-            throw new DomainException('Only a pending execution (or one with pending escalations) can be cancelled.');
-        }
+        // Phase 8.9 (P89-DQ-010): only a run still pending in the database is cancelled, in one
+        // conditional write — one a worker has already claimed is never marked cancelled under it.
+        $cancelled = AutomationExecution::query()
+            ->whereKey($execution->getKey())
+            ->where('status', AutomationExecutionStatus::Pending)
+            ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => $reason, 'completed_at' => now()]);
 
-        if ($execution->status === AutomationExecutionStatus::Pending) {
-            $execution->forceFill(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => $reason, 'completed_at' => now()])->save();
+        if ($cancelled === 0 && ! $pendingEscalations) {
+            throw new DomainException('Only a pending execution (or one with pending escalations) can be cancelled.');
         }
 
         $this->escalations->stopRemaining($execution, $reason.($actor !== null ? " by {$actor->name}" : ''));
@@ -709,6 +712,10 @@ class AutomationEngine
         return [];
     }
 
+    /**
+     * Phase 8.9 (P89-DQ-010): finishes only this worker's running claim — a run the stuck-work sweep
+     * has since failed or re-queued keeps that status rather than being overwritten.
+     */
     private function finish(AutomationExecution $execution, AutomationExecutionStatus $status, ?string $skip = null, ?string $failure = null): void
     {
         $execution->forceFill([
@@ -716,6 +723,13 @@ class AutomationEngine
             'skip_reason' => $skip,
             'failure_reason' => $failure,
             'completed_at' => now(),
-        ])->save();
+        ]);
+
+        $finished = AutomationExecution::query()
+            ->whereKey($execution->getKey())
+            ->where('status', AutomationExecutionStatus::Running)
+            ->update($execution->getDirty());
+
+        $finished > 0 ? $execution->syncOriginal() : $execution->refresh();
     }
 }
