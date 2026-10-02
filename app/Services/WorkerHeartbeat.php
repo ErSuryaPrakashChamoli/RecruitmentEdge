@@ -19,19 +19,19 @@ class WorkerHeartbeat
     public const int WRITE_EVERY_SECONDS = 60;
 
     /**
-     * @var array<string, int> queue list => last write (this process)
+     * @var array<string, int> queue list => last write by this worker process (a singleton)
      */
-    private static array $lastWrite = [];
+    private array $lastWrite = [];
 
     public function beat(string $queues): void
     {
         $now = now()->getTimestamp();
 
-        if (($now - (self::$lastWrite[$queues] ?? 0)) < self::WRITE_EVERY_SECONDS) {
+        if (($now - ($this->lastWrite[$queues] ?? 0)) < self::WRITE_EVERY_SECONDS) {
             return;
         }
 
-        self::$lastWrite[$queues] = $now;
+        $this->lastWrite[$queues] = $now;
         Cache::forever(self::KEY_PREFIX.$queues, now()->toIso8601String());
     }
 

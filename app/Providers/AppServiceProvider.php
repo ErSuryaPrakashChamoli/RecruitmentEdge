@@ -98,6 +98,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(StaffAccessService::class);
         // Phase 8.9 (P89-PERF-012): one subtree memo per request / queued job.
         $this->app->scoped(HierarchyMemo::class);
+        // Phase 8.9: one heartbeat writer per worker process (it throttles its own writes).
+        $this->app->singleton(WorkerHeartbeat::class);
 
         $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
             $registry = new IntegrationRegistry;
