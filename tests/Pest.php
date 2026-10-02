@@ -2,6 +2,7 @@
 
 use App\Services\Lifecycle\LifecycleGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /*
@@ -17,6 +18,12 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(function (): void {
+        // Phase 8.9 (P89-DQ-016): no test writes to the real storage tree (offer letters, the
+        // seeded standard template, uploads), which Docker builds and developers' disks would keep.
+        Storage::fake('local');
+        Storage::fake('public');
+    })
     ->in('Feature');
 
 // Phase 8.9 (ED-10): MySQL concurrency tests commit for real (no RefreshDatabase transaction) —
