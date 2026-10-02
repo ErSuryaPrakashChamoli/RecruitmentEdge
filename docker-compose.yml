@@ -128,7 +128,10 @@ services:
       MYSQL_DATABASE: ${DB_DATABASE:-recruitment_edge}
       MYSQL_USER: ${DB_USERNAME:-recruitment_edge}
       MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      # Phase 8.9 (P89-SEC-006): root never has an empty password; the image generates a random one
+      # (printed once in the container log) and the application uses its own non-root user. Set
+      # DB_PASSWORD from the secret store in production.
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
     volumes:
       - db-data:/var/lib/mysql
     healthcheck:

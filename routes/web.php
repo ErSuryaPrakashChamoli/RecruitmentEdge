@@ -22,7 +22,7 @@ Route::prefix('webhooks')->middleware('throttle:webhooks')->group(function (): v
 });
 
 // Phase 5 OAuth connect flow for an employee's own calendar (staff session).
-Route::middleware(['auth'])->prefix('integrations/calendar')->name('integrations.calendar.')->group(function (): void {
+Route::middleware(['auth', 'throttle:calendar-oauth'])->prefix('integrations/calendar')->name('integrations.calendar.')->group(function (): void {
     Route::get('{provider}/connect', [CalendarOAuthController::class, 'redirect'])->name('connect');
     Route::get('{provider}/callback', [CalendarOAuthController::class, 'callback'])->name('callback');
 });
@@ -30,7 +30,7 @@ Route::middleware(['auth'])->prefix('integrations/calendar')->name('integrations
 // Phase 8.8 (SEC-88-17): private files (resumes, documents) — only for the signed-in staff user the
 // short-lived signed link was issued to; replaces the open `storage/{path}` route.
 Route::get('files/private', PrivateFileController::class)
-    ->middleware(['signed:relative', EnforceStaffAccess::class, 'auth:web', EnsureStaffMfa::class])
+    ->middleware(['signed:relative', EnforceStaffAccess::class, 'auth:web', EnsureStaffMfa::class, 'throttle:private-files'])
     ->name('files.private');
 
 // Phase 5 public career site (applications flow into the existing candidate pipeline).

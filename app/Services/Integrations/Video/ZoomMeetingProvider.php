@@ -8,6 +8,7 @@ use App\Services\Integrations\Calendar\Data\CalendarEventResult;
 use DomainException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -83,19 +84,26 @@ class ZoomMeetingProvider implements VideoMeetingProvider
         }
     }
 
+    /**
+     * Phase 8.9 (P89-SEC-009): the access token is cached encrypted — the cache table is readable by
+     * anyone with database access, and the token is a bearer credential for the Zoom account.
+     */
     private function token(): string
     {
-        return Cache::remember('zoom:s2s-token', now()->addMinutes(50), function (): string {
-            $response = Http::asForm()
-                ->withBasicAuth((string) config('services.zoom.client_id'), (string) config('services.zoom.client_secret'))
-                ->timeout(15)
-                ->post('https://zoom.us/oauth/token', ['grant_type' => 'account_credentials', 'account_id' => config('services.zoom.account_id')]);
+        return Crypt::decryptString(Cache::remember('zoom:s2s-token:v2', now()->addMinutes(50), fn (): string => Crypt::encryptString($this->requestToken())));
+    }
 
-            if (! $response->successful()) {
-                throw new DomainException('Zoom token request failed ('.$response->status().').');
-            }
+    private function requestToken(): string
+    {
+        $response = Http::asForm()
+            ->withBasicAuth((string) config('services.zoom.client_id'), (string) config('services.zoom.client_secret'))
+            ->timeout(15)
+            ->post('https://zoom.us/oauth/token', ['grant_type' => 'account_credentials', 'account_id' => config('services.zoom.account_id')]);
 
-            return (string) $response->json('access_token');
-        });
+        if (! $response->successful()) {
+            throw new DomainException('Zoom token request failed ('.$response->status().').');
+        }
+
+        return (string) $response->json('access_token');
     }
 }

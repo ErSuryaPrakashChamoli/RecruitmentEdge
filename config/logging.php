@@ -55,7 +55,8 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            // Phase 8.9 (P89-OPS-006): daily files by default (one ever-growing file before).
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily')),
             'ignore_exceptions' => false,
         ],
 
@@ -63,7 +64,7 @@ return [
             'driver' => 'single',
             'tap' => [RedactSensitiveData::class],
             'path' => storage_path('logs/laravel.log'),
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'replace_placeholders' => true,
         ],
 
@@ -71,15 +72,19 @@ return [
             'driver' => 'daily',
             'tap' => [RedactSensitiveData::class],
             'path' => storage_path('logs/laravel.log'),
-            'level' => env('LOG_LEVEL', 'debug'),
-            'max_files' => env('LOG_DAILY_DAYS', 14),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
+            // Phase 8.9: rotation splits the log by day but deletes nothing by default — how long logs
+            // are kept is the deferred retention decision (R-13); set LOG_DAILY_DAYS once decided.
+            'max_files' => (int) env('LOG_DAILY_DAYS', 0),
             'replace_placeholders' => true,
         ],
 
         'monthly' => [
             'driver' => 'monthly',
+            // Phase 8.9 (P89-SEC-008): every file channel redacts.
+            'tap' => [RedactSensitiveData::class],
             'path' => storage_path('logs/laravel.log'),
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'max_files' => 3,
             'replace_placeholders' => true,
         ],
@@ -97,7 +102,7 @@ return [
         'papertrail' => [
             'driver' => 'monolog',
             'tap' => [RedactSensitiveData::class],
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'handler' => env('LOG_PAPERTRAIL_HANDLER', SyslogUdpHandler::class),
             'handler_with' => [
                 'host' => env('PAPERTRAIL_URL'),
@@ -110,7 +115,7 @@ return [
         'stderr' => [
             'driver' => 'monolog',
             'tap' => [RedactSensitiveData::class],
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'handler' => StreamHandler::class,
             'handler_with' => [
                 'stream' => 'php://stderr',
@@ -122,7 +127,7 @@ return [
         'syslog' => [
             'driver' => 'syslog',
             'tap' => [RedactSensitiveData::class],
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'facility' => env('LOG_SYSLOG_FACILITY', LOG_USER),
             'replace_placeholders' => true,
         ],
@@ -130,7 +135,7 @@ return [
         'errorlog' => [
             'driver' => 'errorlog',
             'tap' => [RedactSensitiveData::class],
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_LEVEL', env('APP_ENV') === 'production' ? 'info' : 'debug'),
             'replace_placeholders' => true,
         ],
 

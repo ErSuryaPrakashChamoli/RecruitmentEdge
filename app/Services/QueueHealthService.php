@@ -9,6 +9,7 @@ use App\Models\AiToolCall;
 use App\Models\AutomationExecution;
 use App\Models\CandidateCommunication;
 use App\Services\Communication\ProviderCircuitBreaker;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -24,7 +25,7 @@ class QueueHealthService
      *
      * @var array<int, string>
      */
-    public const array QUEUES = ['communications', 'notifications', 'automation', 'intelligence', 'integrations', 'default'];
+    public const array QUEUES = ['communications', 'security', 'notifications', 'automation', 'intelligence', 'integrations', 'exports', 'default'];
 
     public const int OLDEST_JOB_ALERT_MINUTES = 15;
 
@@ -32,9 +33,12 @@ class QueueHealthService
 
     public const int HEARTBEAT_ALERT_MINUTES = 15;
 
+    public const int WORKER_SILENT_MINUTES = 5;
+
     public function __construct(
         private readonly SchedulerHeartbeat $heartbeat,
         private readonly ProviderCircuitBreaker $circuit,
+        private readonly WorkerHeartbeat $workers,
     ) {}
 
     /**
@@ -134,9 +138,21 @@ class QueueHealthService
         }
 
         $lastTick = $this->heartbeat->lastTick();
+        $expectProcesses = (bool) config('queue.expect_processes');
 
         if ($lastTick !== null && $lastTick->lt(now()->subMinutes(self::HEARTBEAT_ALERT_MINUTES))) {
             $problems['scheduler-silent'] = "The scheduler has not run a task since {$lastTick->toDateTimeString()} UTC — is the scheduler container running?";
+        } elseif ($lastTick === null && $expectProcesses) {
+            // Phase 8.9 (P89-OPS-002): a scheduler that never reported is a problem too, where one runs.
+            $problems['scheduler-silent'] = 'The scheduler has never reported a task — is the scheduler container running?';
+        }
+
+        if ($expectProcesses) {
+            foreach ($this->workers->lastBeats() as $queues => $at) {
+                if ($at === null || $at->lt(now()->subMinutes(self::WORKER_SILENT_MINUTES))) {
+                    $problems["worker-silent:{$queues}"] = "The worker for [{$queues}] has not reported ".($at === null ? 'since it was deployed' : 'since '.$at->toDateTimeString().' UTC').' — is it running?';
+                }
+            }
         }
 
         foreach ($this->pausedProviders() as $provider) {
@@ -168,6 +184,7 @@ class QueueHealthService
             'stuck' => $this->stuck(),
             'paused_providers' => $this->pausedProviders(),
             'scheduler' => ['last_tick' => $this->heartbeat->lastTick()?->toIso8601String(), 'tasks' => $this->heartbeat->tasks()],
+            'workers' => collect($this->workers->lastBeats())->map(fn (?Carbon $at, string $queues): array => ['queues' => $queues, 'last_beat' => $at?->toIso8601String()])->values()->all(),
         ];
     }
 }

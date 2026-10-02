@@ -9,6 +9,7 @@ use App\Notifications\Auth\NoticeOfEmailChangeRequest;
 use App\Notifications\Auth\ResetPassword;
 use App\Notifications\Auth\VerifyEmailChange;
 use App\Notifications\StaffDatabaseNotification;
+use App\Services\QueueHealthService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
@@ -162,4 +163,11 @@ test('automation has its own worker, so candidate messages never starve it', fun
     expect(explode(',', $automation[1] ?? ''))->toContain('automation')
         ->and(explode(',', $messages[1] ?? ''))->not->toContain('automation')
         ->and(explode(',', $messages[1] ?? ''))->toContain('communications');
+});
+
+test('queue health watches exactly the shipped workers (Phase 8.9)', function (): void {
+    preg_match_all('/"--queue=([^"]+)"/', queueTopologyCompose(), $matches);
+
+    expect(collect(config('queue.workers'))->sort()->values()->all())->toBe(collect($matches[1])->sort()->values()->all())
+        ->and(QueueHealthService::QUEUES)->toEqualCanonicalizing(queueTopologyConsumed());
 });

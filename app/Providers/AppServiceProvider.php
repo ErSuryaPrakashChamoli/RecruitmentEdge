@@ -8,6 +8,7 @@ use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
 use App\Http\Middleware\EnsureStaffMfa;
 use App\Http\Middleware\UseCandidateSessionContext;
+use App\Http\Session\StaffDatabaseSessionHandler;
 use App\Logging\RedactingFailedJobProvider;
 use App\Models\AuditLog;
 use App\Models\CandidatePortalAccount;
@@ -30,6 +31,7 @@ use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
 use App\Services\SchedulerHeartbeat;
+use App\Services\WorkerHeartbeat;
 use Filament\Actions\ExportAction;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Models\Export;
@@ -49,13 +51,20 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Events\DiagnosingHealth;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Session;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -127,6 +136,7 @@ class AppServiceProvider extends ServiceProvider
 
         $this->configureAsyncContext();
         $this->configureSchedulerHeartbeat();
+        $this->configureHealthCheck();
         $this->configureCandidateSessions();
 
         $this->configureTables();
@@ -209,6 +219,10 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('career-apply', fn (Request $request) => Limit::perMinute(5)->by($request->ip()));
         RateLimiter::for('webhooks', fn (Request $request) => Limit::perMinute(600)->by($request->ip()));
         RateLimiter::for('portal-actions', fn (Request $request) => Limit::perMinute(60)->by($request->user('candidate')?->getAuthIdentifier() ?? $request->ip()));
+        // Phase 8.9 (P89-SEC-010): per signed-in staff user — the private-file links and the calendar
+        // OAuth flow need a valid session and signature, so these bound load, not access.
+        RateLimiter::for('private-files', fn (Request $request) => Limit::perMinute(300)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
+        RateLimiter::for('calendar-oauth', fn (Request $request) => Limit::perMinute(20)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
     }
 
     /**
@@ -274,6 +288,11 @@ class AppServiceProvider extends ServiceProvider
      *   command name run without a terminal), otherwise `console` — unless the work runs inside
      *   AuditLog::asActor() (automation, AI).
      */
+    /**
+     * @var array<string, int> job uuid => hrtime when it started (this worker)
+     */
+    private static array $jobStartedAt = [];
+
     private function configureAsyncContext(): void
     {
         Event::listen(CommandStarting::class, function (CommandStarting $event): void {
@@ -299,10 +318,40 @@ class AppServiceProvider extends ServiceProvider
             // hour (--max-time). The cached map (flushed by Spatie on every role/permission change)
             // is read again on the job's first permission check.
             app(PermissionRegistrar::class)->clearPermissionsCollection();
+
+            // Phase 8.9 (P89-OPS-006): which job did this — on every log line of the job (Context is
+            // added to the log's extra), and in the processed line below.
+            Context::add('job', ['uuid' => $event->job->uuid(), 'name' => $event->job->resolveName(), 'queue' => $event->job->getQueue(), 'attempt' => $event->job->attempts()]);
+            self::$jobStartedAt[(string) $event->job->uuid()] = hrtime(true);
         });
 
-        Queue::after(fn () => AuditLog::setDefaultActorKind(null));
+        Queue::after(function (JobProcessed $event): void {
+            AuditLog::setDefaultActorKind(null);
+
+            // Phase 8.9 (P89-OPS-006): a successful job leaves a trace — class, queue, attempt and
+            // duration — correlated by request id with what it changed (audit rows carry the same id).
+            $started = self::$jobStartedAt[(string) $event->job->uuid()] ?? null;
+            unset(self::$jobStartedAt[(string) $event->job->uuid()]);
+            Log::info('queue.job_processed', [
+                'job' => $event->job->resolveName(),
+                'queue' => $event->job->getQueue(),
+                'attempt' => $event->job->attempts(),
+                'duration_ms' => $started !== null ? (int) round((hrtime(true) - $started) / 1e6) : null,
+            ]);
+        });
         Queue::failing(fn () => AuditLog::setDefaultActorKind(null));
+
+        // Phase 8.9 (P89-OPS-002/007): a looping worker records its heartbeat (at most once a minute).
+        Event::listen(Looping::class, fn (Looping $event) => app(WorkerHeartbeat::class)->beat($event->queue));
+    }
+
+    /**
+     * Phase 8.9 (P89-OPS-006): GET /up checks the database — sessions, cache and queues all live there,
+     * so a reachable web server with an unreachable database is not healthy.
+     */
+    private function configureHealthCheck(): void
+    {
+        Event::listen(DiagnosingHealth::class, fn () => DB::connection()->select('select 1'));
     }
 
     /**
@@ -322,6 +371,14 @@ class AppServiceProvider extends ServiceProvider
      */
     private function configureCandidateSessions(): void
     {
+        // Phase 8.9 (P89-SEC-007): candidate sessions never record a user id in the shared table.
+        Session::extend('database', fn (Application $app) => new StaffDatabaseSessionHandler(
+            $app['db']->connection(config('session.connection')),
+            (string) config('session.table'),
+            (int) config('session.lifetime'),
+            $app,
+        ));
+
         Event::listen(Login::class, function (Login $event): void {
             if ($event->guard === UseCandidateSessionContext::CANDIDATE_GUARD && $event->user instanceof CandidatePortalAccount && request()->hasSession()) {
                 request()->session()->put(EnsureCandidateSessionIsCurrent::SESSION_KEY, app(CandidatePortalService::class)->sessionFingerprint($event->user));
