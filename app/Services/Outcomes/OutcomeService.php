@@ -36,6 +36,10 @@ class OutcomeService
      */
     public function record(OutcomeType $type, string $dedupeKey, array $data, OutcomeCaptureMode $mode = OutcomeCaptureMode::ObservedGoingForward): HiringOutcome
     {
+        // Phase 8.9 (P89-PERF-021): the locking read of a key not recorded yet takes a gap lock, so two
+        // first-time outcomes recorded at once can deadlock on insert. As its own transaction it is
+        // simply run again (MySQL has rolled the loser back); inside a caller's transaction the
+        // deadlock propagates to that caller, as before.
         return DB::transaction(function () use ($type, $dedupeKey, $data, $mode): HiringOutcome {
             $current = HiringOutcome::query()->where('dedupe_key', $dedupeKey)->current()->lockForUpdate()->first();
             $attributes = $this->attributes($type, $dedupeKey, $data, $mode);
@@ -55,7 +59,7 @@ class OutcomeService
             AuditLog::record($next, $reobserving ? 'outcome_reobserved' : 'outcome_superseded', ['version' => $current->version, 'state' => $current->state->value, 'result' => $current->result->value], ['version' => $next->version, 'result' => $next->result->value, 'rule_version' => $next->rule_version]);
 
             return $next;
-        });
+        }, attempts: 3);
     }
 
     /**
