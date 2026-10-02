@@ -342,3 +342,22 @@ test('a staff member who keeps their authority still has their message delivered
     expect(deliverNow($manual)->status)->toBe(CommunicationStatus::Sent)
         ->and(deliverNow($automated)->status)->toBe(CommunicationStatus::Sent);
 });
+
+test('one sweep re-queues a bounded number of held messages, oldest first, and the next run continues (Phase 8.9, P89-PERF-007)', function (): void {
+    config(['communications.recovery.requeue_max_per_run' => 2]);
+    $held = CandidateCommunication::factory()->count(5)->create();
+    CandidateCommunication::query()->update(['status' => CommunicationStatus::Queued->value, 'queued_at' => now()->subMinutes(15)]);
+    Queue::fake();
+
+    $this->artisan('reliability:sweep')->assertSuccessful();
+
+    $requeued = Queue::pushed(SendCommunicationJob::class)->map(fn (SendCommunicationJob $job) => $job->communicationId)->all();
+    expect($requeued)->toBe($held->take(2)->pluck('id')->all());
+
+    // The workers send those two; the next run reaches the next oldest.
+    CandidateCommunication::query()->whereKey($requeued)->update(['status' => CommunicationStatus::Sent->value]);
+    $this->artisan('reliability:sweep')->assertSuccessful();
+
+    expect(Queue::pushed(SendCommunicationJob::class)->map(fn (SendCommunicationJob $job) => $job->communicationId)->slice(2)->values()->all())
+        ->toBe($held->slice(2, 2)->pluck('id')->values()->all());
+});

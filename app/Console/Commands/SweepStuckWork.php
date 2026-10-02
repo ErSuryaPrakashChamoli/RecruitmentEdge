@@ -46,23 +46,34 @@ class SweepStuckWork extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * Phase 8.9 (P89-PERF-007, ED-04): at most `requeue_max_per_run` messages per run, oldest first.
+     * A large backlog is drained by the workers; re-dispatching all of it every five minutes only
+     * repeated the unique-job checks. A lost message is reached on a later run.
+     */
     private function requeueHeldMessages(ProviderCircuitBreaker $circuit): int
     {
+        $limit = max(1, (int) config('communications.recovery.requeue_max_per_run', 1000));
         $count = 0;
 
         CandidateCommunication::query()
             ->where('status', CommunicationStatus::Queued)
             ->where('queued_at', '<', now()->subMinutes((int) config('communications.recovery.requeue_after_minutes', 10)))
             ->select(['id', 'provider'])
-            ->chunkById(self::CHUNK, function ($messages) use ($circuit, &$count): void {
+            ->chunkById(self::CHUNK, function ($messages) use ($circuit, $limit, &$count): bool {
                 foreach ($messages as $message) {
                     if ($message->provider !== null && $circuit->isOpen($message->provider)) {
                         continue;
                     }
 
                     SendCommunicationJob::dispatch($message->id);
-                    $count++;
+
+                    if (++$count >= $limit) {
+                        return false;
+                    }
                 }
+
+                return true;
             });
 
         return $count;

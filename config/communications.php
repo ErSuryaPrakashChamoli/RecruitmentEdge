@@ -35,6 +35,8 @@ return [
     // `requeue_after_minutes` and fails messages stuck Sending longer than `stuck_sending_minutes`.
     'recovery' => [
         'requeue_after_minutes' => 10,
+        // Phase 8.9 (P89-PERF-007): a bound on how many held messages one five-minute sweep re-queues.
+        'requeue_max_per_run' => (int) env('COMMUNICATIONS_REQUEUE_MAX_PER_RUN', 1000),
         'stuck_sending_minutes' => 30,
     ],
 
