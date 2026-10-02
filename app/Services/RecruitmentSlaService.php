@@ -138,14 +138,17 @@ class RecruitmentSlaService
             // in id order); each page's stage-entry times are computed for that page only. Paging a
             // derived table instead made MySQL rebuild it — every application's entry time — for
             // every page: quadratic (434 s at 500k).
+            // Status is checked per page, not in the paging query: on current_stage alone the index
+            // already returns ids in order, whereas (status, current_stage) made MySQL sort every
+            // matching application again for each page.
             CandidateApplication::query()
                 ->where('current_stage', $leg['from'])
-                ->where('status', ApplicationStatus::Active)
                 ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
                 ->select('id')
                 ->chunkById($chunk, function (Collection $page) use ($leg, $targetDays, $threshold, $callback, &$count): void {
                     $breaching = CandidateApplication::query()
                         ->whereKey($page->modelKeys())
+                        ->where('status', ApplicationStatus::Active)
                         ->select('id', 'last_activity_at', 'application_date')
                         ->selectSub($this->legEntrySubquery($leg['from']), 'stage_entered_at')
                         ->toBase()
