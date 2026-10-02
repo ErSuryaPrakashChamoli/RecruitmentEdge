@@ -9,10 +9,12 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\PaginationMode;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class AuditLogsTable
@@ -70,6 +72,9 @@ class AuditLogsTable
                     ->toggleable(),
             ])
             ->defaultSort('created_at', 'desc')
+            // Phase 8.9 (P89-PERF-013): the audit history only grows (retention stays deferred with
+            // SEC-88-02); pages without a total row count, so no count(*) over the whole table.
+            ->paginationMode(PaginationMode::Simple)
             ->filters([
                 SelectFilter::make('action')
                     ->options([
@@ -97,9 +102,11 @@ class AuditLogsTable
                         DatePicker::make('from')->label('From'),
                         DatePicker::make('until')->label('Until'),
                     ])
+                    // Phase 8.9 (P89-PERF-013): whole-day ranges on created_at (same days as before),
+                    // so the created_at index serves them instead of a DATE() over every row.
                     ->query(fn (Builder $query, array $data): Builder => $query
-                        ->when($data['from'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '>=', $date))
-                        ->when($data['until'] ?? null, fn (Builder $query, string $date) => $query->whereDate('created_at', '<=', $date)))
+                        ->when($data['from'] ?? null, fn (Builder $query, string $date) => $query->where('created_at', '>=', Carbon::parse($date)->startOfDay()))
+                        ->when($data['until'] ?? null, fn (Builder $query, string $date) => $query->where('created_at', '<', Carbon::parse($date)->addDay()->startOfDay())))
                     ->indicateUsing(fn (array $data): ?string => match (true) {
                         filled($data['from'] ?? null) && filled($data['until'] ?? null) => "{$data['from']} – {$data['until']}",
                         filled($data['from'] ?? null) => "From {$data['from']}",

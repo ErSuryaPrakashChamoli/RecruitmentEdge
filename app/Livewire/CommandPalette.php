@@ -14,6 +14,7 @@ use App\Filament\Resources\Offers\OfferResource;
 use App\Filament\Resources\RecruiterPerformanceSnapshots\RecruiterPerformanceSnapshotResource;
 use App\Filament\Resources\RecruitmentFollowups\RecruitmentFollowupResource;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
+use App\Services\CandidateSearchTerm;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Resources\Resource;
@@ -184,14 +185,19 @@ class CommandPalette extends Component
 
         $term = $this->search;
 
-        $records = $resourceClass::getGlobalSearchEloquentQuery()
-            ->where(function (Builder $query) use ($attributes, $term): void {
+        $query = $resourceClass::getGlobalSearchEloquentQuery();
+
+        // Phase 8.9 (P89-PERF-003): a complete email, mobile number or candidate code is an exact,
+        // indexed candidate lookup; any other term keeps the substring match.
+        if (! ($resourceClass === CandidateResource::class && CandidateSearchTerm::applyExact($query, $term))) {
+            $query->where(function (Builder $query) use ($attributes, $term): void {
                 foreach ($attributes as $attribute) {
                     $this->applySearchConstraint($query, $attribute, $term);
                 }
-            })
-            ->limit(self::RESULTS_PER_RESOURCE)
-            ->get();
+            });
+        }
+
+        $records = $query->limit(self::RESULTS_PER_RESOURCE)->get();
 
         return $records
             ->map(function (Model $record) use ($resourceClass, $group): ?array {

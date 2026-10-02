@@ -27,8 +27,9 @@ final class CandidateSearchTerm
      * false (and leaves the query untouched) for any other term.
      *
      * @param  Builder<*>  $query  a candidates query
+     * @param  bool  $email  false where the search never covered email (the candidate picker)
      */
-    public static function applyExact(Builder $query, string $term): bool
+    public static function applyExact(Builder $query, string $term, bool $email = true): bool
     {
         $term = trim($term);
 
@@ -38,7 +39,7 @@ final class CandidateSearchTerm
             return true;
         }
 
-        if (filter_var($term, FILTER_VALIDATE_EMAIL) !== false) {
+        if ($email && filter_var($term, FILTER_VALIDATE_EMAIL) !== false) {
             $query->where($query->qualifyColumn('email_normalized'), CandidateIdentityNormalizer::email($term));
 
             return true;

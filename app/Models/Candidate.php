@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'candidate_code',
@@ -107,13 +108,20 @@ class Candidate extends Model
             return;
         }
 
-        $query->where(function (Builder $q) use ($visibleIds, $user): void {
-            $q->whereHas('applications', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds));
+        // Phase 8.9 (P89-PERF-002): one IN over a derived table holding the union of both rules —
+        // MySQL materialises it once and semi-joins, where the previous OR + EXISTS scanned every
+        // candidate with a dependent subquery per row (7 s for a 30-person team at 1M candidates).
+        // Same candidates: an application (not deleted) owned in the hierarchy, or created by the user.
+        $visible = CandidateApplication::query()
+            ->whereIn('recruiter_id', $visibleIds)
+            ->select('candidate_id')
+            ->toBase();
 
-            if ($user->employee_id !== null) {
-                $q->orWhere('created_by', $user->employee_id);
-            }
-        });
+        if ($user->employee_id !== null) {
+            $visible->union(DB::table('candidates')->where('created_by', $user->employee_id)->select('id'));
+        }
+
+        $query->whereIn($query->qualifyColumn('id'), fn ($ids) => $ids->select('visible_candidates.candidate_id')->fromSub($visible, 'visible_candidates'));
     }
 
     /**

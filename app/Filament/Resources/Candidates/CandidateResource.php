@@ -15,6 +15,7 @@ use App\Filament\Resources\Candidates\Schemas\CandidateInfolist;
 use App\Filament\Resources\Candidates\Tables\CandidatesTable;
 use App\Models\Candidate;
 use App\Models\User;
+use App\Services\CandidateSearchTerm;
 use BackedEnum;
 use Filament\Facades\Filament;
 use Filament\Resources\Resource;
@@ -121,5 +122,18 @@ class CandidateResource extends Resource
     public static function getGlobalSearchEloquentQuery(): Builder
     {
         return parent::getGlobalSearchEloquentQuery()->with('source');
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-003): a complete email, mobile number or candidate code is an exact,
+     * indexed lookup (CandidateSearchTerm); any other term keeps Filament's substring search.
+     */
+    protected static function applyGlobalSearchAttributeConstraints(Builder $query, string $search): void
+    {
+        if (CandidateSearchTerm::applyExact($query, $search)) {
+            return;
+        }
+
+        parent::applyGlobalSearchAttributeConstraints($query, $search);
     }
 }

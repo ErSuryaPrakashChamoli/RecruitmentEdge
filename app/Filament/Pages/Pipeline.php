@@ -11,6 +11,7 @@ use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResourc
 use App\Models\CandidateApplication;
 use App\Models\CandidateStageHistory;
 use App\Models\Department;
+use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
@@ -83,6 +84,13 @@ class Pipeline extends Page
     public ?int $departmentId = null;
 
     public string $statusFilter = 'active';
+
+    /**
+     * Phase 8.9 (P89-PERF-010): the scoped application count every column's conversion divides by,
+     * computed once per request instead of once per column (not a Livewire property — never sent to
+     * the browser, recomputed on the next request).
+     */
+    protected ?int $sourcedCount = null;
 
     public static function canAccess(): bool
     {
@@ -188,8 +196,10 @@ class Pipeline extends Page
                 ->where('status', ApplicationStatus::Active)
                 ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
                 ->count(),
+            // Phase 8.9 (P89-PERF-010): today's range, so the scheduled_at index serves it.
             'interviews_today' => Interview::query()
-                ->whereDate('scheduled_at', today())
+                ->where('scheduled_at', '>=', today())
+                ->where('scheduled_at', '<', today()->addDay())
                 ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
                 ->count(),
             'offers_pending' => Offer::query()
@@ -275,14 +285,18 @@ class Pipeline extends Page
         $user = Filament::auth()->user();
         $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
 
-        return CandidateApplication::query()
-            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
-            ->with('recruiter')
+        // Phase 8.9 (P89-PERF-010): the recruiters owning at least one scoped application, from one
+        // DISTINCT subquery — never every scoped application loaded on each render. Deleted
+        // employees keep their attribution (as the recruiter relation does).
+        return Employee::withTrashed()
+            ->whereIn('id', CandidateApplication::query()
+                ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
+                ->select('recruiter_id')
+                ->distinct())
+            ->orderBy('first_name')
+            ->orderBy('last_name')
             ->get()
-            ->pluck('recruiter')
-            ->filter()
-            ->unique('id')
-            ->map(fn ($recruiter) => ['value' => $recruiter->id, 'label' => $recruiter->fullName()])
+            ->map(fn (Employee $recruiter) => ['value' => $recruiter->id, 'label' => $recruiter->fullName()])
             ->values()
             ->all();
     }
@@ -320,7 +334,7 @@ class Pipeline extends Page
 
         $this->attachStageAgeAndFollowup($applications);
 
-        $sourcedCount = CandidateApplication::query()
+        $sourcedCount = $this->sourcedCount ??= CandidateApplication::query()
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
             ->count();
 

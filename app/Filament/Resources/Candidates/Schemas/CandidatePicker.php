@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Candidates\Schemas;
 
 use App\Filament\Resources\Candidates\CandidateResource;
 use App\Models\Candidate;
+use App\Services\CandidateSearchTerm;
 use Filament\Forms\Components\Select;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -62,10 +63,17 @@ class CandidatePicker
      */
     private static function searchResults(string $search): array
     {
-        return self::selectableCandidates()
-            ->where(fn ($q) => $q->where('full_name', 'like', "%{$search}%")
+        $candidates = self::selectableCandidates();
+
+        // Phase 8.9 (P89-PERF-003): a complete mobile number or candidate code is an exact, indexed
+        // lookup; anything else keeps the substring match (email is not searched here, as before).
+        if (! CandidateSearchTerm::applyExact($candidates, $search, email: false)) {
+            $candidates->where(fn ($q) => $q->where('full_name', 'like', "%{$search}%")
                 ->orWhere('mobile', 'like', "%{$search}%")
-                ->orWhere('candidate_code', 'like', "%{$search}%"))
+                ->orWhere('candidate_code', 'like', "%{$search}%"));
+        }
+
+        return $candidates
             ->limit(50)
             ->get()
             ->mapWithKeys(fn (Candidate $candidate) => [$candidate->id => self::label($candidate)])
