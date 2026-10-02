@@ -38,7 +38,9 @@ test('the first paint shows the day\'s numbers and defers every other widget int
         ->not->toContain('Interview Line-up vs Turn-up Trend')
         ->and($widgets->only(['RecruitmentOverviewStats', 'TodaysRecruitmentPulse'])->all())->toBe(['RecruitmentOverviewStats' => 'eager', 'TodaysRecruitmentPulse' => 'eager'])
         ->and($widgets->except(['RecruitmentOverviewStats', 'TodaysRecruitmentPulse'])->unique()->values()->all())->toBe([false])
-        ->and($widgets)->toHaveCount(17);
+        ->and($widgets)->toHaveCount(17)
+        // Started on page load (x-init), not when scrolled into view (x-intersect): one bundled request.
+        ->and(substr_count($html, 'x-init="$wire.__lazyLoad('))->toBe(15);
 });
 
 test('position health is computed once per request and afresh in the next one', function (): void {
