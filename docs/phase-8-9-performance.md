@@ -326,7 +326,7 @@ Severity reflects impact at the tier where it appears.
 | One-off profiling run | 100k, 16:28 | the final sweep code (committed later as `d6eee3c`), with the query log on | The alert sweep's 28.3 s at 100k. **Its output was not saved.** |
 | R3: 1M with §9.3 fixes 1, 2 and 4 | 16:31–17:01 | every final change except `1acd789`: fixes 1, 2 and 4 were in the working tree and committed unchanged at 17:03 (`d6eee3c`, `05f6863`, `06b105a`); query log on | Figures marked **†**. `1acd789` changes only `source.source_to_join`, so a † figure is a final-code measurement. A figure marked **‡** includes `source.source_to_join` and is **not** a final-code measurement. |
 | R4: memory without the query log | 17:02–17:26 | as R3 (before `1acd789`) | The memory of `pipeline.time_in_stage` and `sla.leg_compliance`; the 398 MB all-metrics run; `source.source_to_join` before its fix |
-| R5: `source.source_to_join`, old and new back to back | 17:31 | the definition before `1acd789` (unchanged since `dce11d9`), then `1acd789`; query log off | The `source.source_to_join` row |
+| R5: `source.source_to_join`, old and new back to back | 17:31 | the definition before `1acd789` (unchanged since `dce11d9`), then `1acd789`; query log off | The `source.source_to_join` row. **One-off run:** its timings were printed to the console and not saved to a results file. Only its metric results, used for the parity check, were saved. |
 | R6: all metrics without the query log | 17:33–17:41 | final code (`1acd789` committed at 17:33) | 490.7 s, +102.5 MB, process peak 182 MB |
 
 The final code was not re-measured at 100k or 500k, except the alert sweep's one-off 28.3 s run at 100k.
@@ -421,7 +421,7 @@ The benchmark of the first implementation (R1) exposed four problems. They were 
 
 ### 9.5 Acceptance per finding
 
-**Provenance.** Figures repeated from §9.2–§9.3 carry the run labels of §9.1: unmarked "after" figures are R1, the first implementation, and † marks R3. The PERF-009, PERF-010 and PERF-014 figures come from single-query checks on the 100k benchmark during implementation (2 October, 10:56–12:19). Each times one query, without and then with the new index for PERF-009 and PERF-010, and once for PERF-014. They are not discovery figures.
+**Provenance.** Figures repeated from §9.2–§9.3 carry the run labels of §9.1: unmarked "after" figures are R1, the first implementation, and † marks R3. The PERF-009, PERF-010 and PERF-014 figures come from single-query checks on the 100k benchmark during implementation (2 October, 10:56–12:19). Each times one query, without and then with the new index for PERF-009 and PERF-010, and once for PERF-014. They are one-off runs whose output was printed to the console and not saved to a results file. They are not discovery figures.
 
 | ID | Before | After | Change | Evidence | Remaining risk |
 |---|---|---|---|---|---|
