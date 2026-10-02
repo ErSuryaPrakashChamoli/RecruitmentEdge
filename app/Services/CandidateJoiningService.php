@@ -7,11 +7,14 @@ use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Events\CandidateJoined;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
+use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
+use Closure;
 use DomainException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +22,11 @@ use Illuminate\Support\Facades\DB;
 /**
  * Keeps a CandidateJoining's status in sync with its application's pipeline stage — a joining
  * confirmation/actual join is also a pipeline event, not just a Joining Tracker field.
+ *
+ * Phase 8.9 (P89-DQ-003): every transition runs in one transaction that locks the application, then
+ * the joining (RowLock order), and checks the joining's latest committed status — so Joined racing
+ * Dropout/No-show, or a double Joined with two different dates, is refused instead of paying an
+ * incentive for a non-hire or pricing two incentive periods for one join.
  */
 class CandidateJoiningService
 {
@@ -61,9 +69,7 @@ class CandidateJoiningService
 
     public function confirm(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardActive($joining);
-
-        return DB::transaction(function () use ($joining, $actor): CandidateJoining {
+        return $this->lockedActive($joining, function () use ($joining, $actor): CandidateJoining {
             LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Confirmed, 'confirmed_at' => now()])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::JoiningConfirmed, $actor);
@@ -74,9 +80,7 @@ class CandidateJoiningService
 
     public function markJoined(CandidateJoining $joining, ?Carbon $actualDoj = null, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardActive($joining);
-
-        return DB::transaction(function () use ($joining, $actualDoj, $actor): CandidateJoining {
+        return $this->lockedActive($joining, function () use ($joining, $actualDoj, $actor): CandidateJoining {
             LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Joined, 'actual_doj' => $actualDoj ?? now()])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::Joined, $actor);
@@ -95,9 +99,7 @@ class CandidateJoiningService
 
     public function markNoShow(CandidateJoining $joining, RecruitmentRejectionReason $reason, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardActive($joining);
-
-        return DB::transaction(function () use ($joining, $reason, $actor): CandidateJoining {
+        return $this->lockedActive($joining, function () use ($joining, $reason, $actor): CandidateJoining {
             LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::NoShow, 'dropout_reason_id' => $reason->id])->save());
 
             $this->stageTransitions->dropout($joining->candidateApplication, $reason, $actor, 'Did not join (no-show)');
@@ -108,22 +110,20 @@ class CandidateJoiningService
 
     public function markDropout(CandidateJoining $joining, RecruitmentRejectionReason $reason, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardActive($joining);
-
-        return DB::transaction(function () use ($joining, $reason, $actor): CandidateJoining {
+        return $this->lockedActive($joining, function () use ($joining, $reason, $actor): CandidateJoining {
             LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save());
 
             $this->stageTransitions->dropout($joining->candidateApplication, $reason, $actor, 'Dropped out before joining');
 
             $application = $joining->candidateApplication;
-            $this->notifications->alert(
+            DB::afterCommit(fn () => $this->notifications->alert(
                 $application->recruiter?->user,
                 'Joining',
                 'Candidate dropout',
                 "{$application->candidate->full_name} dropped out before joining: {$reason->name}.",
                 'danger',
                 CandidateJoiningResource::getUrl('edit', ['record' => $joining]),
-            );
+            ));
 
             return $joining;
         });
@@ -135,9 +135,9 @@ class CandidateJoiningService
      */
     public function markDocumentsCompleted(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardPostJoinMilestone($joining, CandidateStage::DocumentsCompleted);
+        return $this->locked($joining, function () use ($joining, $actor): CandidateJoining {
+            $this->guardPostJoinMilestone($joining, CandidateStage::DocumentsCompleted);
 
-        return DB::transaction(function () use ($joining, $actor): CandidateJoining {
             LifecycleGuard::allow(fn () => $joining->forceFill(['documents_status' => DocumentStatus::Verified])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::DocumentsCompleted, $actor);
@@ -152,13 +152,13 @@ class CandidateJoiningService
      */
     public function markOnboardingCompleted(CandidateJoining $joining, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardPostJoinMilestone($joining, CandidateStage::OnboardingCompleted);
+        return $this->locked($joining, function () use ($joining, $actor): CandidateJoining {
+            $this->guardPostJoinMilestone($joining, CandidateStage::OnboardingCompleted);
 
-        if ($joining->candidateApplication->current_stage->order() < CandidateStage::DocumentsCompleted->order()) {
-            throw new DomainException('Documents must be completed before onboarding can be marked complete.');
-        }
+            if ($joining->candidateApplication->current_stage->order() < CandidateStage::DocumentsCompleted->order()) {
+                throw new DomainException('Documents must be completed before onboarding can be marked complete.');
+            }
 
-        return DB::transaction(function () use ($joining, $actor): CandidateJoining {
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::OnboardingCompleted, $actor);
 
             return $joining;
@@ -183,18 +183,18 @@ class CandidateJoiningService
      */
     public function cancel(CandidateJoining $joining, string $reason, ?Employee $actor = null): CandidateJoining
     {
-        $this->guardActive($joining);
-
         if (blank($reason)) {
             throw new DomainException('A reason is required to cancel a joining.');
         }
 
-        LifecycleGuard::allow(fn () => $joining->forceFill([
-            'status' => JoiningStatus::Cancelled,
-            'remarks' => trim(($joining->remarks ? $joining->remarks."\n" : '').'Cancelled: '.$reason.($actor !== null ? " ({$actor->fullName()})" : '')),
-        ])->save());
+        return $this->lockedActive($joining, function () use ($joining, $reason, $actor): CandidateJoining {
+            LifecycleGuard::allow(fn () => $joining->forceFill([
+                'status' => JoiningStatus::Cancelled,
+                'remarks' => trim(($joining->remarks ? $joining->remarks."\n" : '').'Cancelled: '.$reason.($actor !== null ? " ({$actor->fullName()})" : '')),
+            ])->save());
 
-        return $joining;
+            return $joining;
+        });
     }
 
     /**
@@ -204,11 +204,41 @@ class CandidateJoiningService
      */
     public function recordApplicationDropout(CandidateJoining $joining, RecruitmentRejectionReason $reason): CandidateJoining
     {
-        $this->guardActive($joining);
+        return $this->lockedActive($joining, function () use ($joining, $reason): CandidateJoining {
+            LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save());
 
-        LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Dropout, 'dropout_reason_id' => $reason->id])->save());
+            return $joining;
+        });
+    }
 
-        return $joining;
+    /**
+     * Runs $change in one transaction holding the application's and then the joining's row lock,
+     * with the joining refreshed from its locked row.
+     *
+     * @param  Closure(): CandidateJoining  $change
+     */
+    private function locked(CandidateJoining $joining, Closure $change): CandidateJoining
+    {
+        return DB::transaction(function () use ($joining, $change): CandidateJoining {
+            RowLock::key(CandidateApplication::class, $joining->candidate_application_id);
+            RowLock::fresh($joining);
+
+            return $change();
+        });
+    }
+
+    /**
+     * As locked(), refusing a joining that is no longer pending on its latest committed status.
+     *
+     * @param  Closure(): CandidateJoining  $change
+     */
+    private function lockedActive(CandidateJoining $joining, Closure $change): CandidateJoining
+    {
+        return $this->locked($joining, function () use ($joining, $change): CandidateJoining {
+            $this->guardActive($joining);
+
+            return $change();
+        });
     }
 
     private function guardActive(CandidateJoining $joining): void

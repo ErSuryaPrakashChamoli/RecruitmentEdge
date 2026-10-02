@@ -19,6 +19,7 @@ use App\Models\OfferRevision;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\User;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -118,7 +119,15 @@ class OfferService
             throw new DomainException($blocker);
         }
 
-        return DB::transaction(function () use ($attributes, $actor): Offer {
+        return DB::transaction(function () use ($application, $attributes, $actor): Offer {
+            // Phase 8.9 (P89-DQ-006): two offers raised at once wait on the application's lock; the
+            // second then sees the first and is refused by the same eligibility rule.
+            RowLock::fresh($application);
+
+            if (($blocker = $this->offerBlocker($application)) !== null) {
+                throw new DomainException($blocker);
+            }
+
             $offer = Offer::query()->create([
                 ...$attributes,
                 'status' => $attributes['status'] ?? OfferStatus::Draft,
@@ -154,9 +163,11 @@ class OfferService
         return DB::transaction(fn (): Offer => LifecycleGuard::allow(function () use ($offer, $to, $actor, $remarks, $rejectionReason): Offer {
             // Phase 8.7 (D8.7-005): decide on the offer's current status under its row lock, so two
             // concurrent moves (a double click, the candidate portal and a recruiter) cannot both
-            // pass the transition check.
-            Offer::query()->whereKey($offer->getKey())->lockForUpdate()->first();
-            $offer->refresh();
+            // pass the transition check. Phase 8.9: the application is locked first (one lock order
+            // with the closure cascade, P89-PERF-021) and the offer is read from its locking read,
+            // never a snapshot (RowLock).
+            RowLock::key(CandidateApplication::class, $offer->candidate_application_id);
+            RowLock::fresh($offer);
             $from = $offer->status;
 
             if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
@@ -200,6 +211,32 @@ class OfferService
     }
 
     /**
+     * Phase 8.9 (P89-DQ-004): the only direct edit of an offer's own fields — the edit page and the
+     * letter wording actions. Decided on the offer's latest committed status under its row lock, so an
+     * edit loaded while the offer was a Draft can never land after it was released (its letter and
+     * hash already issued); released terms change only through requestRevision()/releaseRevision().
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function updateTerms(Offer $offer, array $attributes): Offer
+    {
+        return DB::transaction(function () use ($offer, $attributes): Offer {
+            RowLock::key(CandidateApplication::class, $offer->candidate_application_id);
+            RowLock::fresh($offer);
+
+            $changesTerms = array_intersect(array_keys($attributes), Offer::TERMS) !== [];
+
+            if ($changesTerms && ! $offer->termsAreEditable()) {
+                throw new DomainException("This offer is {$offer->status->label()}; its terms can only change through a revision.");
+            }
+
+            $offer->update($attributes);
+
+            return $offer;
+        });
+    }
+
+    /**
      * Phase 8.3: withdraws every open offer of an application (the application closed — rejection
      * or dropout). Idempotent: already-closed offers are left alone. Returns how many were withdrawn.
      */
@@ -227,16 +264,17 @@ class OfferService
             throw new DomainException('You are not allowed to revise this offer.');
         }
 
-        if ($offer->status !== OfferStatus::Released) {
-            throw new DomainException("Only a released offer can be revised (this one is {$offer->status->label()}). Edit a draft directly; an accepted offer is final.");
-        }
-
         if ($reason === '') {
             throw new DomainException('A reason is required to revise an offer.');
         }
 
         return DB::transaction(function () use ($offer, $terms, $reason, $actor): OfferRevision {
-            Offer::query()->whereKey($offer->id)->lockForUpdate()->first();
+            RowLock::key(CandidateApplication::class, $offer->candidate_application_id);
+            RowLock::fresh($offer);
+
+            if ($offer->status !== OfferStatus::Released) {
+                throw new DomainException("Only a released offer can be revised (this one is {$offer->status->label()}). Edit a draft directly; an accepted offer is final.");
+            }
 
             if ($offer->revisions()->where('status', OfferRevisionStatus::Pending->value)->exists()) {
                 throw new DomainException('A revision of this offer is already awaiting release.');
@@ -284,8 +322,12 @@ class OfferService
         }
 
         return DB::transaction(fn (): OfferRevision => LifecycleGuard::allow(function () use ($revision, $offer, $actor, $remarks): OfferRevision {
+            // Phase 8.9 (P89-DQ-004): lock the offer (after its application) and decide on its latest
+            // committed status — an acceptance that commits while this release waits is seen here, so
+            // revised terms and a new letter are never written onto an accepted offer.
+            RowLock::key(CandidateApplication::class, $offer->candidate_application_id);
+            RowLock::fresh($offer);
             $current = OfferRevision::query()->whereKey($revision->id)->lockForUpdate()->firstOrFail();
-            $offer->refresh();
 
             if ($current->status !== OfferRevisionStatus::Pending) {
                 throw new DomainException("This revision is already {$current->status->label()}.");

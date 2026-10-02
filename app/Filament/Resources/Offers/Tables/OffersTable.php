@@ -195,10 +195,10 @@ class OffersTable
                     ->required(),
             ])
             ->action(function (Offer $record, array $data): void {
-                $record->update([
+                static::guarded('Offer letter not saved', fn () => app(OfferService::class)->updateTerms($record, [
                     'offer_letter_template_id' => $data['offer_letter_template_id'] ?? null,
                     'offer_letter_body' => $data['offer_letter_body'],
-                ]);
+                ]));
 
                 Notification::make()->title('Offer letter saved')->success()->send();
             });
@@ -219,7 +219,7 @@ class OffersTable
                 && in_array($record->status, self::LETTER_EDITABLE_STATUSES, true)
                 && (bool) auth()->user()?->can('update', $record))
             ->action(function (Offer $record): void {
-                $record->update(['offer_letter_body' => null]);
+                static::guarded('Offer letter not reset', fn () => app(OfferService::class)->updateTerms($record, ['offer_letter_body' => null]));
 
                 Notification::make()->title('Offer letter reset to template')->success()->send();
             });

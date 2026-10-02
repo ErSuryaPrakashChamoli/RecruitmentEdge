@@ -19,6 +19,11 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
+// Phase 8.9 (ED-10): MySQL concurrency tests commit for real (no RefreshDatabase transaction) —
+// see phpunit.concurrency.xml and tests/Concurrency/Race.php.
+pest()->extend(TestCase::class)
+    ->in('Concurrency');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations

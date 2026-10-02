@@ -14,6 +14,8 @@ use App\Models\RecruitmentRejectionReason;
 use App\Models\RequisitionPipelineStage;
 use App\Services\Lifecycle\ApplicationClosureCascade;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
+use Closure;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -48,17 +50,19 @@ class StageTransitionService
      */
     public function transitionTo(CandidateApplication $application, CandidateStage $stage, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
     {
-        if ($application->status !== ApplicationStatus::Active) {
-            throw new DomainException("Cannot change the stage of an application that is not active (current status: {$application->status->label()}).");
-        }
+        return $this->locked($application, function () use ($application, $stage, $actor, $remarks): CandidateApplication {
+            if ($application->status !== ApplicationStatus::Active) {
+                throw new DomainException("Cannot change the stage of an application that is not active (current status: {$application->status->label()}).");
+            }
 
-        if ($stage->order() < $application->current_stage->order()) {
-            throw new DomainException("Cannot move an application backward from {$application->current_stage->label()} to {$stage->label()}.");
-        }
+            if ($stage->order() < $application->current_stage->order()) {
+                throw new DomainException("Cannot move an application backward from {$application->current_stage->label()} to {$stage->label()}.");
+            }
 
-        $pipelineStage = $this->pipelineStageFor($application, $stage);
+            $pipelineStage = $this->pipelineStageFor($application, $stage);
 
-        return $this->writeMove($application, $stage, $pipelineStage, $actor, $remarks, false);
+            return $this->writeMove($application, $stage, $pipelineStage, $actor, $remarks, false);
+        });
     }
 
     /**
@@ -71,21 +75,23 @@ class StageTransitionService
      */
     public function advance(CandidateApplication $application, CandidateStage $stage, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
     {
-        if ($application->current_stage === $stage) {
-            throw new DomainException("The application is already at {$stage->label()}.");
-        }
+        return $this->locked($application, function () use ($application, $stage, $actor, $remarks): CandidateApplication {
+            if ($application->current_stage === $stage) {
+                throw new DomainException("The application is already at {$stage->label()}.");
+            }
 
-        if ($this->currentPipeline($application)->isEmpty()) {
-            return $this->transitionTo($application, $stage, $actor, $remarks);
-        }
+            if ($this->currentPipeline($application)->isEmpty()) {
+                return $this->transitionTo($application, $stage, $actor, $remarks);
+            }
 
-        $target = $this->pipelineStageFor($application, $stage);
+            $target = $this->pipelineStageFor($application, $stage);
 
-        if ($target === null) {
-            throw new DomainException("This requisition's pipeline has no stage for {$stage->label()}.");
-        }
+            if ($target === null) {
+                throw new DomainException("This requisition's pipeline has no stage for {$stage->label()}.");
+            }
 
-        return $this->moveToStage($application, $target, $actor, $remarks);
+            return $this->moveToStage($application, $target, $actor, $remarks);
+        });
     }
 
     /**
@@ -94,37 +100,39 @@ class StageTransitionService
      */
     public function moveToStage(CandidateApplication $application, RequisitionPipelineStage $target, ?Employee $actor = null, ?string $remarks = null, bool $override = false): CandidateApplication
     {
-        if ($application->status !== ApplicationStatus::Active) {
-            throw new DomainException("Cannot change the stage of an application that is not active (current status: {$application->status->label()}).");
-        }
-
-        if ($target->requisition_id !== $application->requisition_id || $target->superseded_at !== null) {
-            throw new DomainException("\"{$target->name}\" is not a stage of this application's current pipeline.");
-        }
-
-        if ($target->milestone->order() < $application->current_stage->order()) {
-            throw new DomainException("Cannot move an application backward from {$application->current_stage->label()} to {$target->name}.");
-        }
-
-        $current = $application->pipelineStage;
-
-        if ($current !== null && $current->is($target)) {
-            throw new DomainException("The application is already at \"{$target->name}\".");
-        }
-
-        if ($override) {
-            if (! $this->canOverride($actor)) {
-                throw new DomainException('You are not allowed to override pipeline transition rules.');
+        return $this->locked($application, function () use ($application, $target, $actor, $remarks, $override): CandidateApplication {
+            if ($application->status !== ApplicationStatus::Active) {
+                throw new DomainException("Cannot change the stage of an application that is not active (current status: {$application->status->label()}).");
             }
 
-            if (blank($remarks)) {
-                throw new DomainException('A reason is required to override pipeline transition rules.');
+            if ($target->requisition_id !== $application->requisition_id || $target->superseded_at !== null) {
+                throw new DomainException("\"{$target->name}\" is not a stage of this application's current pipeline.");
             }
-        } else {
-            $this->guardConfiguredMove($application, $current, $target, $remarks);
-        }
 
-        return $this->writeMove($application, $target->milestone, $target, $actor, $remarks, $override);
+            if ($target->milestone->order() < $application->current_stage->order()) {
+                throw new DomainException("Cannot move an application backward from {$application->current_stage->label()} to {$target->name}.");
+            }
+
+            $current = $application->pipelineStage;
+
+            if ($current !== null && $current->is($target)) {
+                throw new DomainException("The application is already at \"{$target->name}\".");
+            }
+
+            if ($override) {
+                if (! $this->canOverride($actor)) {
+                    throw new DomainException('You are not allowed to override pipeline transition rules.');
+                }
+
+                if (blank($remarks)) {
+                    throw new DomainException('A reason is required to override pipeline transition rules.');
+                }
+            } else {
+                $this->guardConfiguredMove($application, $current, $target, $remarks);
+            }
+
+            return $this->writeMove($application, $target->milestone, $target, $actor, $remarks, $override);
+        });
     }
 
     /**
@@ -211,15 +219,17 @@ class StageTransitionService
      */
     public function hold(CandidateApplication $application, ?Employee $actor, string $remarks): CandidateApplication
     {
-        if ($application->status !== ApplicationStatus::Active) {
-            throw new DomainException("Only an active application can be put on hold (current status: {$application->status->label()}).");
-        }
+        return $this->locked($application, function () use ($application, $actor, $remarks): CandidateApplication {
+            if ($application->status !== ApplicationStatus::Active) {
+                throw new DomainException("Only an active application can be put on hold (current status: {$application->status->label()}).");
+            }
 
-        if (blank($remarks)) {
-            throw new DomainException('Remarks are required to put an application on hold.');
-        }
+            if (blank($remarks)) {
+                throw new DomainException('Remarks are required to put an application on hold.');
+            }
 
-        return $this->writeStatus($application, ApplicationStatus::OnHold, [], $actor, ApplicationStatus::OnHold->label().': '.$remarks);
+            return $this->writeStatus($application, ApplicationStatus::OnHold, [], $actor, ApplicationStatus::OnHold->label().': '.$remarks);
+        });
     }
 
     /**
@@ -228,19 +238,21 @@ class StageTransitionService
      */
     public function reactivate(CandidateApplication $application, ?Employee $actor = null, ?string $remarks = null): CandidateApplication
     {
-        $previousStatus = $application->status;
+        return $this->locked($application, function () use ($application, $actor, $remarks): CandidateApplication {
+            $previousStatus = $application->status;
 
-        if ($previousStatus === ApplicationStatus::Active) {
-            throw new DomainException('Application is already active.');
-        }
+            if ($previousStatus === ApplicationStatus::Active) {
+                throw new DomainException('Application is already active.');
+            }
 
-        $attributes = match ($previousStatus) {
-            ApplicationStatus::Rejected => ['rejection_reason_id' => null],
-            ApplicationStatus::Dropout => ['dropout_reason_id' => null],
-            default => [],
-        };
+            $attributes = match ($previousStatus) {
+                ApplicationStatus::Rejected => ['rejection_reason_id' => null],
+                ApplicationStatus::Dropout => ['dropout_reason_id' => null],
+                default => [],
+            };
 
-        return $this->writeStatus($application, ApplicationStatus::Active, $attributes, $actor, filled($remarks) ? $remarks : "Reactivated from {$previousStatus->label()}");
+            return $this->writeStatus($application, ApplicationStatus::Active, $attributes, $actor, filled($remarks) ? $remarks : "Reactivated from {$previousStatus->label()}");
+        });
     }
 
     private function setTerminalStatus(
@@ -251,31 +263,51 @@ class StageTransitionService
         ?Employee $actor,
         ?string $remarks,
     ): CandidateApplication {
-        if ($application->status !== ApplicationStatus::Active) {
-            throw new DomainException("Application is already {$application->status->label()}.");
-        }
-
-        if (! $reason->isSelectable()) {
-            throw new DomainException("The reason \"{$reason->name}\" is no longer active and cannot be used.");
-        }
-
-        $pipelineStage = $application->pipelineStage;
-
-        if ($pipelineStage !== null) {
-            $allowed = $status === ApplicationStatus::Rejected ? $pipelineStage->allows_rejection : $pipelineStage->allows_dropout;
-
-            if (! $allowed) {
-                throw new DomainException("The stage \"{$pipelineStage->name}\" does not allow marking an application as {$status->label()}.");
+        return $this->locked($application, function () use ($application, $status, $reasonColumn, $reason, $actor, $remarks): CandidateApplication {
+            if ($application->status !== ApplicationStatus::Active) {
+                throw new DomainException("Application is already {$application->status->label()}.");
             }
-        }
 
-        // Phase 8.3: the closure and its cascade (open interviews, offers, joining) are one fact.
-        return DB::transaction(function () use ($application, $status, $reasonColumn, $reason, $actor, $remarks): CandidateApplication {
-            $this->writeStatus($application, $status, [$reasonColumn => $reason->id], $actor, $remarks ?? $status->label().': '.$reason->name);
+            if (! $reason->isSelectable()) {
+                throw new DomainException("The reason \"{$reason->name}\" is no longer active and cannot be used.");
+            }
 
-            app(ApplicationClosureCascade::class)->close($application, $status, $reason, $actor);
+            $pipelineStage = $application->pipelineStage;
 
-            return $application;
+            if ($pipelineStage !== null) {
+                $allowed = $status === ApplicationStatus::Rejected ? $pipelineStage->allows_rejection : $pipelineStage->allows_dropout;
+
+                if (! $allowed) {
+                    throw new DomainException("The stage \"{$pipelineStage->name}\" does not allow marking an application as {$status->label()}.");
+                }
+            }
+
+            // Phase 8.3: the closure and its cascade (open interviews, offers, joining) are one fact.
+            return DB::transaction(function () use ($application, $status, $reasonColumn, $reason, $actor, $remarks): CandidateApplication {
+                $this->writeStatus($application, $status, [$reasonColumn => $reason->id], $actor, $remarks ?? $status->label().': '.$reason->name);
+
+                app(ApplicationClosureCascade::class)->close($application, $status, $reason, $actor);
+
+                return $application;
+            });
+        });
+    }
+
+    /**
+     * Phase 8.9 (P89-DQ-005): every move and status change runs in one transaction that first locks
+     * the application and refreshes it from the locking read (RowLock), then validates on that latest
+     * committed state — two concurrent moves (pipeline drag, a table action, an AI or automation
+     * action) can no longer both pass, move a card backwards, or reject an application twice.
+     * Re-entrant: domain services already holding the lock call in from inside their transaction.
+     *
+     * @param  Closure(): CandidateApplication  $change
+     */
+    private function locked(CandidateApplication $application, Closure $change): CandidateApplication
+    {
+        return DB::transaction(function () use ($application, $change): CandidateApplication {
+            RowLock::fresh($application);
+
+            return $change();
         });
     }
 

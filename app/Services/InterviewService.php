@@ -20,6 +20,7 @@ use App\Models\Interview;
 use App\Models\Interviewer;
 use App\Models\RecruitmentRejectionReason;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Support\Carbon;
@@ -312,11 +313,16 @@ class InterviewService
      * Phase 8.7 (D8.7-005): a transition takes the interview's row lock and re-reads it inside its
      * transaction, so two concurrent requests (a double click, the candidate portal and a recruiter)
      * decide on the current status — the second sees the first one's result and is refused.
+     *
+     * Phase 8.9: the application is locked first — the same order as the closure cascade
+     * (application → interviews → offers → joining), so completing an interview while the
+     * application is rejected waits instead of deadlocking (P89-PERF-021) — and the interview is
+     * rebuilt from its locking read, never from a REPEATABLE READ snapshot (RowLock, P89-DQ-013).
      */
     private function lockFresh(Interview $interview): void
     {
-        Interview::query()->whereKey($interview->getKey())->lockForUpdate()->first();
-        $interview->refresh();
+        RowLock::key(CandidateApplication::class, $interview->candidate_application_id);
+        RowLock::fresh($interview);
     }
 
     private function ensureNotTerminal(Interview $interview, string $verb): void

@@ -15,6 +15,7 @@ use App\Models\EmployeeReferral;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
+use App\Services\Lifecycle\RowLock;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -36,6 +37,13 @@ use Illuminate\Support\Facades\DB;
  * Duplicate-safe by construction: (rule, application, period) is unique at the DB level, and a
  * calculation already at Approved or later is never edited by a recalculation (Section 28) — a
  * retroactive upgrade reaches those only through a top-up adjustment.
+ *
+ * Phase 8.9 (P89-DQ-002): pricing one rule for one occurrence runs in a single transaction that
+ * first locks the rule row, so concurrent occurrences of the same rule are priced one after the
+ * other. Inside it the existing calculation is locked and re-read (an Approved one is never
+ * reverted by a stale recalculation), and occurrence counts, siblings and earlier top-ups are read
+ * with locking reads, so two joinings in the same month never share a slab position and a
+ * retroactive top-up is never written twice.
  */
 class RecruiterIncentiveCalculator
 {
@@ -152,6 +160,18 @@ class RecruiterIncentiveCalculator
 
     private function calculateForRule(RecruitmentIncentiveRule $rule, CandidateApplication $application, CarbonInterface $eventDate, Employee $recruiter, ?EmployeeReferral $referral = null): ?RecruiterIncentiveCalculation
     {
+        return DB::transaction(function () use ($rule, $application, $eventDate, $recruiter, $referral): ?RecruiterIncentiveCalculation {
+            RowLock::key(RecruitmentIncentiveRule::class, $rule->id);
+
+            return $this->priceUnderRuleLock($rule, $application, $eventDate, $recruiter, $referral);
+        });
+    }
+
+    /**
+     * Runs inside calculateForRule()'s transaction, holding the rule's row lock.
+     */
+    private function priceUnderRuleLock(RecruitmentIncentiveRule $rule, CandidateApplication $application, CarbonInterface $eventDate, Employee $recruiter, ?EmployeeReferral $referral): ?RecruiterIncentiveCalculation
+    {
         $periodStart = $eventDate->copy()->startOfMonth();
         $periodEnd = $eventDate->copy()->endOfMonth();
 
@@ -160,6 +180,7 @@ class RecruiterIncentiveCalculator
             ->where('candidate_application_id', $application->id)
             ->whereDate('period_start', $periodStart)
             ->whereDate('period_end', $periodEnd)
+            ->lockForUpdate()
             ->first();
 
         if ($existing !== null && ! in_array($existing->status, self::RECALCULABLE, true)) {
@@ -207,35 +228,33 @@ class RecruiterIncentiveCalculator
         // Status is never written directly here: IncentiveApprovalService owns every status change
         // and its trail row (creation, the no-retention move to Pending Verification, and any
         // status a recalculation re-derives).
-        return DB::transaction(function () use ($existing, $attributes, $status, $rule, $application, $periodStart, $periodEnd, $slab, $achievement, $occurrenceCount): RecruiterIncentiveCalculation {
-            if ($existing !== null) {
-                $this->auditReprice($existing, $attributes);
-                $existing->update($attributes);
+        if ($existing !== null) {
+            $this->auditReprice($existing, $attributes);
+            $existing->update($attributes);
 
-                $calculation = $this->approvals->applyRecalculatedStatus($existing, $status);
-            } else {
-                $calculation = RecruiterIncentiveCalculation::query()->create([
-                    'incentive_rule_id' => $rule->id,
-                    'candidate_application_id' => $application->id,
-                    'period_start' => $periodStart->toDateString(),
-                    'period_end' => $periodEnd->toDateString(),
-                    'status' => IncentiveCalculationStatus::Calculated,
-                    ...$attributes,
-                ]);
+            $calculation = $this->approvals->applyRecalculatedStatus($existing, $status);
+        } else {
+            $calculation = RecruiterIncentiveCalculation::query()->create([
+                'incentive_rule_id' => $rule->id,
+                'candidate_application_id' => $application->id,
+                'period_start' => $periodStart->toDateString(),
+                'period_end' => $periodEnd->toDateString(),
+                'status' => IncentiveCalculationStatus::Calculated,
+                ...$attributes,
+            ]);
 
-                $this->approvals->recordCalculated($calculation);
+            $this->approvals->recordCalculated($calculation);
 
-                if ($status === IncentiveCalculationStatus::PendingVerification) {
-                    $this->approvals->submitForVerification($calculation, remarks: 'No retention hold');
-                }
+            if ($status === IncentiveCalculationStatus::PendingVerification) {
+                $this->approvals->submitForVerification($calculation, remarks: 'No retention hold');
             }
+        }
 
-            if ($slab !== null && $rule->slab_upgrade_mode === IncentiveSlabUpgradeMode::Retroactive) {
-                $this->repriceSiblings($rule, $calculation, $slab, $achievement, $occurrenceCount);
-            }
+        if ($slab !== null && $rule->slab_upgrade_mode === IncentiveSlabUpgradeMode::Retroactive) {
+            $this->repriceSiblings($rule, $calculation, $slab, $achievement, $occurrenceCount);
+        }
 
-            return $calculation;
-        });
+        return $calculation;
     }
 
     /**
@@ -255,7 +274,8 @@ class RecruiterIncentiveCalculator
             ->where('employee_id', $employeeId)
             ->whereDate('period_start', $periodStart)
             ->whereDate('period_end', $periodEnd)
-            ->whereNotIn('status', self::EXCLUDED);
+            ->whereNotIn('status', self::EXCLUDED)
+            ->sharedLock();
 
         if ($existing === null) {
             return $counted->count() + 1;
@@ -309,6 +329,7 @@ class RecruiterIncentiveCalculator
             ->whereDate('period_end', $calculation->period_end)
             ->whereKeyNot($calculation->getKey())
             ->whereNotIn('status', self::EXCLUDED)
+            ->lockForUpdate()
             ->get();
 
         foreach ($siblings as $sibling) {
@@ -330,6 +351,7 @@ class RecruiterIncentiveCalculator
 
             $pricedAt = (float) $sibling->amount + (float) $sibling->adjustments()
                 ->where('reason', 'like', self::RETROACTIVE_ADJUSTMENT_REASON.'%')
+                ->sharedLock()
                 ->sum('amount_delta');
 
             if ($newAmount > $pricedAt) {
