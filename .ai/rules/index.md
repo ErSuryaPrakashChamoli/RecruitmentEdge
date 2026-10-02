@@ -81,6 +81,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php,app/Services/InterviewService.php | .ai/rules/services-services.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |
 | app/Services/TalentPoolService.php,app/Filament/Resources/TalentPools/**,app/Filament/Resources/Candidates/Tables/CandidatesTable.php | .ai/rules/tables.md |
+| tests/**,app/Providers/AppServiceProvider.php | .ai/rules/tests-providers.md |
 | tests/** | .ai/rules/tests.md |
 | app/Services/AI/Tools/** | .ai/rules/tools.md |
 | resources/views/filament/** | .ai/rules/views-filament.md |
