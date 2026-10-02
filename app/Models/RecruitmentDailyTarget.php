@@ -6,9 +6,11 @@ use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\ReferencesActiveMasterData;
+use App\Services\HierarchyService;
 use Database\Factories\RecruitmentDailyTargetFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -63,6 +65,43 @@ class RecruitmentDailyTarget extends Model
                 throw new DomainException('Another target for the same scope, metric and period already covers part of these dates. End that target first.');
             }
         });
+    }
+
+    /**
+     * Phase 8.9 (P89-SEC-001): the targets a user may list, see or manage — the one definition used
+     * by the resource query, the policy and RecruitmentTargetService. With hierarchy.view-all every
+     * target; otherwise only recruiter targets inside the user's hierarchy. A department or
+     * designation target reaches people outside any one team, so it needs hierarchy.view-all.
+     *
+     * @param  Builder<RecruitmentDailyTarget>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        if ($visibleIds === null) {
+            return;
+        }
+
+        $query->whereNull($query->qualifyColumn('department_id'))
+            ->whereNull($query->qualifyColumn('designation_id'))
+            ->whereIn($query->qualifyColumn('employee_id'), $visibleIds);
+    }
+
+    /**
+     * The visibleTo() rule for one (possibly unsaved) target, from its scope columns.
+     */
+    public function isVisibleTo(User $user): bool
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        return $visibleIds === null || (
+            $this->department_id === null
+            && $this->designation_id === null
+            && $this->employee_id !== null
+            && $visibleIds->contains((int) $this->employee_id)
+        );
     }
 
     public function hasExactlyOneScope(): bool

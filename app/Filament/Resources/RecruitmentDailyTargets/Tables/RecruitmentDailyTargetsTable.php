@@ -4,12 +4,16 @@ namespace App\Filament\Resources\RecruitmentDailyTargets\Tables;
 
 use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
+use App\Models\User;
+use App\Services\RecruitmentTargetService;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Facades\Filament;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class RecruitmentDailyTargetsTable
 {
@@ -49,7 +53,19 @@ class RecruitmentDailyTargetsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Phase 8.9 (P89-SEC-001): each selected target is authorized on its own and
+                    // deleted through the service — deleteAny alone never allows a bulk delete.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete')
+                        ->using(function (DeleteBulkAction $action, Collection $records): void {
+                            /** @var User $user */
+                            $user = Filament::auth()->user();
+                            $deleted = app(RecruitmentTargetService::class)->deleteMany($user, $records);
+
+                            for ($i = $deleted; $i < $records->count(); $i++) {
+                                $action->reportBulkProcessingFailure();
+                            }
+                        }),
                 ]),
             ]);
     }
