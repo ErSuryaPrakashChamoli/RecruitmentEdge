@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\PrivateFileController;
+use App\Models\AuditLog;
 use App\Services\Lifecycle\LifecycleGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -26,6 +27,12 @@ pest()->extend(TestCase::class)
         Storage::fake('public');
         // A faked disk loses the signed private-file URL builder the application registers at boot.
         PrivateFileController::registerTemporaryUrls();
+    })
+    ->afterEach(function (): void {
+        // Phase 8.9: the default audit actor kind is process-wide; a test that starts a command or a
+        // job by hand must also finish it (CommandFinished / JobAttempted), or later tests' audit
+        // rows are attributed to `console` / `queue`.
+        expect(AuditLog::defaultActorKind())->toBeNull('A test left the audit actor kind set; finish the command or job it started.');
     })
     ->in('Feature');
 
