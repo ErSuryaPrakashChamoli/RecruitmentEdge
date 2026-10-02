@@ -18,6 +18,9 @@ use App\Models\RecruitmentIncentiveSlab;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\User;
 use App\Services\CandidateJoiningService;
+use App\Services\Identity\AuthorityGuard;
+use App\Services\Identity\LastChroProtectedException;
+use App\Services\Identity\StaffAccessService;
 use App\Services\IncentiveApprovalService;
 use App\Services\InterviewService;
 use App\Services\OfferService;
@@ -170,4 +173,19 @@ test('an interview transition waits for the application before locking the inter
         ->and($race['observed'])->toBe(0)
         ->and($race['completed'])->toBeTrue()
         ->and($interview->fresh()->status)->toBe(InterviewStatus::NoShow);
+});
+
+test('two concurrent suspensions can never leave the organisation without a CHRO (P89-SEC-004)', function (): void {
+    $first = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
+    $second = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
+    User::query()->whereKeyNot([$first->id, $second->id])->whereHas('roles', fn ($q) => $q->where('name', 'chro'))->get()->each->removeRole('chro');
+
+    $race = Race::run(
+        holder: fn () => app(StaffAccessService::class)->suspend(User::query()->find($first->id), null, 'Leave'),
+        contender: fn () => app(StaffAccessService::class)->suspend(User::query()->find($second->id), null, 'Leave'),
+    );
+
+    expect($race['blocked'])->toBeTrue()
+        ->and($race['exception'])->toBe(LastChroProtectedException::class)
+        ->and(app(AuthorityGuard::class)->effectiveChroIds()->all())->toBe([$second->id]);
 });

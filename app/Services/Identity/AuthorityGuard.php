@@ -11,6 +11,7 @@ use Closure;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -58,11 +59,17 @@ class AuthorityGuard
      */
     public function assertEffectiveChroRemainsWithout(User $user): void
     {
-        if (! $this->isEffectiveChro($user)) {
+        // Phase 8.9 (P89-SEC-004): decided under the CHRO role's row lock, counting with a locking
+        // read — two concurrent suspensions, separations or role removals are decided one after the
+        // other on committed state, so they can never leave the organisation without a CHRO.
+        $this->serialiseAuthorityChanges();
+        $effective = $this->effectiveChroIds(locking: true);
+
+        if (! $effective->contains((int) $user->getKey())) {
             return;
         }
 
-        if ($this->effectiveChroIds()->reject(fn (int $id) => $id === (int) $user->getKey())->isEmpty()) {
+        if ($effective->reject(fn (int $id) => $id === (int) $user->getKey())->isEmpty()) {
             throw new LastChroProtectedException('This is the last active CHRO. Assign the CHRO role to another person first.', $user);
         }
     }
@@ -84,7 +91,16 @@ class AuthorityGuard
         self::$depth++;
 
         try {
-            return $operation();
+            // Phase 8.9 (P89-SEC-004): the outermost protected operation runs in one transaction whose
+            // first statement takes the CHRO role's row lock, before any user or employee lock — every
+            // authority-removing change queues there, and decides on what the previous one committed.
+            return self::$depth === 1
+                ? DB::transaction(function () use ($operation): mixed {
+                    $this->serialiseAuthorityChanges();
+
+                    return $operation();
+                })
+                : $operation();
         } catch (LastChroProtectedException $e) {
             if (self::$depth === 1 && $e->user !== null) {
                 $this->recordProtection($e->user, $attempt, $actor);
@@ -111,9 +127,22 @@ class AuthorityGuard
     }
 
     /**
+     * The serialisation point of every change that can remove CHRO authority: the CHRO role's row,
+     * locked for the rest of the transaction. Re-entrant within one transaction.
+     */
+    public function serialiseAuthorityChanges(): void
+    {
+        if (($chro = Role::byKey((string) config('identity.chro_role'))) !== null) {
+            Role::query()->whereKey($chro->getKey())->lockForUpdate()->first();
+        }
+    }
+
+    /**
+     * @param  bool  $locking  read the role assignments and access states with a locking read (the
+     *                         latest committed rows, whatever snapshot the transaction holds)
      * @return Collection<int, int>
      */
-    public function effectiveChroIds(): Collection
+    public function effectiveChroIds(bool $locking = false): Collection
     {
         $chro = Role::byKey((string) config('identity.chro_role'));
 
@@ -124,8 +153,12 @@ class AuthorityGuard
         $access = app(StaffAccessService::class);
 
         return User::query()
-            ->whereHas('roles', fn (Builder $query) => $query->whereKey($chro->getKey()))
-            ->where('access_status', AccessState::Active->value)
+            ->select('users.*')
+            ->join('model_has_roles', fn ($join) => $join->on('model_has_roles.model_id', '=', 'users.id')
+                ->where('model_has_roles.model_type', (new User)->getMorphClass())
+                ->where('model_has_roles.role_id', $chro->getKey()))
+            ->where('users.access_status', AccessState::Active->value)
+            ->when($locking, fn (Builder $query) => $query->sharedLock())
             ->get()
             ->filter(fn (User $candidate) => $access->permits($candidate))
             ->map(fn (User $candidate) => (int) $candidate->getKey())
