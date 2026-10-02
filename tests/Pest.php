@@ -32,7 +32,10 @@ pest()->extend(TestCase::class)
         // Phase 8.9: the default audit actor kind is process-wide; a test that starts a command or a
         // job by hand must also finish it (CommandFinished / JobAttempted), or later tests' audit
         // rows are attributed to `console` / `queue`.
-        expect(AuditLog::defaultActorKind())->toBeNull('A test left the audit actor kind set; finish the command or job it started.');
+        // (Thrown rather than asserted, so a test that expects no assertions stays valid.)
+        if (AuditLog::defaultActorKind() !== null) {
+            throw new LogicException('A test left the audit actor kind set; finish the command or job it started.');
+        }
     })
     ->in('Feature');
 
