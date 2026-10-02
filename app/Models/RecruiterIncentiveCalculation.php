@@ -77,7 +77,15 @@ class RecruiterIncentiveCalculation extends Model
      */
     public function effectiveAmount(): float
     {
-        return (float) $this->amount + (float) $this->adjustments()->sum('amount_delta');
+        // Phase 8.9 (P89-PERF-022): lists preload the sum (withAdjustmentTotal) or the adjustments
+        // instead of one query per row.
+        $adjustmentTotal = match (true) {
+            array_key_exists('adjustments_sum_amount_delta', $this->attributes) => $this->attributes['adjustments_sum_amount_delta'],
+            $this->relationLoaded('adjustments') => $this->adjustments->sum('amount_delta'),
+            default => $this->adjustments()->sum('amount_delta'),
+        };
+
+        return (float) $this->amount + (float) $adjustmentTotal;
     }
 
     /**
@@ -174,6 +182,17 @@ class RecruiterIncentiveCalculation extends Model
     protected function forBeneficiary(Builder $query, IncentiveBeneficiary $beneficiary): void
     {
         $query->where('beneficiary_type', $beneficiary);
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-022): preloads the adjustment total effectiveAmount() reads, for lists.
+     *
+     * @param  Builder<RecruiterIncentiveCalculation>  $query
+     */
+    #[Scope]
+    protected function withAdjustmentTotal(Builder $query): void
+    {
+        $query->withSum('adjustments', 'amount_delta');
     }
 
     /**

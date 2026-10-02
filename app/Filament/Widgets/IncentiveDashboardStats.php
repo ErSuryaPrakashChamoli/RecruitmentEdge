@@ -71,6 +71,7 @@ class IncentiveDashboardStats extends StatsOverviewWidget
             ->forRecruiters()
             ->whereDate('period_start', now()->startOfMonth())
             ->when($employeeIds !== null, fn ($query) => $query->whereIn('employee_id', $employeeIds))
+            ->withAdjustmentTotal()
             ->get();
     }
 

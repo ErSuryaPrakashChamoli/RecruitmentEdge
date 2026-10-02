@@ -17,12 +17,14 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class RecruiterIncentiveCalculationsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->withAdjustmentTotal())
             ->columns([
                 TextColumn::make('employee.first_name')
                     ->label('Payee')

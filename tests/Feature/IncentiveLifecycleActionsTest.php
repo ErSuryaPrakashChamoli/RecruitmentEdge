@@ -5,10 +5,12 @@ use App\Enums\IncentiveCalculationStatus;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Pages\ListRecruiterIncentiveCalculations;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Pages\ViewRecruiterIncentiveCalculation;
 use App\Models\Employee;
+use App\Models\RecruiterIncentiveAdjustment;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Filament\Actions\Testing\TestAction;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 
 use function Pest\Laravel\actingAs;
@@ -157,4 +159,21 @@ test('a service refusal is shown as a notification instead of an error page', fu
         ->assertNotified('Incentive could not be updated');
 
     expect($calculation->refresh()->status)->toBe(IncentiveCalculationStatus::Calculated);
+});
+
+test('the calculations list shows each effective amount without a query per row', function (): void {
+    actingAs($this->chro);
+    $calculations = RecruiterIncentiveCalculation::factory()->count(3)->create(['employee_id' => $this->recruiter->id, 'amount' => 1000]);
+    RecruiterIncentiveAdjustment::factory()->create(['recruiter_incentive_calculation_id' => $calculations[0]->id, 'amount_delta' => 250]);
+    RecruiterIncentiveAdjustment::factory()->create(['recruiter_incentive_calculation_id' => $calculations[0]->id, 'amount_delta' => -100]);
+
+    DB::enableQueryLog();
+    $list = Livewire::test(ListRecruiterIncentiveCalculations::class);
+    $adjustmentQueries = collect(DB::getQueryLog())->filter(fn (array $query): bool => str_contains($query['query'], 'recruiter_incentive_adjustments'))->count();
+    DB::disableQueryLog();
+
+    $list->assertTableColumnStateSet('effective_amount', 1150.0, $calculations[0])
+        ->assertTableColumnStateSet('effective_amount', 1000.0, $calculations[1]);
+    // Phase 8.9 (P89-PERF-022): the adjustment totals arrive with the page query.
+    expect($adjustmentQueries)->toBe(1);
 });
