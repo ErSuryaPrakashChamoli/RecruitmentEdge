@@ -19,6 +19,7 @@ use App\Services\ApplicationAssignmentService;
 use App\Services\PipelineTemplateService;
 use App\Services\StageTransitionService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Facades\Event;
 use Livewire\Livewire;
 
@@ -119,6 +120,21 @@ test('reassigning the recruiter is audited and limited to the actor\'s team', fu
 
     expect($this->application->fresh()->recruiter_id)->toBe($this->recruiter->id)
         ->and(AuditLog::query()->where('action', 'application_reassigned')->count())->toBe(2);
+});
+
+test('an interview scheduled after the move was checked, but before it was written, stops the move (Phase 8.9, P89-DQ-009)', function (): void {
+    $destination = RecruitmentRequisition::factory()->create(['manager_id' => $this->manager->id, 'status' => RequisitionStatus::Open]);
+    $interleaved = false;
+    Event::listen(TransactionBeginning::class, function () use (&$interleaved): void {
+        if (! $interleaved) {
+            $interleaved = true;
+            Interview::factory()->create(['candidate_application_id' => $this->application->id, 'status' => InterviewStatus::Scheduled]);
+        }
+    });
+
+    expect(fn () => $this->assignment->moveToRequisition($this->application, $destination, $this->user, 'Better fit'))->toThrow(DomainException::class, 'open interviews')
+        ->and($this->application->fresh()->requisition_id)->toBe($this->requisition->id)
+        ->and(AuditLog::query()->where('action', 'application_moved')->exists())->toBeFalse();
 });
 
 test('Manager A cannot move or reassign Manager B\'s application', function (): void {

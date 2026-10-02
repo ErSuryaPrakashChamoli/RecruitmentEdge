@@ -17,7 +17,9 @@ use App\Models\RecruitmentRequisition;
 use App\Models\RequisitionPipelineStage;
 use App\Models\User;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
 use DomainException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -52,11 +54,30 @@ class ApplicationAssignmentService
             throw new DomainException('A reason is required to move an application to another requisition.');
         }
 
+        $this->ensureMovable($application, $destination, $actor);
+
+        try {
+            return DB::transaction(fn (): CandidateApplication => LifecycleGuard::allow(function () use ($application, $destination, $actor, $reason): CandidateApplication {
+                // Phase 8.9 (P89-DQ-009): decided again on the locked, latest application — an
+                // interview, offer or move made since the checks above is seen (application first,
+                // the same lock order as offers and interviews).
+                RowLock::fresh($application);
+                $this->ensureMovable($application, $destination, $actor);
+
+                return $this->move($application, $destination, $actor, $reason);
+            }));
+        } catch (UniqueConstraintViolationException) {
+            throw new DomainException('This candidate already has an application on that requisition.');
+        }
+    }
+
+    private function ensureMovable(CandidateApplication $application, RecruitmentRequisition $destination, User $actor): void
+    {
         if ($application->status !== ApplicationStatus::Active) {
             throw new DomainException("Only an active application can be moved (current status: {$application->status->label()}).");
         }
 
-        if ($destination->is($application->requisition)) {
+        if ((int) $application->requisition_id === $destination->id) {
             throw new DomainException('The application is already on this requisition.');
         }
 
@@ -69,38 +90,39 @@ class ApplicationAssignmentService
         }
 
         $this->ensureNothingOpen($application);
+    }
 
+    private function move(CandidateApplication $application, RecruitmentRequisition $destination, User $actor, string $reason): CandidateApplication
+    {
         $from = $application->requisition;
 
-        return DB::transaction(fn (): CandidateApplication => LifecycleGuard::allow(function () use ($application, $destination, $actor, $reason, $from): CandidateApplication {
-            $pipeline = RequisitionPipelineStage::query()->where('requisition_id', $destination->id)->current()->get();
-            $pipelineStage = $pipeline->isEmpty() ? null : $this->pipelines->stageForMilestone($pipeline, $application->current_stage);
-            $previousPipelineStageId = $application->pipeline_stage_id;
+        $pipeline = RequisitionPipelineStage::query()->where('requisition_id', $destination->id)->current()->get();
+        $pipelineStage = $pipeline->isEmpty() ? null : $this->pipelines->stageForMilestone($pipeline, $application->current_stage);
+        $previousPipelineStageId = $application->pipeline_stage_id;
 
-            $application->forceFill([
-                'requisition_id' => $destination->id,
-                'pipeline_stage_id' => $pipelineStage?->id,
-                'last_activity_at' => now(),
-            ])->save();
+        $application->forceFill([
+            'requisition_id' => $destination->id,
+            'pipeline_stage_id' => $pipelineStage?->id,
+            'last_activity_at' => now(),
+        ])->save();
 
-            $application->stageHistory()->create([
-                'previous_stage' => $application->current_stage,
-                'new_stage' => $application->current_stage,
-                'event' => StageHistoryEvent::MovedRequisition,
-                'previous_pipeline_stage_id' => $previousPipelineStageId,
-                'new_pipeline_stage_id' => $pipelineStage?->id,
-                'changed_by' => $actor->employee_id,
-                'remarks' => "Moved from {$from->code} to {$destination->code}: {$reason}",
-            ]);
+        $application->stageHistory()->create([
+            'previous_stage' => $application->current_stage,
+            'new_stage' => $application->current_stage,
+            'event' => StageHistoryEvent::MovedRequisition,
+            'previous_pipeline_stage_id' => $previousPipelineStageId,
+            'new_pipeline_stage_id' => $pipelineStage?->id,
+            'changed_by' => $actor->employee_id,
+            'remarks' => "Moved from {$from->code} to {$destination->code}: {$reason}",
+        ]);
 
-            AuditLog::record($application, 'application_moved', ['requisition_id' => $from->id, 'pipeline_stage_id' => $previousPipelineStageId], [
-                'requisition_id' => $destination->id, 'pipeline_stage_id' => $pipelineStage?->id, 'reason' => mb_substr($reason, 0, 255), 'by_user_id' => $actor->id,
-            ]);
+        AuditLog::record($application, 'application_moved', ['requisition_id' => $from->id, 'pipeline_stage_id' => $previousPipelineStageId], [
+            'requisition_id' => $destination->id, 'pipeline_stage_id' => $pipelineStage?->id, 'reason' => mb_substr($reason, 0, 255), 'by_user_id' => $actor->id,
+        ]);
 
-            ApplicationMovedToRequisition::dispatch($application->id, $from->id, $destination->id, $actor->id);
+        ApplicationMovedToRequisition::dispatch($application->id, $from->id, $destination->id, $actor->id);
 
-            return $application->unsetRelation('requisition')->unsetRelation('pipelineStage');
-        }));
+        return $application->unsetRelation('requisition')->unsetRelation('pipelineStage');
     }
 
     /**
@@ -127,7 +149,13 @@ class ApplicationAssignmentService
         }
 
         return DB::transaction(fn (): CandidateApplication => LifecycleGuard::allow(function () use ($application, $recruiter, $actor, $reason): CandidateApplication {
+            // Phase 8.9 (P89-DQ-009): the audit's "from" is the recruiter on the latest row.
+            RowLock::fresh($application);
             $previous = $application->recruiter_id;
+
+            if ((int) $previous === $recruiter->id) {
+                return $application;
+            }
 
             $application->forceFill(['recruiter_id' => $recruiter->id, 'last_activity_at' => now()])->save();
 
