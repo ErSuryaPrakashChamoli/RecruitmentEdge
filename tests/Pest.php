@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\PrivateFileController;
 use App\Services\Lifecycle\LifecycleGuard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -23,6 +24,8 @@ pest()->extend(TestCase::class)
         // seeded standard template, uploads), which Docker builds and developers' disks would keep.
         Storage::fake('local');
         Storage::fake('public');
+        // A faked disk loses the signed private-file URL builder the application registers at boot.
+        PrivateFileController::registerTemporaryUrls();
     })
     ->in('Feature');
 
