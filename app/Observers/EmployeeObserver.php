@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Employee;
+use App\Services\HierarchyMemo;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -49,6 +50,8 @@ class EmployeeObserver
 
             $this->attachToParent($employee);
         });
+
+        app(HierarchyMemo::class)->flush();
     }
 
     public function updated(Employee $employee): void
@@ -72,6 +75,9 @@ class EmployeeObserver
 
             $this->attachToParent($employee, $subtree);
         });
+
+        // Phase 8.9: visibility follows the new reporting line at once (HierarchyMemo).
+        app(HierarchyMemo::class)->flush();
     }
 
     /**

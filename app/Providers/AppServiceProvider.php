@@ -24,6 +24,7 @@ use App\Services\CandidatePortalService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Export\ExportGovernance;
+use App\Services\HierarchyMemo;
 use App\Services\Identity\StaffAccessService;
 use App\Services\Integrations\Calendar\CalendarManager;
 use App\Services\Integrations\IntegrationRegistry;
@@ -82,6 +83,8 @@ class AppServiceProvider extends ServiceProvider
         // Phase 8.4: one access gate per process, so its per-user decisions are memoised for the
         // request (every identity change invalidates them — StaffAccessService::invalidateDecisions).
         $this->app->singleton(StaffAccessService::class);
+        // Phase 8.9 (P89-PERF-012): one subtree memo per request / queued job.
+        $this->app->scoped(HierarchyMemo::class);
 
         $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
             $registry = new IntegrationRegistry;

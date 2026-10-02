@@ -55,9 +55,10 @@ class HierarchyService
      */
     public function descendantIdsOf(int $employeeId): Collection
     {
-        return DB::table('employee_hierarchy')
+        // Phase 8.9 (P89-PERF-012): remembered for the current request/job — see HierarchyMemo.
+        return app(HierarchyMemo::class)->descendants($employeeId, fn (): Collection => DB::table('employee_hierarchy')
             ->where('ancestor_id', $employeeId)
-            ->pluck('descendant_id');
+            ->pluck('descendant_id'));
     }
 
     /**

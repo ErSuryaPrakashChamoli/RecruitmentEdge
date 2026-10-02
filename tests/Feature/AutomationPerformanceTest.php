@@ -43,6 +43,9 @@ test('next best actions for a user do not issue a query per application', functi
     $service->forUser($this->user);
     $small = queriesDuring(fn () => $service->forUser($this->user));
     $seed(20);
+    // Seeding creates employees, which flushes the per-request hierarchy memo (Phase 8.9): warm it
+    // up again exactly as before the first measurement, so both compare steady-state query counts.
+    $service->forUser($this->user);
     $large = queriesDuring(fn () => $service->forUser($this->user));
 
     expect($large)->toBe($small);
