@@ -7,9 +7,13 @@ use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\CandidateStageHistory;
 use App\Models\Offer;
+use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricPeriod;
 use App\Services\Metrics\MetricQuery;
+use App\Services\Metrics\MetricResult;
+use App\Services\Metrics\MetricScope;
 use App\Services\Metrics\MetricService;
+use App\Services\Metrics\MetricSpec;
 use App\Services\RecruitmentAnalyticsService;
 use Illuminate\Support\Facades\DB;
 
@@ -92,4 +96,50 @@ test('time to hire and SLA leg compliance read their rows in bounded chunks', fu
     expect($timeToHire->contains(fn (array $q): bool => str_contains($q['query'], 'candidate_joinings') && str_contains($q['query'], 'limit 1000')))->toBeTrue()
         ->and($legs->filter(fn (array $q): bool => str_contains($q['query'], 'from "candidate_applications"') || str_contains($q['query'], 'from "candidate_joinings"'))
             ->every(fn (array $q): bool => str_contains($q['query'], 'limit 2000') || str_contains($q['query'], 'where "id" in') || str_contains($q['query'], 'exists')))->toBeTrue();
+});
+
+test('the lean median helpers return exactly what Collection::median() and avg() return (Phase 8.9)', function (): void {
+    $definition = new class(app(MetricScope::class)) extends MetricDefinition
+    {
+        public function spec(): MetricSpec
+        {
+            throw new LogicException('not used');
+        }
+
+        protected function evaluate(MetricQuery $query): MetricResult
+        {
+            throw new LogicException('not used');
+        }
+
+        public function inPlace(array $values): ?float
+        {
+            return $this->medianSortingInPlace($values);
+        }
+
+        public function acrossSorted(array $lists): ?float
+        {
+            return $this->medianOfSortedLists($lists);
+        }
+    };
+
+    mt_srand(8909);
+
+    foreach ([1, 2, 3, 10, 11, 250, 1001] as $size) {
+        $lists = collect(range(1, 4))->map(fn (): array => array_map(fn (): float => mt_rand(0, 4000) / 37, range(1, intdiv($size, 4) + mt_rand(0, 3))))->all();
+        $lists[] = array_fill(0, 5, 3.0); // ties
+        $all = array_merge(...$lists);
+
+        $sorted = array_map(function (array $list): array {
+            sort($list);
+
+            return $list;
+        }, $lists);
+
+        expect($definition->inPlace($all))->toBe((float) collect($all)->median())
+            ->and($definition->acrossSorted($sorted))->toBe((float) collect($all)->median())
+            ->and(array_sum($all) / count($all))->toBe(collect($all)->avg());
+    }
+
+    expect($definition->inPlace([]))->toBeNull()
+        ->and($definition->acrossSorted([[], []]))->toBeNull();
 });

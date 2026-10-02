@@ -99,21 +99,29 @@ class TimeInStage extends MetricDefinition
                 }
             }, 'candidate_applications.id', 'id');
 
-        $byStage = collect($durations)->map(function (array $days, string $stage) {
-            $values = collect($days);
+        // Phase 8.9 (P89-PERF-029): each stage's durations are summed in the order collected (as
+        // Collection::avg() sums), then sorted in place; the headline median walks the sorted stage
+        // lists. No flattened or re-indexed copies — 426 MB at 1M candidates before. Same figures.
+        $byStage = [];
+        $sampleSize = 0;
 
-            return [
+        foreach ($durations as $stage => &$days) {
+            $count = count($days);
+            $mean = array_sum($days) / $count;
+            $byStage[] = [
                 'stage' => $stage,
                 'label' => CandidateStage::tryFrom($stage)?->label() ?? $stage,
-                'median_days' => $this->withheld($this->median($values), $values->count()),
-                'mean_days' => $this->withheld((float) $values->avg(), $values->count()),
-                'sample_size' => $values->count(),
+                'median_days' => $this->withheld($this->medianSortingInPlace($days), $count),
+                'mean_days' => $this->withheld((float) $mean, $count),
+                'sample_size' => $count,
             ];
-        })->sortBy(fn (array $row) => CandidateStage::tryFrom($row['stage'])?->order() ?? 99)->values()->all();
+            $sampleSize += $count;
+        }
+        unset($days);
 
-        $all = collect($durations)->flatten();
+        $byStage = collect($byStage)->sortBy(fn (array $row) => CandidateStage::tryFrom($row['stage'])?->order() ?? 99)->values()->all();
 
-        return $this->result($query, $this->median($all), $all->count(), ['by_stage' => $byStage]);
+        return $this->result($query, $this->medianOfSortedLists($durations), $sampleSize, ['by_stage' => $byStage]);
     }
 
     /**

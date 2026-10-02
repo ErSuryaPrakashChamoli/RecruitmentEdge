@@ -77,19 +77,24 @@ class SlaLegCompliance extends MetricDefinition
             $targetAt = fn (int $end): int => (int) $settings->valueAtTimestamp($leg['setting_key'], $end, $leg['default_days']);
             ['durations' => $durations, 'within' => $within, 'applied' => $applied, 'skipped' => $skipped] = $this->legStatistics($leg['from'], $leg['to'], $query, $targetAt);
             ksort($applied);
-            $durations = collect($durations);
+            // Phase 8.9 (P89-PERF-028): plain-list mean (summed in collected order, as avg() does)
+            // and an in-place median — no Collection copies of every leg. Same figures.
+            $measured = count($durations);
+            $reported = $measured > 0 && $measured >= $this->spec()->minimumSample();
+            $average = $reported ? array_sum($durations) / $measured : null;
+            $median = $reported ? $this->medianSortingInPlace($durations) : null;
 
             return [
                 'label' => $leg['label'],
                 'target_days' => $targetAt($periodEnd->getTimestamp()),
                 'targets_applied' => array_keys($applied),
-                'measured' => $durations->count(),
+                'measured' => $measured,
                 'within_target' => $within,
-                'breaches' => $durations->count() - $within,
+                'breaches' => $measured - $within,
                 'skipped_start' => $skipped,
-                'compliance_percent' => $this->withheld($this->rate($within, $durations->count()), $durations->count()),
-                'average_days' => $durations->isNotEmpty() && $durations->count() >= $this->spec()->minimumSample() ? MetricUnit::Days->round((float) $durations->avg()) : null,
-                'median_days' => $durations->isNotEmpty() && $durations->count() >= $this->spec()->minimumSample() ? MetricUnit::Days->round((float) $durations->median()) : null,
+                'compliance_percent' => $this->withheld($this->rate($within, $measured), $measured),
+                'average_days' => $average !== null ? MetricUnit::Days->round((float) $average) : null,
+                'median_days' => $median !== null ? MetricUnit::Days->round($median) : null,
             ];
         });
 

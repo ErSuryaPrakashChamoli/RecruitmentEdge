@@ -98,6 +98,65 @@ abstract class MetricDefinition
     }
 
     /**
+     * Phase 8.9 (P89-PERF-028/029): median() for a plain list that may hold millions of values,
+     * without Collection's filtered, sorted and re-indexed copies. Sorts $values in place (pass a
+     * list you no longer need in insertion order) and returns exactly what median() returns.
+     *
+     * @param  list<int|float>  $values
+     */
+    protected function medianSortingInPlace(array &$values): ?float
+    {
+        if ($values === []) {
+            return null;
+        }
+
+        sort($values);
+
+        return $this->medianOfSortedLists([$values]);
+    }
+
+    /**
+     * The median of several already sorted lists taken together — what median() returns for their
+     * union (an even count averages the two middle values) — found by walking the lists in order,
+     * without merging them into one more copy.
+     *
+     * @param  array<array-key, list<int|float>>  $sortedLists
+     */
+    protected function medianOfSortedLists(array $sortedLists): ?float
+    {
+        $count = array_sum(array_map('count', $sortedLists));
+
+        if ($count === 0) {
+            return null;
+        }
+
+        $middle = intdiv($count, 2);
+        $positions = array_map(fn (): int => 0, $sortedLists);
+        $lengths = array_map('count', $sortedLists);
+        $previous = null;
+
+        for ($rank = 0; $rank <= $middle; $rank++) {
+            $smallest = null;
+
+            foreach ($sortedLists as $key => $list) {
+                if ($positions[$key] < $lengths[$key] && ($smallest === null || $list[$positions[$key]] < $sortedLists[$smallest][$positions[$smallest]])) {
+                    $smallest = $key;
+                }
+            }
+
+            $value = $sortedLists[$smallest][$positions[$smallest]++];
+
+            if ($rank === $middle) {
+                return $count % 2 ? (float) $value : (float) ((0 + $previous + $value) / 2);
+            }
+
+            $previous = $value;
+        }
+
+        return null;
+    }
+
+    /**
      * Withhold a sub-value (a breakdown row) under the same sample rule as the headline.
      */
     protected function withheld(?float $value, int $sampleSize): ?float
