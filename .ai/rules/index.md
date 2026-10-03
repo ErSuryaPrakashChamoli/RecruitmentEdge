@@ -25,6 +25,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/AuditLog.php,app/Jobs/Concerns/**,app/Providers/AppServiceProvider.php | .ai/rules/concerns-providers.md |
 | app/Models/AuditLog.php,app/Models/Concerns/Auditable.php | .ai/rules/concerns.md |
 | tests/Concurrency/** | .ai/rules/concurrency.md |
+| docker-compose.yml,docs/runbooks/queue-operations.md,app/Console/Commands/QueueDrainStatus.php,app/Services/QueueHealthService.php | .ai/rules/console-commands-services.md |
 | app/Console/Commands/SweepStuckWork.php,config/communications.php | .ai/rules/console-commands.md |
 | app/Http/Controllers/**,app/Providers/AppServiceProvider.php,config/filesystems.php | .ai/rules/controllers-providers.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
