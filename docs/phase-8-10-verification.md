@@ -73,8 +73,44 @@ Run on synthetic data with a throwaway key. Full table in `phase-8-10-release-re
 - the production image (D8.10-005);
 - locking under concurrent load.
 
-## 5. Not run in this round
+## 5. Worker drain (P810-OP-03) — host, MySQL 8.4 throwaway database `hrms_p810_drain`
+
+| Run | Result |
+|---|---|
+| `QueueDrainStatusTest` (SQLite, the suite default) | 8 passed, 30 assertions |
+| First host run against MySQL | **FAILED.** `delayed` is a MySQL reserved word. Fixed with `*_jobs` aliases. |
+| `QueueDrainStatusTest` + `QueueHealthTest` **on MySQL** (`DB_CONNECTION=mysql`) | 14 passed, 65 assertions |
+| `DeploymentTopologyTest`, `QueueTopologyTest`, `tests/Feature/Reliability` (SQLite) | 104 passed, 496 assertions |
+| Mutation: `drained()` ignores reserved jobs | `QueueDrainStatusTest` fails |
+| Mutation: runbook §1 reverted to the `queue:restart` drain | the runbook order test fails |
+| Two 15 s jobs on `communications`; `queue:work database`; SIGTERM while job 1 runs | **[1]** While job 1 runs: 1 ready, 1 reserved, exit 1.<br>**[2]** Worker exited 0, 14 s after SIGTERM. Job 1 finished. Job 2 not started.<br>**[3]** After SIGTERM: 1 ready, 0 reserved, exit 1.<br>**[4]** `--stop-when-empty` worker processed job 2.<br>**[5]** `--wait=30`: exit 0, "Drained". |
+| Maintenance mode (`down` / `up`; cache driver on the throwaway database) | `/up` 200 during `down`; `/admin/login` 503; `/careers` 503; 200 after `up` |
+
+**Harness note.** In the first SIGTERM run the job used `sleep(15)`. PHP's `sleep()` returns early when a signal arrives, so that job finished in 2 s. The job was changed to a time-bounded loop, which showed the real 14 s wait.
+
+**Not covered:** `docker compose stop`, the restart policy and the grace period (no runner, D8.10-005); `schedule:work` stopping, which was read from framework source only.
+
+## 6. Release A re-verification (D8.10-002 continuation)
+
+Fresh `git archive` trees; `composer install` from the production line's lock (Laravel 13.29.0); assets built from the identical `package-lock.json`.
+
+| Run | Result |
+|---|---|
+| Diff `9cba8e3` → `599f0c5` | 26 files: 23 under `app/Policies`, 3 under `tests`; +454 / −0; no migration |
+| Four hotfix tests on unpatched `9cba8e3` | 4 failed / 4 |
+| `JoiningCreateAuthorizationTest` on unpatched `9cba8e3` | 1 failed / 2 |
+| Four hotfix tests + `JoiningCreateAuthorizationTest` on `599f0c5` | 6 passed, 25 assertions |
+| Full production-line suite on `599f0c5` | **646 passed, 2,393 assertions**, exit 0 |
+
+## 7. Phase 8.10 branch after the P810-OP-03 changes
+
+| Run | Result |
+|---|---|
+| Full suite, parallel (local PHP 8.5.4) | **2,073 passed, 21,596 assertions**, exit 0, 0 new files under `storage/app`. That is 2,064 + 8 (`QueueDrainStatusTest`) + 1 (runbook order). |
+
+## 8. Not run in this round
 
 - Docker image build or in-image suite: no runner (D8.10-005).
 - Browser suite.
 - MySQL concurrency suite: no concurrency code changed in Workstream A.
+- A1 backup / restore and the A4 rehearsal were not re-run (accepted evidence, §3–§4).

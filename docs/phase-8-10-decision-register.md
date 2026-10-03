@@ -422,11 +422,51 @@ Each entry follows the same layout. "Tech rec." appears only when the question i
 - **D8.10-003 (first-release strategy).** The rehearsal evidence now exists (`phase-8-10-release-readiness.md` §4): 89 / 89 migrations in 32.75 s on 91k synthetic rows; schema identical to a fresh install; restore-based rollback verified; `migrate:rollback` is not a data rollback. **PRODUCTION BASELINE NOT VERIFIED.** The decision is still open.
 - **D8.9-007…010, 028 (backup).** Still OPEN. The engineering capability is tested on the development host (`phase-8-10-release-readiness.md` §3). No production backup exists.
 
+### D8.10-021: Build route for Release A (production authorization patch), added 2026-10-03
+- **Decision required:** how Release A (`9cba8e3` + `2fab3fd` + `599f0c5`) is built into a deployable artefact.
+- **Why (FACT):** the production line's Dockerfile pins PHP 8.3 while its lock needs PHP ≥ 8.4.1 (the same defect as P810-OP-01). It cannot build from its own Dockerfile. How production is built today is unknown (D8.9-026).
+- **Options:**
+  - (a) use production's existing build mechanism, once known;
+  - (b) add the Dockerfile correction (`bd32662`'s Dockerfile hunk only) to Release A as a separate, explicit commit;
+  - (c) combine Releases A and B. This must be recorded explicitly with the exact commit range, and is not inferred.
+- **Technical consequences:** (b) adds a build-only change to an otherwise policy-only release. Every option needs a Docker-capable runner to build and test (D8.10-005).
+- **Security consequences:** the Critical production gap stays open until Release A is built and deployed.
+- **Operational consequences:** depends on the production deploy mechanism.
+- **Reversibility:** easy.
+- **Tech rec.:** (a) if production's build works today. Otherwise (b), kept as its own commit so the release content stays auditable.
+
+### Exact remaining owner decisions for backup (P89-OPS-001), 2026-10-03
+
+D8.9-009 is split into its four parts so that nothing is implied:
+
+| ID | Decision | Owner | Status |
+|---|---|---|---|
+| D8.9-007 | RTO | Operations + Product | OPEN |
+| D8.9-008 | RPO, including binlog / point-in-time recovery (P810-OP-06) | Operations + Product | OPEN |
+| D8.9-009a | Backup frequency | Operations | OPEN |
+| D8.9-009b | Backup retention | Operations + Legal (R-13) | OPEN |
+| D8.9-009c | Backup storage location (off-host) | Operations | OPEN |
+| D8.9-009d | Encryption key custody and rotation | Operations + Security | OPEN |
+| D8.9-010 | DR strategy (site, standby) | Operations | OPEN |
+| D8.9-028 | Restore-test cadence | Operations | OPEN |
+
+Engineering does not set any of these values. The tested procedure is in `phase-8-10-release-readiness.md` §3.
+
+### Status at 2026-10-03 (continuation)
+- **D8.10-020:** COMPLETE (`ae48029`).
+- **D8.10-002:** **APPROVED IN PRINCIPLE** by the owner, to prepare an isolated production authorization release (Release A = `9cba8e3` + `2fab3fd` + `599f0c5`).
+  - Prepared and verified: 26 files, policies and tests only, +454 / −0. The four hotfix tests fail 4 / 4 on unpatched `9cba8e3` and pass on `599f0c5`.
+  - **Deployment not approved:** it is gated by D8.10-021, D8.10-005 and the release gates.
+  - Release B (the Phase 8.10 dependency and runtime release) is kept separate. A combined release needs its own explicit decision.
+- **D8.10-005:** **BLOCKED.** Docker-capable runner unavailable. Minimum runner requirements are in `phase-8-10-release-readiness.md` §7.
+- **D8.10-003:** OPEN. The rehearsal is accepted as "successful, production baseline not verified". The owner must accept that limited rehearsal or provide production facts.
+- **D8.9-026:** **OWNER / INFRASTRUCTURE INPUT REQUIRED.** The exact facts to collect are in `phase-8-10-release-readiness.md` §6.
+
 ## 3. Summary
 
 | Group | Count |
 |---|---|
-| New Phase 8.10 decisions (D8.10-001…019 at discovery; D8.10-020 added during implementation) | **19 + 1** |
+| New Phase 8.10 decisions (D8.10-001…019 at discovery; D8.10-020 and D8.10-021 added during implementation) | **19 + 2** |
 | Earlier decisions still open that block production | D8.9-007…010, 028, 026, 027 → D8.10-002 |
 | Earlier decisions that block parts of the proposed 8.10 scope | D8.9-016, D8.9-015, D8.9-014 / 018, D8.8-005…007, D8.8-RETENTION-001, D8.8-EXPORT-001 |
 | Earlier decisions needing reconsideration | D8.9-022 (image defect, first-release size), D8.9-027 (→ D8.10-002), D8.8-038 (→ D8.10-006), D8.6-006 (widen) |

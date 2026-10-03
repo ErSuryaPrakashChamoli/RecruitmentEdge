@@ -25,6 +25,8 @@
 | A2 | P89-OPS-012 / D8.10-002, production authorization gap | **Exact patch identified and tested.** Local branch `hotfix/p810-production-authorization` @ `599f0c5` (= `2fab3fd` + explicit `CandidateJoiningPolicy::create`). Release decision pending (Security / Operations). | release-readiness §2 |
 | A1 | P89-OPS-001, backup / restore | **Procedure corrected and tested on the development host:** encrypted backup, exact restore, failure detection. **Production backup NOT established.** Owner decisions D8.9-007…010 and 028 are not provided. | release-readiness §3 |
 | A4 | P810-OP-02, upgrade rehearsal | **REHEARSAL — PRODUCTION BASELINE NOT VERIFIED.** 89 / 89 migrations, schema identical to a fresh install, data preserved, application, queue and scheduler boot. Restore-based rollback verified. | release-readiness §4 |
+| A5 (added 2026-10-03) | P810-OP-03, worker drain | **Fixed in procedure and tooling.** The runbook drain is rewritten: stop intake → scheduler → drain → stop workers → verify → back up → migrate. New read-only `queue:drain-status`; runbook-order test. Verified at Laravel level on MySQL. **Docker execution not verified** (D8.10-005). | release-readiness §5 |
+| A2 (continuation) | D8.10-002, Release A | **Approved in principle and prepared.** Re-verified: the four hotfix tests fail 4 / 4 on `9cba8e3` and pass on `599f0c5`; diff is policies and tests only, +454 / −0. Build route open (D8.10-021). **Not deployed.** | release-readiness §1–§2 |
 
 ## 2. Why Workstream A is not complete (decision-gated)
 
@@ -33,6 +35,7 @@
 3. **D8.9-026.** Production facts are not provided, so the rehearsal baseline is assumed, not verified (P810-OP-02).
 4. **D8.10-002.** The hotfix release decision belongs to Security and Operations.
 5. **D8.10-003.** The first-release strategy and downtime window (with D8.9-023) are not decided.
+6. **D8.10-021.** Release A's build route is not decided. The production line's Dockerfile has the PHP 8.3 defect.
 
 ## 3. D8.10-020: dependency security (approved by the owner)
 
@@ -60,6 +63,7 @@
 |---|---|---|---|
 | P810-SEC-015 | High (advisory) | Dependency advisories in `league/commonmark` 2.10.0 and `laravel/framework` v13.29.0 | **FIXED on `feature/sep_25_hrm` (`ae48029`).** The production line (`9cba8e3`, and the hotfix branch built on it) still has the old versions. Updating that line is a separate release decision (noted under D8.10-002). |
 | P810-A4-01 | Info | Migration rollback is not a data rollback: 10 `grant_phase_*` migrations have empty `down()`, and several backfills cannot be reversed | Documented. **Restore-from-backup is the only approved rollback.** |
+| P810-OP-03-01 | Low (caught before commit) | `QueueHealthService::drainState()` used the alias `delayed`, a MySQL reserved word that SQLite accepts. The SQLite suite passed while MySQL failed. | **Fixed before commit.** Tests now also run on MySQL. Another instance of TD-15 (suite on SQLite, production on MySQL). |
 | P810-A1-01 | Low (documentation) | The backup runbook lacked `--no-tablespaces` (needed by a user without PROCESS), an encryption procedure, concrete verification, and "restore into an empty database" | **Fixed** in `docs/runbooks/backup-restore.md` |
 
 ## 5. Commits (Workstream A)
@@ -71,6 +75,7 @@
 | `b487ac6` | `feature/sep_25_hrm` | Workstream A log; stop at D8.10-020 |
 | `ae48029` | `feature/sep_25_hrm` | Dependency security updates (D8.10-020) |
 | `599f0c5` | `hotfix/p810-production-authorization` (new; parent `2fab3fd`) | Explicit `CandidateJoiningPolicy::create` for the production line (SEC-86-I-01) |
-| (this commit and the runbook commit) | `feature/sep_25_hrm` | Backup runbook corrections; release-readiness, verification and decision-register updates |
+| `38ceee2`, `4c15e99` | `feature/sep_25_hrm` | Backup runbook corrections; release-readiness, verification and decision-register updates |
+| (P810-OP-03 commits) | `feature/sep_25_hrm` | `queue:drain-status` + `QueueHealthService::drainState()` + tests; deploy runbook drain and rollback; the recorded rule `.ai/rules/console-commands-services.md`; documentation updates |
 
 `hotfix/filament-delete-authorization` (`2fab3fd`) is untouched.

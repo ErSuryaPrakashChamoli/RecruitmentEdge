@@ -314,3 +314,8 @@ These are not part of the discovery counts in §1.
 - SEC-86-I-01 (joining `create`) is bounded on the production line by `viewAny`, which requires `joining.confirm`: tested 403 / 200. It is made explicit by `599f0c5` on the new local branch `hotfix/p810-production-authorization`.
 - **Smallest safe production patch:** `2fab3fd` + `599f0c5`. No migration. 646 production-line tests pass on it.
 - Not merged, not deployed.
+- **2026-10-03 continuation.** D8.10-002 is **approved in principle** to prepare an isolated Release A. Re-verified on a fresh export with the production line's own lock:
+  - 26 files, +454 / −0, policies and tests only;
+  - the four hotfix tests fail 4 / 4 on `9cba8e3` and pass on `599f0c5`.
+  
+  **The production Critical stays open until Release A is deployed.** Deployment is gated by D8.10-021 (build route: the production Dockerfile pins PHP 8.3) and D8.10-005. Release A keeps the production line's dependency versions, so P810-SEC-015 also remains open in production until Release B, or an explicit decision.
