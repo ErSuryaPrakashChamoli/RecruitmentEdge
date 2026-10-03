@@ -104,8 +104,7 @@ class RecruiterIncentiveCalculator
             }
 
             $results = DB::transaction(function () use ($application, $event): Collection {
-                RowLock::key(CandidateApplication::class, $application->id);
-                $application->refresh();
+                RowLock::fresh($application);
 
                 return match ($event) {
                     IncentiveTriggerEvent::Selection => $this->calculateForSelection($application),
