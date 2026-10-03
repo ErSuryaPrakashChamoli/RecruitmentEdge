@@ -389,11 +389,28 @@ Each entry follows the same layout. "Tech rec." appears only when the question i
 - **Reversibility:** moderate.
 - **Tech rec.:** none (markets). The accessibility fixes on the custom views are recommended regardless.
 
+### D8.10-020: Security dependency updates (added during implementation, 2026-10-03)
+- **Decision required:** approve patch-level updates of `league/commonmark` (2.10.0 → ≥ 2.10.2; 2.10.3 is available) and `laravel/framework` (v13.29.0 → ≥ v13.30.0; v13.34.0 is available), with `--with-dependencies` limited to what these need.
+- **Why:** P810-SEC-015. `composer audit` reports a High denial of service and a Medium raw-HTML-filter bypass in `league/commonmark`, plus a Low debug-page XSS in Laravel. CLAUDE.md requires approval for dependency changes.
+- **Options:**
+  - (a) update both now;
+  - (b) update `league/commonmark` only;
+  - (c) defer and accept the risk, with a documented exposure assessment.
+- **Technical consequences:** lock changes only within the current majors. The full suite, browser smokes and a build re-run are required after the update.
+- **Security consequences:** closes the advisories. Deferring leaves a denial-of-service path through rendered model output.
+- **Operational consequences:** none beyond re-verification.
+- **Reversibility:** easy (lock revert).
+- **Tech rec.:** (a). Patch and minor updates within the same major, then full verification.
+
+### Status updates during implementation
+- **D8.10-004 (PHP runtime).** Implemented in code per the technical recommendation: PHP 8.5, image `php:8.5.11-*-trixie` pinned by digest (`bd32662`). The owner may still override. The test suite was verified on 8.5.4 locally and must also run in the built image.
+- **D8.10-005 (CI / tooling).** **Now blocking** the build gate. The development host has no container runtime, so the image built from `bd32662` has never been built. A Docker-capable runner (CI or an approved host) is required.
+
 ## 3. Summary
 
 | Group | Count |
 |---|---|
-| New Phase 8.10 decisions (D8.10-001…019) | **19** |
+| New Phase 8.10 decisions (D8.10-001…019 at discovery; D8.10-020 added during implementation) | **19 + 1** |
 | Earlier decisions still open that block production | D8.9-007…010, 028, 026, 027 → D8.10-002 |
 | Earlier decisions that block parts of the proposed 8.10 scope | D8.9-016, D8.9-015, D8.9-014 / 018, D8.8-005…007, D8.8-RETENTION-001, D8.8-EXPORT-001 |
 | Earlier decisions needing reconsideration | D8.9-022 (image defect, first-release size), D8.9-027 (→ D8.10-002), D8.8-038 (→ D8.10-006), D8.6-006 (widen) |

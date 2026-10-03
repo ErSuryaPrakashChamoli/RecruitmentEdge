@@ -280,3 +280,24 @@ Not counted as new:
 - Log redaction tap; encrypted queued auth mails on the `security` queue.
 - The Apache access log omits the query string and the Referer.
 - CSRF is exempt only for `webhooks/*`.
+
+## 8. Found during Phase 8.10 implementation
+
+These are not part of the discovery counts in §1.
+
+### P810-SEC-015: Installed dependencies carry published security advisories (High, NEW, 2026-10-03)
+- **Component:** `league/commonmark` 2.10.0; `laravel/framework` v13.29.0 (`composer.lock`).
+- **Evidence (FACT, `composer audit`):**
+
+  | Advisory | Package | Severity | Fixed in |
+  |---|---|---|---|
+  | GHSA-3q6v-r5mr-hxv8: quadratic-time denial of service in the GFM table extension | `league/commonmark` | **High** | 2.10.2 |
+  | GHSA-97jj-33gv-5xf9: `DisallowedRawHtml` bypass | `league/commonmark` | Medium | 2.10.2 |
+  | GHSA-jh5r-qr3c-85q8 / CVE-2026-102279: XSS in debug page information | `laravel/framework` | Low | v13.30.0 |
+
+- **Exposure (INFERENCE):**
+  - `Str::markdown` (GFM, tables on) renders model output in the Copilot and in conversation transcripts. That output can be steered by prompt injection (P810-AI-02) and is bounded by `AI_MAX_TOKENS`.
+  - Only signed-in staff view it.
+  - The raw-HTML bypass is unlikely to apply under `html_input: strip`.
+  - The Laravel advisory requires `APP_DEBUG=true`.
+- **Recommendation:** patch-level updates within the current majors: `league/commonmark` ≥ 2.10.2 and `laravel/framework` ≥ v13.30.0. Then run the full suite. This changes dependency versions and needs approval: **D8.10-020**. Not implemented.
