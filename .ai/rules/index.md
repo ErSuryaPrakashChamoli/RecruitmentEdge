@@ -89,6 +89,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | tests/**,app/Providers/AppServiceProvider.php | .ai/rules/tests-providers.md |
 | tests/** | .ai/rules/tests.md |
 | app/Services/AI/Tools/** | .ai/rules/tools.md |
+| app/Filament/Pages/AiCopilot.php,app/Services/AI/Actions/**,app/Services/AI/Tools/ActionTools/**,resources/views/filament/pages/ai-copilot.blade.php | .ai/rules/views-filament-pages.md |
 | resources/views/filament/** | .ai/rules/views-filament.md |
 | app/Http/Controllers/Webhooks/** | .ai/rules/webhooks.md |
 | app/Filament/Widgets/**,app/Filament/Pages/Dashboard.php | .ai/rules/widgets-filament-pages.md |

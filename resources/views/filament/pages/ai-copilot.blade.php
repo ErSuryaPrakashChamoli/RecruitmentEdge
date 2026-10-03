@@ -69,7 +69,7 @@
                                             {{-- Resolved for you only; the AI never receives these names or addresses. --}}
                                             <ul class="mt-1 list-disc ps-4 text-gray-700 dark:text-gray-300" data-approval-preview>
                                                 @foreach ($call['preview'] as $line)
-                                                    <li>{{ $line }}</li>
+                                                    <li class="whitespace-pre-line break-words">{{ $line }}</li>
                                                 @endforeach
                                             </ul>
                                         @endif

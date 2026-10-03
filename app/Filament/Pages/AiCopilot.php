@@ -12,6 +12,7 @@ use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Actions\ApprovalParameterPreview;
 use App\Services\AI\Actions\ConfirmationGate;
 use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Gateway\AiGateway;
@@ -347,11 +348,8 @@ class AiCopilot extends Page
             }
         }
 
-        if (filled($arguments['subject'] ?? null)) {
-            $lines[] = 'Subject: '.$arguments['subject'];
-        }
-
-        return $lines;
+        // Phase 8.10 (P810-AI-01): every decision parameter, exactly as it will run.
+        return [...$lines, ...app(ApprovalParameterPreview::class)->lines($arguments)];
     }
 
     private function contextIsVisible(mixed $type, ?int $id): bool
