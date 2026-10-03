@@ -2,10 +2,12 @@
 
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
+use App\Filament\Pages\Profile;
 use App\Filament\Resources\CandidateJoinings\Pages\EditCandidateJoining;
 use App\Filament\Resources\CandidateJoinings\RelationManagers\DocumentsRelationManager as JoiningDocumentsRelationManager;
 use App\Filament\Resources\Candidates\Pages\EditCandidate;
 use App\Filament\Resources\Candidates\RelationManagers\DocumentsRelationManager;
+use App\Filament\Resources\Employees\Pages\CreateEmployee;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\CandidateDocument;
@@ -103,4 +105,23 @@ test('a candidate resume refuses files over 5 MB', function (): void {
         ->assertHasFormErrors(['resume_path']);
 
     expect($this->candidate->fresh()->resume_path)->toBeNull();
+});
+
+test('a profile photo accepts raster images only, never SVG (P810-SEC-002)', function (): void {
+    Storage::fake('public');
+
+    Livewire::test(Profile::class)
+        ->fillForm(['photo' => UploadedFile::fake()->create('photo.svg', 5, 'image/svg+xml')])
+        ->call('save')
+        ->assertHasFormErrors(['photo']);
+
+    Livewire::test(Profile::class)
+        ->fillForm(['photo' => UploadedFile::fake()->image('photo.png')])
+        ->call('save')
+        ->assertHasNoFormErrors(['photo']);
+
+    $this->actingAs(User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro'), 'web');
+
+    expect(Livewire::test(CreateEmployee::class)->instance()->form->getFlatFields()['photo_path']->getAcceptedFileTypes())
+        ->toBe(['image/jpeg', 'image/png', 'image/webp']);
 });

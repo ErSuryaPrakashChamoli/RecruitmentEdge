@@ -170,6 +170,9 @@ class Profile extends EditProfile
                     ->label('Photo')
                     ->image()
                     ->avatar()
+                    // Phase 8.10 (P810-SEC-002): raster only (after avatar(), which resets the types to image/*).
+                    // The public disk is served from the app origin, so an SVG opened directly would run script.
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                     ->disk('public')
                     ->directory('employee-photos'),
             ])
