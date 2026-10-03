@@ -63,8 +63,10 @@ test('recruiter incentives on the same joining stay recruiter incentives', funct
     $recruiter = Employee::factory()->create();
     RecruitmentIncentiveRule::factory()->fixed(1000)->create(['trigger_event' => IncentiveTriggerEvent::Selection]);
     $referral = acceptedReferral(Employee::factory()->create(), $recruiter);
+    // Phase 8.10 (P810-DI-01): a Selection incentive needs the application to have reached Selected.
+    app(StageTransitionService::class)->transitionTo($referral->candidateApplication, CandidateStage::Selected);
 
-    app(RecruiterIncentiveCalculator::class)->calculateForSelection($referral->candidateApplication);
+    app(RecruiterIncentiveCalculator::class)->calculateForSelection($referral->candidateApplication->fresh());
 
     expect(RecruiterIncentiveCalculation::query()->where('employee_id', $recruiter->id)->sole()->beneficiary_type)->toBe(IncentiveBeneficiary::Recruiter);
 });

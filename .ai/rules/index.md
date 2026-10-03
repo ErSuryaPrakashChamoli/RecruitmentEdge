@@ -72,6 +72,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Policies/**,app/Providers/AppServiceProvider.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/providers-providers-filament.md |
 | app/Providers/AppServiceProvider.php,bootstrap/app.php,config/app.php,app/Services/CandidatePortalService.php | .ai/rules/providers-services.md |
 | app/Services/AI/Providers/*.php,app/Services/AI/Gateway/*.php,app/Providers/AiServiceProvider.php | .ai/rules/providers.md |
+| app/Services/RecruiterIncentiveCalculator.php,app/Filament/Resources/RecruiterIncentiveCalculations/** | .ai/rules/recruiter-incentive-calculations.md |
 | app/Models/RecruitmentDailyTarget.php,app/Services/RecruitmentTargetService.php,app/Filament/Resources/RecruitmentDailyTargets/**,app/Policies/RecruitmentDailyTargetPolicy.php | .ai/rules/recruitment-daily-targets-policies.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Filament/Resources/RecruitmentIncentiveRules/** | .ai/rules/recruitment-incentive-rules.md |
 | app/Filament/Resources/**,app/Filament/Pages/*.php | .ai/rules/resources-filament-pages.md |

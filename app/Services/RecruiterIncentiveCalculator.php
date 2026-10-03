@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Enums\CandidateStage;
 use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Enums\IncentivePayoutType;
 use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
+use App\Enums\JoiningStatus;
+use App\Enums\OfferStatus;
 use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
@@ -15,8 +18,10 @@ use App\Models\EmployeeReferral;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentIncentiveSlab;
+use App\Models\User;
 use App\Services\Lifecycle\RowLock;
 use Carbon\CarbonInterface;
+use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -44,6 +49,12 @@ use Illuminate\Support\Facades\DB;
  * reverted by a stale recalculation), and occurrence counts, siblings and earlier top-ups are read
  * with locking reads, so two joinings in the same month never share a slab position and a
  * retroactive top-up is never written twice.
+ *
+ * Phase 8.10 (P810-DI-01): each trigger is priced only once its lifecycle event has happened
+ * (Selected reached, an accepted offer, a Joined joining), and one occurrence — a rule and an
+ * application — has one calculation whatever the month it is priced in, checked under the same rule
+ * lock. The manual path is calculateManually(): permission, hierarchy, the application lock and an
+ * audit row for every request, refused or not. Formulas are unchanged.
  */
 class RecruiterIncentiveCalculator
 {
@@ -72,7 +83,51 @@ class RecruiterIncentiveCalculator
         private readonly TargetResolutionService $targets,
         private readonly RecruiterDailyMetricsService $metrics,
         private readonly IncentiveApprovalService $approvals,
+        private readonly HierarchyService $hierarchy,
     ) {}
+
+    /**
+     * Phase 8.10 (P810-DI-01): the manual "Calculate Incentives" action. The actor needs
+     * incentives.calculate and the application's recruiter in their hierarchy. The application is
+     * locked first (the lifecycle lock order), so its stage, offer and joining cannot change between
+     * the trigger's precondition check and the pricing. Every request is audited, refusals included.
+     *
+     * @return Collection<int, RecruiterIncentiveCalculation>
+     *
+     * @throws DomainException when the actor may not calculate it or the trigger's event has not happened
+     */
+    public function calculateManually(CandidateApplication $application, IncentiveTriggerEvent $event, User $actor): Collection
+    {
+        try {
+            if (! $actor->can('incentives.calculate') || ! $this->hierarchy->canView($actor, $application->recruiter)) {
+                throw new DomainException('You cannot calculate incentives for this application.');
+            }
+
+            $results = DB::transaction(function () use ($application, $event): Collection {
+                RowLock::key(CandidateApplication::class, $application->id);
+                $application->refresh();
+
+                return match ($event) {
+                    IncentiveTriggerEvent::Selection => $this->calculateForSelection($application),
+                    IncentiveTriggerEvent::OfferAccepted => $this->calculateForOfferAcceptance($application),
+                    IncentiveTriggerEvent::Joining => $this->calculateForJoining($application->joining ?? throw new DomainException('This application has no joining record.')),
+                    IncentiveTriggerEvent::ReferralJoining => EmployeeReferral::query()
+                        ->where('candidate_application_id', $application->id)
+                        ->get()
+                        ->flatMap(fn (EmployeeReferral $referral) => $this->calculateForReferralJoining($referral))
+                        ->values(),
+                };
+            });
+        } catch (DomainException $e) {
+            AuditLog::record($application, 'incentive_calculation_refused', null, ['trigger_event' => $event->value, 'reason' => $e->getMessage(), 'by_user_id' => $actor->id]);
+
+            throw $e;
+        }
+
+        AuditLog::record($application, 'incentive_calculation_requested', null, ['trigger_event' => $event->value, 'calculation_ids' => $results->pluck('id')->all(), 'by_user_id' => $actor->id]);
+
+        return $results;
+    }
 
     /**
      * The primary, automatically-wired path (Section 25): a candidate has just been marked
@@ -82,6 +137,10 @@ class RecruiterIncentiveCalculator
      */
     public function calculateForJoining(CandidateJoining $joining): Collection
     {
+        if ($joining->status !== JoiningStatus::Joined) {
+            throw new DomainException("Joining incentives are priced only once the candidate has joined (this joining is {$joining->status->label()}).");
+        }
+
         $eventDate = $joining->actual_doj ?? $joining->expected_doj;
 
         return $this->calculate($joining->candidateApplication, IncentiveTriggerEvent::Joining, $eventDate);
@@ -96,6 +155,10 @@ class RecruiterIncentiveCalculator
      */
     public function calculateForSelection(CandidateApplication $application, ?CarbonInterface $eventDate = null): Collection
     {
+        if ($application->current_stage->order() < CandidateStage::Selected->order()) {
+            throw new DomainException('Selection incentives are priced only for an application that has reached Selected.');
+        }
+
         return $this->calculate($application, IncentiveTriggerEvent::Selection, $eventDate ?? now());
     }
 
@@ -106,6 +169,10 @@ class RecruiterIncentiveCalculator
      */
     public function calculateForOfferAcceptance(CandidateApplication $application, ?CarbonInterface $eventDate = null): Collection
     {
+        if (! $application->offers()->where('status', OfferStatus::Accepted)->exists()) {
+            throw new DomainException('Offer-acceptance incentives are priced only for an application with an accepted offer.');
+        }
+
         return $this->calculate($application, IncentiveTriggerEvent::OfferAccepted, $eventDate ?? now());
     }
 
@@ -185,6 +252,20 @@ class RecruiterIncentiveCalculator
 
         if ($existing !== null && ! in_array($existing->status, self::RECALCULABLE, true)) {
             return $existing;
+        }
+
+        // Phase 8.10 (P810-DI-01): already priced in another month (a later manual run prices at
+        // that day) — the occurrence keeps its one calculation, untouched; never a second record.
+        if ($existing === null) {
+            $pricedInAnotherPeriod = RecruiterIncentiveCalculation::query()
+                ->where('incentive_rule_id', $rule->id)
+                ->where('candidate_application_id', $application->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($pricedInAnotherPeriod !== null) {
+                return $pricedInAnotherPeriod;
+            }
         }
 
         $achievement = null;
