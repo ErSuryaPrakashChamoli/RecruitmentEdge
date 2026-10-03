@@ -40,7 +40,7 @@
                 @else
                     {{-- AI/user text is never trusted as raw HTML (prompt-injection defence). --}}
                     <div class="prose prose-sm dark:prose-invert mt-2 max-w-none">
-                        {!! \Illuminate\Support\Str::markdown($resolver->resolve($message->content, $viewer, markdown: true), ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
+                        {!! \App\Services\AI\Privacy\AiMarkdown::render($resolver->resolve($message->content, $viewer, markdown: true)) !!}
                     </div>
                 @endif
             @endif

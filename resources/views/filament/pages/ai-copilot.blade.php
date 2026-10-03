@@ -43,10 +43,10 @@
                     <div class="flex {{ $message['role'] === 'user' ? 'justify-end' : 'justify-start' }}" wire:key="ai-message-{{ $message['id'] }}">
                         <div class="max-w-2xl rounded-2xl px-4 py-2.5 text-sm {{ $message['role'] === 'user' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-950 dark:bg-white/5 dark:text-gray-100' }}">
                             @if (filled($message['content']))
-                                {{-- html_input 'strip' + allow_unsafe_links false: AI-generated/retrieved
-                                     content is never trusted as raw HTML (prompt-injection defence). --}}
+                                {{-- AiMarkdown: no raw HTML, no unsafe links, no auto-loading images —
+                                     AI-generated/retrieved content is never trusted (prompt-injection defence). --}}
                                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                                    {!! \Illuminate\Support\Str::markdown($message['content'], ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
+                                    {!! \App\Services\AI\Privacy\AiMarkdown::render($message['content']) !!}
                                 </div>
                             @endif
 
