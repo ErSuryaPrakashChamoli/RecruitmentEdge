@@ -72,11 +72,15 @@ class IncentiveApprovalService
 
     public function approve(RecruiterIncentiveCalculation $calculation, ?Employee $actor = null, ?string $remarks = null): RecruiterIncentiveCalculation
     {
+        $this->guardNotBeneficiary($calculation, $actor, 'approve');
+
         return $this->moveTo($calculation, IncentiveCalculationStatus::Approved, $actor, $remarks);
     }
 
     public function markPayable(RecruiterIncentiveCalculation $calculation, ?Employee $actor = null, ?string $remarks = null): RecruiterIncentiveCalculation
     {
+        $this->guardNotBeneficiary($calculation, $actor, 'mark payable');
+
         return $this->moveTo($calculation, IncentiveCalculationStatus::Payable, $actor, $remarks);
     }
 
@@ -87,6 +91,19 @@ class IncentiveApprovalService
         }
 
         return $this->moveTo($calculation, IncentiveCalculationStatus::Rejected, $actor, $remarks);
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-008): separation of duties. Whoever earns an incentive (the recruiter or
+     * the referring employee) never approves, marks payable, adjusts or pays it. Rejecting or
+     * reversing one's own incentive only lowers it and stays allowed. System runs (no actor) are
+     * unaffected. RecruiterIncentiveCalculationPolicy hides the same actions.
+     */
+    private function guardNotBeneficiary(RecruiterIncentiveCalculation $calculation, ?Employee $actor, string $action): void
+    {
+        if ($actor !== null && (int) $actor->id === (int) $calculation->employee_id) {
+            throw new DomainException("You cannot {$action} your own incentive; another approver must.");
+        }
     }
 
     /**
@@ -249,6 +266,8 @@ class IncentiveApprovalService
             throw new DomainException('A payment reference is required to record a payment.');
         }
 
+        $this->guardNotBeneficiary($calculation, $actor, 'pay');
+
         return DB::transaction(function () use ($calculation, $amount, $paymentDate, $reference, $actor, $remarks): RecruiterIncentiveCalculation {
             // A second "Record payment" (double click, two payers) waits here and then finds Paid.
             RowLock::fresh($calculation);
@@ -275,6 +294,8 @@ class IncentiveApprovalService
      */
     public function adjust(RecruiterIncentiveCalculation $calculation, float $amountDelta, string $reason, ?Employee $actor = null): RecruiterIncentiveCalculation
     {
+        $this->guardNotBeneficiary($calculation, $actor, 'adjust');
+
         return DB::transaction(function () use ($calculation, $amountDelta, $reason, $actor): RecruiterIncentiveCalculation {
             // Serialised with reverse(): a reversal always zeroes every adjustment committed before it.
             RowLock::fresh($calculation);

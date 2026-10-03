@@ -83,6 +83,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/Automation/AutomationRuleService.php,app/Services/Communication/CommunicationTemplateService.php | .ai/rules/services-communication.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Models/RecruiterIncentiveCalculation.php | .ai/rules/services-models-models-models.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Services/IncentiveApprovalService.php,app/Models/RecruiterIncentiveCalculation.php, app/Services/IncentiveApprovalService.php,app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveSlab.php, app/Services/RequisitionApprovalService.php,app/Services/StageTransitionService.php,app/Models/RecruitmentRejectionReason.php | .ai/rules/services-models.md |
+| app/Services/IncentiveApprovalService.php,app/Policies/RecruiterIncentiveCalculationPolicy.php | .ai/rules/services-policies.md |
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php,app/Services/InterviewService.php | .ai/rules/services-services.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |
 | app/Services/TalentPoolService.php,app/Filament/Resources/TalentPools/**,app/Filament/Resources/Candidates/Tables/CandidatesTable.php | .ai/rules/tables.md |
