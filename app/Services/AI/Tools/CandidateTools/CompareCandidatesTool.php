@@ -57,7 +57,9 @@ class CompareCandidatesTool implements AiTool
                 'applications',
                 fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
             ))
-            ->with(['applications' => fn ($q) => $q->with('requisition')->latest('application_date')->limit(1)])
+            // Phase 8.10 (P810-AI-11): the application compared is the latest one the user may see,
+            // never another team's (its stage and compensation fit are outside the user's scope).
+            ->with(['applications' => fn ($q) => $q->when($visibleIds !== null, fn ($a) => $a->whereIn('recruiter_id', $visibleIds))->with('requisition')->latest('application_date')->limit(1)])
             ->get(['id', 'full_name', 'total_experience', 'relevant_experience', 'skills', 'current_company', 'current_designation', 'expected_salary', 'notice_period_days']);
 
         if ($candidates->count() < 2) {
