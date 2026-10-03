@@ -26,8 +26,10 @@ Run during a quiet period. The procedure is consistent without stopping the app,
 2. **Database** — a consistent snapshot, without locking tables:
    ```sh
    docker compose exec -T db sh -c 'mysqldump --single-transaction --routines --triggers --hex-blob \
+     --no-tablespaces --set-gtid-purged=OFF --default-character-set=utf8mb4 \
      -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' | gzip > recruitment_edge_$(date -u +%Y%m%dT%H%M%SZ).sql.gz
    ```
+   Phase 8.10: `--no-tablespaces` is needed because, since MySQL 8.0.21, dumping tablespaces requires the PROCESS privilege, which the compose application user does not have. The application uses no general tablespaces. `--set-gtid-purged=OFF` keeps the dump restorable into a server with a different GTID state.
    For a point-in-time capability (an RPO below the backup interval), enable MySQL binary logging (`--log-bin`, `binlog_expire_logs_seconds`) and archive the binlogs. This is an infrastructure change, decided under D8.9-008/009.
 3. **Files** — immediately after the dump:
    ```sh
@@ -35,19 +37,43 @@ Run during a quiet period. The procedure is consistent without stopping the app,
      tar czf /backup/storage_$(date -u +%Y%m%dT%H%M%SZ).tar.gz -C /data .
    ```
    (The volume name carries the compose project prefix. `docker volume ls` shows it.)
-4. **Protect the copies:** encrypt them, because they hold personal data and compensation. Store them away from the host, under access control, and record where they are. Never put `APP_KEY` in the same place.
-5. **Verify the backup** (a backup that was never restored is not verified):
-   - `gunzip -t` the dump and `tar tzf` the archive;
-   - periodically, a full restore test into a throwaway environment (§3), with the checks in §3 step 6.
+4. **Protect the copies.** Encrypt them, because they hold personal data and compensation. The procedure tested in Phase 8.10 is symmetric GnuPG AES-256, which includes modification detection, with a passphrase file kept in the secret store:
+   ```sh
+   gpg --batch --pinentry-mode loopback --passphrase-file <key-file> --symmetric --cipher-algo AES256 \
+     -o <file>.gpg <file> && sha256sum *.gpg > SHA256SUMS
+   ```
+   Then remove the plaintext copies.
+   - Store the copies away from the host, under access control, and record where they are.
+   - Never put `APP_KEY`, or the backup key, in the same place as the backups.
+   - Where the copies are stored, how long they are kept, and who holds the key are owner decisions (D8.9-009, R-13).
+5. **Verify the backup.** A backup that was never restored is not verified.
+   - Run `sha256sum -c SHA256SUMS`, decrypt and `gunzip -t` the dump, and decrypt and `tar tzf` the archive.
+   - Periodically, run a full restore test into a throwaway environment (§3) with the checks in §3 step 6. Phase 8.10 rehearsed it like this:
+     - restore into a separate database and directory;
+     - compare tables, columns, indexes, foreign keys, CHECK constraints, row counts and per-column checksums with the source;
+     - compare every file's SHA-256;
+     - confirm every file path referenced by the database (for example `candidate_documents.file_path`, `offer_letters`) exists.
+     
+     See `docs/phase-8-10-release-readiness.md` §3.2.
+   - A modified archive fails both the checksum and GnuPG ("encrypted message has been manipulated"). A wrong key fails with "Bad session key". Treat either as a failed backup.
 
 ## 3. Restoring (procedure)
 
 1. **Decide the target point** (which backup) and record why. Restoring overwrites everything written since.
 2. **Stop writers:** `docker compose stop scheduler queue queue-priority queue-automation queue-background app`.
-3. **Database:**
+3. **Database.** First run `sha256sum -c SHA256SUMS`.
+   - **Restore into an empty database.** The dump drops and recreates only the tables it contains, never the database. Restoring an older backup over a newer schema would leave the newer tables behind, and the next `migrate` would fail.
+   - Recreate the database first:
+     ```sh
+     docker compose exec -T db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"'
+     ```
+     The compose form of these commands was not executed in Phase 8.10 (no container runtime). The compose `MYSQL_USER` normally holds `ALL` on its own database, which includes DROP and CREATE for it (INFERENCE).
+   - Then load the dump:
    ```sh
-   gunzip -c recruitment_edge_<stamp>.sql.gz | docker compose exec -T db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+   gpg --batch --pinentry-mode loopback --passphrase-file <key-file> -d recruitment_edge_<stamp>.sql.gz.gpg \
+     | gunzip | docker compose exec -T db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
    ```
+   For a release rollback, this restore of the pre-release backup is the recovery path, not `migrate:rollback`. Several migrations cannot undo their data changes; for example, permission grants persist (`docs/phase-8-10-release-readiness.md` §4.3).
 4. **Files:** restore the matching archive into the `storage-data` volume (`tar xzf … -C /data`). Then start the app once with `FIX_STORAGE_OWNERSHIP=true`, because restored files can be root-owned.
 5. **Start on a compatible release:** `APP_IMAGE_TAG=<release at backup time or later> docker compose up -d`. The `migrate` service applies any newer migrations.
 6. **Check before reopening:**
