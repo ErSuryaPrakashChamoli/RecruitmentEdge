@@ -456,3 +456,27 @@ No finding was accepted, deferred, marked duplicate or superseded in this round,
 | P810-DI-03, DI-09 | Medium | STILL OPEN | D8.10-010 / 017 |
 | P810-OP-13, OP-14 | Low | STILL OPEN | — |
 | Production delete-authorization gap (P89-OPS-012, SEC-86-I-01) | Critical (production) | STILL OPEN in production | Release A prepared, not deployed (Workstream A) |
+
+## 10. Final release readiness round (2026-10-03)
+
+The final review treated six known findings as **release blockers**:
+- the AI principle "humans decide";
+- guarantee 2 (AI scope) and guarantee 3 (no PII leak);
+- candidate visibility;
+- no privilege escalation;
+- incentive integrity.
+
+All six are **FIXED ON BRANCH, NOT DEPLOYED**, with no migration.
+
+| ID | Severity | Fix | Commit | Pre-fix check |
+|---|---|---|---|---|
+| P810-AI-01 | High | Every stored argument shown on the approval card; contract test over every approval-required tool. Approval friction stays with D8.10-012. | `30f252d` | the card test fails |
+| P810-AI-03 | Medium | AI output renders images as alt text (Copilot and conversation review) | `0fff14e` | both tests fail |
+| P810-AI-11 | Low | `compare_candidates` application scoped | `d6b8b07` | fails |
+| P810-SEC-006 | Medium | `ApplicationPicker` labels resolve within scope (all label resolvers audited) | `008f2d3` | fails |
+| P810-SEC-002 | Medium | Raster-only photos. The restriction must follow `avatar()`, which resets the types to `image/*`; the test caught the first placement. | `f0a018a` | fails |
+| P810-SEC-008 | Medium | The beneficiary never approves, marks payable, adjusts or pays their own incentive (policy and service) | `049799c` | 3 of 4 fail |
+
+**Final disposition of every finding** (A–G): `rms-final-release-candidate.md` §4. The §1 discovery counts are unchanged.
+
+**No new Critical or High finding.**

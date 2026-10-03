@@ -6,6 +6,7 @@
 - **Workstream A:** in progress. **NOT complete** (decision-gated, §2).
 - **Workstream C (security):** P810-SEC-001 and SEC-004 fixed on the branch (§6).
 - **Workstream D (data integrity):** P810-DI-01, DI-02 and DI-04 fixed on the branch (§7).
+- **Final release readiness (2026-10-03):** six release blockers fixed on the branch (§10). The application is a **release candidate** (`rms-final-release-candidate.md`). Production gates are owner and infrastructure actions.
 - **Production readiness is not declared by any workstream.**
 - Production: **NOT DEPLOYED / NOT CHANGED.**
 - Push: **NOT DONE.**
@@ -213,3 +214,27 @@ DI-03, 05, 06, 07, 08, 09 (Medium) and DI-10…13, 15, 16 (Low); DI-14 and DI-17
 | (this commit) | Documentation |
 
 Rules recorded in `.ai/rules`: `providers-services.md`, `intelligence-services.md`, `recruiter-incentive-calculations.md`, `app-services-services.md`, `candidate-joinings-factories.md`.
+
+## 10. Final release readiness round (2026-10-03)
+
+**Principle:** finish the RMS. Fix only genuine release blockers, verify the lifecycle end to end, classify everything else, and freeze.
+
+| Commit | Change |
+|---|---|
+| `30f252d` | P810-AI-01: approval card shows every parameter |
+| `0fff14e` | P810-AI-03: no images in AI output |
+| `d6b8b07` | P810-AI-11: `compare_candidates` application scope |
+| `008f2d3` | P810-SEC-006: application-picker label scope |
+| `f0a018a` | P810-SEC-002: raster-only photos |
+| `049799c` | P810-SEC-008: no self-approval, self-adjustment or self-payment of incentives |
+| `10fe3d9` | End-to-end hiring lifecycle test |
+| (docs commit) | Release candidate, post-RMS backlog, reconciled Phase 8.10 logs |
+
+- **Not done, by design:**
+  - no migration, no dependency change, no new architecture;
+  - no Low or Info fix except AI-11, which an explicit release guarantee required;
+  - no historical-data repair.
+- **Rules recorded:** `views-filament-pages.md` (approval card) and `services-policies.md` (incentive beneficiary).
+- **Classified, not fixed:**
+  - PM-01 (interview time zones) is an owner decision (D8.10-006) with an operational control.
+  - Everything else is in `post-rms-backlog.md` or the owner actions.

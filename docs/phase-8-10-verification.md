@@ -194,3 +194,70 @@ Fresh `git archive` trees; `composer install` from the production line's lock (L
 - The Docker image build and the in-image suite: no runner (D8.10-005).
 - The production line: none of the C or D fixes was applied to or tested on `9cba8e3`.
 - The full AI-provider browser smoke: no AI path changed.
+
+## 14. Final release readiness round (2026-10-03 / 04)
+
+**Baseline.** Verified before any change:
+- `feature/sep_25_hrm` @ `d87a607`, working tree clean.
+- Release commits `9cba8e3`, `2fab3fd` and `599f0c5` present.
+- No container builder (`docker`, `podman`, `buildah` absent).
+
+**Final code head:** `10fe3d9`. A documentation commit follows.
+
+### 14.1 Release blockers: pre-fix and post-fix
+
+| Fix | Tests | Without the fix |
+|---|---|---|
+| AI-01 `30f252d` | `ApprovalCardParametersTest` (2) | the card test fails |
+| AI-03 `0fff14e` | `AiOutputImageExfiltrationTest` (2) | both fail |
+| AI-11 `d6b8b07` | `CandidateToolsHierarchyScopingTest` (+1) | fails |
+| SEC-006 `008f2d3` | `ApplicationPickerTest` (+1) | fails |
+| SEC-002 `f0a018a` | `SEC8806UploadHardeningTest` (+1) | fails. The first placement (before `avatar()`) was silently overridden; the test exposed it. |
+| SEC-008 `049799c` | `P810SEC008IncentiveSelfApprovalTest` (4) | 3 of 4 fail; the other-approver path passes both ways |
+| End to end `10fe3d9` | `HiringLifecycleEndToEndTest` (1, 30 assertions) | — |
+
+### 14.2 Suites (local PHP 8.5.4)
+
+| Suite | Result |
+|---|---|
+| **Full suite, SQLite, parallel** (`10fe3d9`) | **2,136 passed, 21,998 assertions**, exit 0 |
+| AI (`tests/Feature/Ai` + `AiIdentitySecurityTest` + `SideEffectIdempotencyTest`) | 285 passed, 4,627 assertions |
+| Security (`tests/Feature/Security`) | 150 passed, 786 assertions |
+| Lifecycle (`tests/Feature/Lifecycle`, including the end-to-end test) | 85 passed, 484 assertions |
+| Data integrity (Integrity, Governance, incentive, referral, joining, conversion, Outcomes) | **267 passed, 1 failed** (1,238 assertions). The failure is `OutcomeHierarchyTest`, run after 00:00 IST. It is time-window dependent (P810-RC-04): reproduced at 18:33 UTC, passes at 10:00 UTC, and passed in the full run earlier the same day. |
+| **Full suite on MySQL 8.4** (first time; parallel ×6; throwaway `hrms_p810_rc*`, dropped) | **2,128 passed, 7 failed, 1 error**. All pre-existing MySQL-vs-SQLite differences: 6 JSON key-order assertions, 1 tie order (P810-RC-02), 1 real Low behaviour (P810-RC-01). `HiringLifecycleEndToEndTest` and every lifecycle, security and integrity test pass on MySQL. |
+| **MySQL concurrency** (`phpunit.concurrency.xml`, throwaway `hrms_p810_concurrency`, dropped) | First run 10 / 11: DQ-001 setup hit a department-code collision (P810-RC-03), not a race result. **Re-run 11 / 11, 43 assertions.** |
+
+### 14.3 Browser (real Chromium)
+
+The matrix re-ran every historical smoke plus the new release-candidate smoke, each on its own throwaway database (dropped afterwards). Smoke-created storage files were removed (7 files).
+
+| Smoke | Result | Note |
+|---|---|---|
+| p6 automation | 24 / 24 | |
+| p7 intelligence | 20 / 20 | |
+| p81 AI privacy | 12 / 12 | |
+| p82 outcomes | 20 / 20 | Seed updated to the DI-04 invariant: its joinings now have an accepted offer (`withAcceptedOffer()`) |
+| p83 lifecycle | 17 / 17 | |
+| p84 identity (MFA enforced) | 19 / 19 | Earlier runs: 17 / 19, then an aborted run. The login helper waited a fixed 2 s for the MFA step; it now waits for the outcome. Console message "showModal … already open" is known since Phase 8.8 (no functional effect). |
+| p85 metrics | 15 / 15 | |
+| p86 governance | 16 / 16 | |
+| p87 reliability | 15 / 15 | Re-run; the first run aborted on a navigation race after login |
+| p88c containment | 7 / 7 | |
+| p88a authentication | 19 / 19 | Re-run; the first run aborted on a navigation race after login |
+| p89 scale / observability | 18 / 18 | |
+| **p810rc release candidate** (non-local server, APP_URL pinned) | **18 / 18** | Re-run after scoping my own smoke's calculation count. The first run counted the seeded own-incentive row and had one login-timing failure. |
+
+**Totals:** 13 smokes, 220 checks, all passing in their final runs.
+
+The release-candidate smoke additionally covers:
+- the approval card showing stage and remarks (AI-01);
+- no request to the injected image host (AI-03);
+- no Approve on one's own incentive while the CHRO is offered it (SEC-008);
+- the C and D checks of §11.
+
+### 14.4 Not run
+
+- The Docker image build and the in-image suite: no container builder (D8.10-005).
+- Anything on production.
+- The production-line suite for Release A was **not re-run**. Its commits are unchanged since §6, and the diff was re-verified: 26 files, +454 / −0; no migrations, routes, dependencies or config.

@@ -3,6 +3,8 @@
 **For:** the project owner, Operations and Security. Use it to decide and run the production releases.
 
 **Status: NOT PRODUCTION READY. Workstream A is DECISION-GATED, not complete (§9).**
+
+**2026-10-03 final round:** the application release is a release candidate on `feature/sep_25_hrm` (`rms-final-release-candidate.md`). Its remaining gates are owner and infrastructure actions (§6 there). Phase 8.11 performs the production release.
 - Production: **NOT DEPLOYED / NOT CHANGED.**
 - Push: **NOT DONE.**
 - Nothing was merged into a production branch.
@@ -250,7 +252,7 @@ Once a runner exists, in this order:
 | Worker drain procedure verified | ◐ Laravel level verified; **Docker execution open** (D8.10-005) |
 | Deployment runbook corrected | ☑ `queue-operations.md` §1, `incident-recovery.md` §5, `backup-restore.md` |
 | Queue / scheduler / application health verified | ◐ verified on the upgraded rehearsal database (host); in-image open |
-| No unresolved Critical / High release-blocking security issue | ☐ **open:** production Critical until Release A is deployed; P810-SEC-001 and SEC-004 (High) are Workstream C |
-| No unresolved High data-integrity release blocker | ☐ **open:** DI-01, DI-02, DI-04 (Workstream D) |
+| No unresolved Critical / High release-blocking security issue | ◐ **Application release:** none open. SEC-001, SEC-004, SEC-015, AI-01 and the final-round blockers are FIXED ON BRANCH, NOT DEPLOYED (`rms-final-release-candidate.md` §3–§4). **Production:** the Critical delete-authorization gap and those Highs stay live until a release is deployed. |
+| No unresolved High data-integrity release blocker | ◐ **Application release:** none open. DI-01, DI-02 and DI-04 are FIXED ON BRANCH, NOT DEPLOYED. **Production:** unchanged until deployment. |
 | Release rollback / recovery documented | ☑ §8, runbooks |
 | All required decisions recorded | ☑ decision register (D8.10-002, 003, 005, 021; D8.9-007…010, 026, 028) |

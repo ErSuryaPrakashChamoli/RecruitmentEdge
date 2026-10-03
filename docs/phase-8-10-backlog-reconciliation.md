@@ -295,3 +295,9 @@ This section records status only. The discovery counts above are unchanged, and 
 | SEC-88-10 (no trusted proxy) | Still deferred (C) | — | Generated links no longer depend on `X-Forwarded-Host`; the scheme and Host-rewriting caveats are in D8.10-023 |
 
 **On the production line (`9cba8e3`, and Release A):** none of these fixes is present.
+
+## 7. Final release readiness (2026-10-03)
+
+- **Final disposition:** every Phase 8.10 finding has one: A (fixed), C (owner or infrastructure), D (post-RMS), E (accepted / documented), F (duplicate) or G (superseded). See `rms-final-release-candidate.md` §4.
+- **Post-RMS backlog:** non-blocking work is collected in `post-rms-backlog.md`. Every Open item in `docs/backlog.md` is post-RMS, except **production action** items, which are owner actions.
+- **Discovery counts:** unchanged. The proposed edits in §5 are still not applied.

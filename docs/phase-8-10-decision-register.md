@@ -500,6 +500,13 @@ The authorization "Phase 8.10 — Parallel Security & Data Integrity Hardening" 
 - **Owner input:** the production front end (part of D8.9-026).
 - **Tech rec.:** set APP_URL and APP_TRUSTED_HOSTS. Add the vhost rule once the production hostname is known, and re-open SEC-88-10 if a proxy exists.
 
+### Status at 2026-10-03 (final release readiness)
+- **D8.10-012:** the decision-independent floor is IMPLEMENTED (`30f252d`): the approval card shows every argument. The choice of extra friction (typed confirmation, second approver) is **still OPEN** and post-RMS.
+- **D8.10-006: OPEN, now an owner release action.** Until it is decided, schedule interviews manually and keep calendar and Zoom sync unconfigured (P810-PM-01, `rms-final-release-candidate.md` §6).
+- **D8.10-009:** unchanged: (a) event dates, (d) and (e) are OPEN. SEC-008 (`049799c`) adds separation of duties on approvals, adjustments and payments; it decides none of (a), (d) or (e).
+- **D8.10-022, D8.10-023:** unchanged, OPEN; no values invented.
+- **D8.10-010, 013, 014:** OPEN; their findings are dispositioned (D, and C for AI-15) in `rms-final-release-candidate.md` §4.
+
 ## 3. Summary
 
 | Group | Count |
