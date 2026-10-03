@@ -116,6 +116,7 @@ class TalentRediscoveryService
     public function addToRequisition(RediscoveryResult $result, User $actor): CandidateApplication
     {
         $this->guardSuggested($result);
+        $this->guardWithinReach($result, $actor);
         $requisition = $result->run->requisition;
 
         if (CandidateApplication::query()->where('candidate_id', $result->candidate_id)->where('requisition_id', $requisition->id)->exists()) {
@@ -159,6 +160,8 @@ class TalentRediscoveryService
             throw new DomainException('You cannot add candidates to this talent pool.');
         }
 
+        $this->guardWithinReach($result, $actor);
+
         app(TalentPoolService::class)->addCandidates($pool, [$result->candidate_id], $actor->employee, TalentPoolMemberSource::Rediscovery, "Talent Rediscovery for {$result->run->requisition->code}");
 
         return $this->markActioned($result, RediscoveryResultStatus::AddedToPool, $actor, "Added to pool {$pool->name}");
@@ -184,16 +187,39 @@ class TalentRediscoveryService
      */
     public function universe(RecruitmentRequisition $requisition, User $user): Builder
     {
+        return $this->withinReach($user)
+            ->whereDoesntHave('applications', fn (Builder $a) => $a->where('requisition_id', $requisition->id))
+            // Already hired: converted to an employee, or joined through any requisition.
+            ->whereDoesntHave('employee')
+            ->whereDoesntHave('applications', fn (Builder $a) => $a->whereIn('current_stage', RecruitmentRequisition::filledStageValues())->where('status', ApplicationStatus::Active));
+    }
+
+    /**
+     * Candidates the user may see, plus current members of talent pools the user may see.
+     *
+     * @return Builder<Candidate>
+     */
+    private function withinReach(User $user): Builder
+    {
         $visiblePools = TalentPool::query()->visibleTo($user)->select('id');
 
         return Candidate::query()
             ->where(fn (Builder $q) => $q
                 ->whereIn('candidates.id', Candidate::query()->visibleTo($user)->select('candidates.id'))
-                ->orWhereHas('talentPoolMemberships', fn (Builder $m) => $m->whereNull('removed_at')->whereIn('talent_pool_id', $visiblePools)))
-            ->whereDoesntHave('applications', fn (Builder $a) => $a->where('requisition_id', $requisition->id))
-            // Already hired: converted to an employee, or joined through any requisition.
-            ->whereDoesntHave('employee')
-            ->whereDoesntHave('applications', fn (Builder $a) => $a->whereIn('current_stage', RecruitmentRequisition::filledStageValues())->where('status', ApplicationStatus::Active));
+                ->orWhereHas('talentPoolMemberships', fn (Builder $m) => $m->whereNull('removed_at')->whereIn('talent_pool_id', $visiblePools)));
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-004): a requisition's latest run is shown to everyone who can open its
+     * intelligence page, but it was drawn from the reach of whoever ran it. Acting on a suggestion
+     * (adding to the requisition or a pool) needs the candidate to be within the actor's own
+     * reach, so a run by a wider-scoped colleague never brings anyone else into the actor's scope.
+     */
+    private function guardWithinReach(RediscoveryResult $result, User $actor): void
+    {
+        if (! $this->withinReach($actor)->whereKey($result->candidate_id)->exists()) {
+            throw new DomainException('This candidate is outside your team\'s candidates and talent pools. Ask whoever ran the rediscovery to add them.');
+        }
     }
 
     private function doNotContact(Candidate $candidate): bool

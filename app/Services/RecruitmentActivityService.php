@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\IncentiveCalculationStatus;
 use App\Models\AuditLog;
+use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
@@ -149,6 +150,9 @@ class RecruitmentActivityService
             }
 
             $data['candidate_id'] = $application->candidate_id;
+        } elseif (filled($data['candidate_id'] ?? null) && ! Candidate::query()->visibleTo($actor)->whereKey($data['candidate_id'])->exists()) {
+            // Phase 8.10 (P810-SEC-004): a candidate on its own must be one the actor can see.
+            throw new DomainException('Choose a candidate you can see.');
         }
 
         return [

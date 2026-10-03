@@ -15,11 +15,16 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class CandidatePicker
 {
+    /**
+     * Phase 8.10 (P810-SEC-004): limited to the candidates the current user may see — the options,
+     * the search, the selected label and Filament's server-side check of the submitted value all
+     * run through selectableCandidates(). Pages that persist the choice re-check it as well.
+     */
     public static function make(string $name = 'candidate_id'): Select
     {
         return Select::make($name)
             ->label('Candidate')
-            ->relationship('candidate', 'full_name')
+            ->relationship('candidate', 'full_name', modifyQueryUsing: fn (Builder $query): Builder => $query->whereIn('candidates.id', self::selectableCandidates()->select('candidates.id')))
             ->getOptionLabelFromRecordUsing(fn (Candidate $record): string => self::label($record))
             ->searchable(['full_name', 'mobile', 'candidate_code'])
             ->preload();

@@ -42,6 +42,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | composer.json, docker-compose.yml | .ai/rules/general.md |
 | app/Services/Governance/**,config/outcomes.php,config/metrics.php | .ai/rules/governance.md |
 | app/Services/Identity/** | .ai/rules/identity.md |
+| app/Filament/Resources/Candidates/Schemas/CandidatePicker.php,app/Filament/Resources/CandidateApplications/**,app/Filament/Resources/Candidates/RelationManagers/**,app/Services/Intelligence/TalentRediscoveryService.php,app/Services/RecruitmentActivityService.php | .ai/rules/intelligence-services.md |
 | app/Services/AI/Tools/IntelligenceTools/** | .ai/rules/intelligence-tools.md |
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
 | app/Jobs/** | .ai/rules/jobs.md |
