@@ -4,6 +4,7 @@ use App\Enums\CandidateStage;
 use App\Enums\EmployeeStatus;
 use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveTriggerEvent;
+use App\Enums\OfferStatus;
 use App\Enums\ReferralIncentiveStatus;
 use App\Enums\RequisitionStatus;
 use App\Filament\Pages\IncentiveDashboard;
@@ -11,10 +12,12 @@ use App\Models\AuditLog;
 use App\Models\CandidateSource;
 use App\Models\Employee;
 use App\Models\EmployeeReferral;
+use App\Models\Offer;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
+use App\Services\CandidateJoiningService;
 use App\Services\IncentiveStatementService;
 use App\Services\RecruiterIncentiveCalculator;
 use App\Services\ReferralService;
@@ -40,9 +43,15 @@ function acceptedReferral(Employee $referrer, Employee $recruiter, bool $eligibl
     return $service->accept($referral, $recruiter);
 }
 
+/**
+ * Phase 8.10 (P810-DI-02): the referred candidate joins through the real chain — an accepted
+ * offer, its joining record, Mark Joined — since the stage alone no longer counts as joining.
+ */
 function joinReferral(EmployeeReferral $referral): EmployeeReferral
 {
-    app(StageTransitionService::class)->transitionTo($referral->candidateApplication, CandidateStage::Joined);
+    $joinings = app(CandidateJoiningService::class);
+    $offer = Offer::factory()->create(['candidate_application_id' => $referral->candidate_application_id, 'status' => OfferStatus::Accepted]);
+    $joinings->markJoined($joinings->createForAcceptedOffer($offer), now());
 
     return $referral->fresh();
 }

@@ -3,6 +3,7 @@
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\IncentiveTriggerEvent;
+use App\Enums\OfferStatus;
 use App\Enums\ReferralIncentiveStatus;
 use App\Enums\ReferralRelationship;
 use App\Enums\ReferralStatus;
@@ -19,11 +20,13 @@ use App\Models\CandidateApplication;
 use App\Models\CandidateSource;
 use App\Models\Employee;
 use App\Models\EmployeeReferral;
+use App\Models\Offer;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
+use App\Services\CandidateJoiningService;
 use App\Services\DuplicateCandidateFoundException;
 use App\Services\ReferralService;
 use App\Services\StageTransitionService;
@@ -157,7 +160,9 @@ test('the referral follows its application through selection, offer, joining and
     $stages->transitionTo($application, CandidateStage::OfferReleased);
     expect($referral->fresh()->status)->toBe(ReferralStatus::OfferReleased);
 
-    $stages->transitionTo($application, CandidateStage::Joined);
+    // Phase 8.10 (P810-DI-02): joining is the joining record (accepted offer → joining → Mark Joined).
+    $joinings = app(CandidateJoiningService::class);
+    $joinings->markJoined($joinings->createForAcceptedOffer(Offer::factory()->create(['candidate_application_id' => $application->id, 'status' => OfferStatus::Accepted])), now());
     $referral->refresh();
 
     $calculation = RecruiterIncentiveCalculation::query()->where('incentive_rule_id', $rule->id)->sole();
@@ -176,7 +181,8 @@ test('a referral bonus is not calculated for an ineligible referral', function (
     $referral = $this->referrals->submit(Employee::factory()->create(), referredCandidateData(), ['relationship' => 'friend', 'incentive_eligible' => false], $this->requisition);
     $referral = $this->referrals->accept($referral, Employee::factory()->create());
 
-    app(StageTransitionService::class)->transitionTo($referral->candidateApplication, CandidateStage::Joined);
+    $joinings = app(CandidateJoiningService::class);
+    $joinings->markJoined($joinings->createForAcceptedOffer(Offer::factory()->create(['candidate_application_id' => $referral->candidate_application_id, 'status' => OfferStatus::Accepted])), now());
 
     expect($referral->fresh()->incentive_status)->toBe(ReferralIncentiveStatus::NotEligible)
         ->and(RecruiterIncentiveCalculation::query()->count())->toBe(0);

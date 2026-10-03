@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\EmployeeStatus;
+use App\Enums\JoiningStatus;
 use App\Enums\ReferralIncentiveStatus;
 use App\Enums\ReferralRelationship;
 use App\Enums\ReferralStatus;
@@ -17,11 +18,13 @@ use App\Events\ReferralSubmitted;
 use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
+use App\Models\CandidateJoining;
 use App\Models\CandidateSource;
 use App\Models\Employee;
 use App\Models\EmployeeReferral;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\RecruitmentRequisition;
+use App\Services\Lifecycle\RowLock;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 
@@ -35,6 +38,10 @@ use Illuminate\Support\Facades\DB;
  * The only writer of employee_referrals status/linkage. Never duplicates a Candidate Master
  * record: an existing candidate is referenced, and creating a new one over a strong duplicate
  * needs an audited justification (CandidateDuplicateDetector::recordOverride()).
+ *
+ * Phase 8.10 (P810-DI-02): "joined" means the application's joining record is Joined — never the
+ * pipeline stage alone — and the referral's joining date (the bonus's pricing date) is that
+ * record's. Referrals and bonuses written before this rule are left as they are.
  */
 class ReferralService
 {
@@ -192,44 +199,60 @@ class ReferralService
      * Brings the referral's pipeline status in line with its application: never backwards, never
      * out of Closed. Called for every CandidateStageChanged (see SyncReferralsWithApplication).
      * Reaching Joined prices the referral bonus through the existing incentive engine.
+     *
+     * Phase 8.10 (P810-DI-02): CandidateStageChanged is dispatched after commit, so two syncs of one
+     * referral can run at once. Each locks the referral and decides on the committed referral,
+     * application and joining record — never on the copies it was handed — so a late sync can
+     * neither move a referral backwards nor reopen a closed outcome.
      */
     public function syncFromApplication(EmployeeReferral $referral, ?CandidateApplication $application = null): EmployeeReferral
     {
-        $application ??= $referral->candidateApplication;
+        $applicationId = $application?->id ?? $referral->candidate_application_id;
 
-        if ($application === null || $referral->status === ReferralStatus::Closed) {
+        if ($applicationId === null) {
             return $referral;
         }
 
-        $target = match (true) {
-            $application->status === ApplicationStatus::Rejected => ReferralStatus::Rejected,
-            $application->status === ApplicationStatus::Dropout => ReferralStatus::DidNotJoin,
-            $application->current_stage->order() >= CandidateStage::Joined->order() => ReferralStatus::Joined,
-            $application->current_stage->order() >= CandidateStage::OfferReleased->order() => ReferralStatus::OfferReleased,
-            $application->current_stage->order() >= CandidateStage::Selected->order() => ReferralStatus::Selected,
-            default => ReferralStatus::InProcess,
-        };
+        return DB::transaction(function () use ($referral, $applicationId): EmployeeReferral {
+            RowLock::fresh($referral);
+            $application = CandidateApplication::query()->find($applicationId);
 
-        $reopened = ! $referral->status->isOpen() && $target->isOpen() && $application->status === ApplicationStatus::Active;
+            if ($application === null || $referral->status === ReferralStatus::Closed) {
+                return $referral;
+            }
 
-        if ($target === $referral->status || (! $reopened && $target->progress() < $referral->status->progress())) {
+            $joining = $this->joinedRecord($application);
+
+            $target = match (true) {
+                $application->status === ApplicationStatus::Rejected => ReferralStatus::Rejected,
+                $application->status === ApplicationStatus::Dropout => ReferralStatus::DidNotJoin,
+                $joining !== null => ReferralStatus::Joined,
+                $application->current_stage->order() >= CandidateStage::OfferReleased->order() => ReferralStatus::OfferReleased,
+                $application->current_stage->order() >= CandidateStage::Selected->order() => ReferralStatus::Selected,
+                default => ReferralStatus::InProcess,
+            };
+
+            $reopened = ! $referral->status->isOpen() && $target->isOpen() && $application->status === ApplicationStatus::Active;
+
+            if ($target === $referral->status || (! $reopened && $target->progress() < $referral->status->progress())) {
+                return $referral;
+            }
+
+            $attributes = match ($target) {
+                ReferralStatus::Joined => ['joining_date' => $joining->actual_doj ?? $joining->expected_doj],
+                ReferralStatus::Rejected => ['rejection_reason_id' => $application->rejection_reason_id],
+                ReferralStatus::DidNotJoin => ['incentive_status' => $referral->incentive_eligible ? ReferralIncentiveStatus::Forfeited : $referral->incentive_status],
+                default => [],
+            };
+
+            $referral = $this->writeStatus($referral, $target, $attributes, null, 'Updated from application '.$application->application_code);
+
+            if ($target === ReferralStatus::Joined) {
+                $this->priceReferralBonus($referral);
+            }
+
             return $referral;
-        }
-
-        $attributes = match ($target) {
-            ReferralStatus::Joined => ['joining_date' => $application->joining?->actual_doj ?? now()->toDateString()],
-            ReferralStatus::Rejected => ['rejection_reason_id' => $application->rejection_reason_id],
-            ReferralStatus::DidNotJoin => ['incentive_status' => $referral->incentive_eligible ? ReferralIncentiveStatus::Forfeited : $referral->incentive_status],
-            default => [],
-        };
-
-        $referral = $this->writeStatus($referral, $target, $attributes, null, 'Updated from application '.$application->application_code);
-
-        if ($target === ReferralStatus::Joined) {
-            $this->priceReferralBonus($referral);
-        }
-
-        return $referral;
+        });
     }
 
     public function syncForStageChange(CandidateStageChanged $event): void
@@ -283,7 +306,7 @@ class ReferralService
             $application === null => 'The referred candidate is not in the pipeline.',
             $referral->status !== ReferralStatus::Joined,
             $application->status !== ApplicationStatus::Active,
-            $application->current_stage->order() < CandidateStage::Joined->order() => 'The referred candidate has not joined.',
+            $this->joinedRecord($application) === null => 'The referred candidate has not joined.',
             $referral->referrer_id === $application->recruiter_id => 'The referrer is the recruiter on this application and is paid through recruiter incentives.',
             $referral->referrer?->status === EmployeeStatus::Inactive => 'The referring employee is no longer active.',
             default => null,
@@ -335,6 +358,18 @@ class ReferralService
         }
 
         return $referral;
+    }
+
+    /**
+     * The application's joining record when it is Joined — the one authoritative fact that the
+     * referred candidate joined.
+     */
+    private function joinedRecord(CandidateApplication $application): ?CandidateJoining
+    {
+        return CandidateJoining::query()
+            ->where('candidate_application_id', $application->id)
+            ->where('status', JoiningStatus::Joined)
+            ->first();
     }
 
     private function priceReferralBonus(EmployeeReferral $referral): void

@@ -194,7 +194,15 @@ class RecruiterIncentiveCalculator
             return collect();
         }
 
-        $eventDate = $referral->joining_date ?? $application->joining?->actual_doj ?? now();
+        // Phase 8.10 (P810-DI-02): the joining record, not the pipeline stage, says the candidate
+        // joined, and dates the bonus when the referral carries no joining date.
+        $joining = CandidateJoining::query()->where('candidate_application_id', $application->id)->first();
+
+        if ($joining?->status !== JoiningStatus::Joined) {
+            throw new DomainException('Referral bonuses are priced only once the referred candidate has joined.');
+        }
+
+        $eventDate = $referral->joining_date ?? $joining->actual_doj ?? $joining->expected_doj;
 
         return $this->calculate($application, IncentiveTriggerEvent::ReferralJoining, $eventDate, $referral->referrer, $referral);
     }
