@@ -108,9 +108,89 @@ Fresh `git archive` trees; `composer install` from the production line's lock (L
 |---|---|
 | Full suite, parallel (local PHP 8.5.4) | **2,073 passed, 21,596 assertions**, exit 0, 0 new files under `storage/app`. That is 2,064 + 8 (`QueueDrainStatusTest`) + 1 (runbook order). |
 
-## 8. Not run in this round
+## 8. Not run in the Workstream A round
 
 - Docker image build or in-image suite: no runner (D8.10-005).
 - Browser suite.
 - MySQL concurrency suite: no concurrency code changed in Workstream A.
 - A1 backup / restore and the A4 rehearsal were not re-run (accepted evidence, §3–§4).
+
+## 9. Workstream C: security (local PHP 8.5.4; SQLite suite)
+
+| Run | Result |
+|---|---|
+| `P810SEC001PasswordLinkOriginTest` | 8 passed, 47 assertions |
+| SEC-001 with the root pin removed | **4 failed / 8**: the portal and staff links for the forged Host and the forged `X-Forwarded-Host` point at `evil.example` |
+| Full suite after C1 | 2,081 passed, 21,643 assertions |
+| `P810SEC004CandidateScopeTest` | 11 passed |
+| SEC-004 with the `app/` changes stashed (pre-fix) | **9 failed / 11**. The authorized path and the already-scoped bulk path pass both ways, as expected. |
+| Full suite after C2 | 2,092 passed, 21,704 assertions |
+
+## 10. Workstream D: data integrity
+
+| Run | Result |
+|---|---|
+| `DI01ManualIncentiveCalculationTest` | 9 passed, 64 assertions |
+| DI-01 mutation: cross-period guard removed | 2 failed (later-month runs create a second calculation) |
+| DI-01 mutation: lifecycle preconditions removed | 4 failed (3 triggers + the Filament refusal) |
+| `DI02ReferralBonusJoiningRecordTest` | 10 passed |
+| DI-02 on the pre-fix services | **5 failed / 10** (stage-only Joined ×2, direct pricing, cached copy, stale reopen). The others are regression guards for valid joining, rejection, dropout, duplicates and history. |
+| `DI04JoiningFollowsAcceptedOfferTest` | 13 passed, 77 assertions |
+| DI-04 on the pre-fix service and pages | **13 failed / 13**. Meaningful failures: Mark Joined ×3 proceeds; the create page accepts an application without an accepted offer and stores a submitted offer. |
+| Full suite after D1 / D2 / D3 | 2,101 / 2,111 / 2,124 passed |
+
+### 10.1 MySQL concurrency, MySQL 8.4.11, throwaway database `hrms_p810_concurrency` (dropped afterwards)
+
+`tests/Concurrency/IntegrityRace810Test.php` (new). Each test forks a real second process with `pcntl`.
+
+| Race | With the fix | Pre-fix or mutation |
+|---|---|---|
+| DI-01: two calculations of one selection priced in different months | blocked, completed, **1** calculation | pre-fix calculator: **2** calculations (fails) |
+| DI-02: a late referral sync, holding the Offer Released copy, racing the join | blocked; referral **Joined**, 1 "→ Joined" entry, 1 bonus | pre-fix: referral regressed to **Offer Released** with a bonus priced (fails). Referral lock removed: **2** "→ Joined" entries (fails). |
+| DI-04: a manual joining created while the offer is accepted | blocked; the loser gets DomainException "already has a joining record"; **1** joining on the offer; the loser wrote no audit row (rolled back) | application lock and check removed: the contender never blocks (fails). Pre-fix: `createForApplication` does not exist. |
+| **Whole concurrency suite** (Phase 8.9 + 8.10) | **11 passed, 43 assertions** | — |
+
+**Harness notes:**
+- The first DI-02 race design (a stage-only Joined racing a dropout) passed on the pre-fix code too. The deferred sync priced only after the dropout had committed, so the outcome depended on timing. It was replaced by the deterministic lost-update race above.
+- DI-01, DI-02 and DI-04 are not themselves race-sensitive. The races prove the new guards hold under concurrency.
+
+## 11. Browser (real Chromium, Playwright), throwaway database `hrms_p810_smoke` (dropped afterwards)
+
+**Setup:**
+- `APP_ENV=staging` (non-local, so the SEC-001 pin is active).
+- `APP_URL` equals the served origin `http://127.0.0.1:8810`.
+- `QUEUE_CONNECTION=database`, no workers, so the portal mail job stays readable.
+
+**Result: 14 / 14 checks passed. No page errors and no 5xx.**
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Recruiter signs in; the panel renders with APP_URL pinned | PASS |
+| 2–3 | The candidate picker lists and finds the team's candidates, never the other team's | PASS |
+| 4 | The recruiter select lists only the user and their team | PASS |
+| 5 | Creating an application for the team's candidate works | PASS |
+| 6–7 | The New joining form has no offer field and offers only applications with an accepted offer and no joining | PASS |
+| 8 | The joining is created for the accepted offer and audited | PASS |
+| 9 | Mark Joined on a joining without an accepted offer is refused; status and stage unchanged | PASS |
+| 10 | VP HR "Calculate Incentives" before Selected is refused, audited, and prices nothing | PASS |
+| 11 | Portal forgot-password with a forged Host, and with a forged `X-Forwarded-Host`, is accepted (302) | PASS ×2 |
+| 12 | Both emailed links point at `127.0.0.1:8810`, never `evil.example` | PASS |
+| 13 | The emailed link opens the set-password page | PASS |
+
+**Not covered in the browser:** the staff reset email under a forged Host (a browser cannot forge Host on a Livewire call). The feature test covers it end to end over HTTP.
+
+## 12. Final runs (HEAD `198bbf3`, before the documentation commit)
+
+| Suite | Result |
+|---|---|
+| Full suite, parallel | **2,124 passed, 21,875 assertions**, exit 0, 0 new files under `storage/app` |
+| Security (`tests/Feature/Security`) | 145 passed, 760 assertions |
+| Data integrity (`Integrity`, `Governance`, `Lifecycle`, incentive, referral and joining suites) | 280 passed, 1,320 assertions |
+| MySQL concurrency (`phpunit.concurrency.xml`) | 11 passed, 43 assertions |
+| Pint | clean |
+
+## 13. Not run in the Workstream C / D round
+
+- The Docker image build and the in-image suite: no runner (D8.10-005).
+- The production line: none of the C or D fixes was applied to or tested on `9cba8e3`.
+- The full AI-provider browser smoke: no AI path changed.

@@ -276,3 +276,22 @@ The following edits need approval. None changes an item's substance.
 4. Record DQ-88-06 (resume) as a false positive.
 5. Add the new Phase 8.10 discovery findings that are not scheduled for implementation (see `phase-8-10-discovery.md` §15, group I).
 6. Re-label P82-BACKLOG-006 as accepted, keeping its history.
+
+## 6. Phase 8.10 implementation status: Workstreams C and D (2026-10-03)
+
+This section records status only. The discovery counts above are unchanged, and the proposed edits in §5 are still not applied.
+
+| Item | Status | Commit | Note |
+|---|---|---|---|
+| P810-SEC-001 (High) | **FIXED** on the branch | `6ead373` | Production values: D8.10-023 |
+| P810-SEC-004 (High) | **FIXED** on the branch | `88df53a` | — |
+| P810-SEC-009 (Low) | Partly fixed | `88df53a` | Application-create recruiter selects only |
+| P810-SEC-016 (Low, new) | OPEN | — | Rediscovery shows names from the runner's reach |
+| P810-DI-01 (High) | **FIXED** on the branch | `2404763`, `198bbf3` | Event dates (D8.10-009(a)) and the DB index (D8.10-022) remain |
+| P810-DI-02 (High) | **FIXED** on the branch | `1a40e6c` | Includes P810-DI-02-01 (sync race) |
+| P810-DI-04 (High) | **FIXED** on the branch | `612c7a9` | D8.10-011 (a) |
+| TD-06 (P0: incentive and joining integrity) | DI-01, 02 and 04 delivered | as above | DI-07 / 08 remain under D8.10-009 (d)/(e) |
+| E-01 (service-only mutations) | Advanced, not complete | `2404763`, `612c7a9` | Manual incentive calculation and joining creation now go through their services. DI-09 and others remain. |
+| SEC-88-10 (no trusted proxy) | Still deferred (C) | — | Generated links no longer depend on `X-Forwarded-Host`; the scheme and Host-rewriting caveats are in D8.10-023 |
+
+**On the production line (`9cba8e3`, and Release A):** none of these fixes is present.

@@ -2,8 +2,9 @@
 
 **For:** the project owner, Security and Engineering.
 
-**Status: discovery only.**
-- No fix has been implemented, and no code, configuration, route, migration or test was changed.
+**Status: discovery (§1–§7); implementation results in §8–§9.**
+- §1–§7 are the discovery review. Their counts are not changed by later fixes.
+- Implementation results are recorded in §8 (dependency advisories, production-line authorization) and §9 (Workstream C, 2026-10-03, with the classification of every finding).
 - Baseline: `feature/sep_25_hrm` @ `5d522df` (Phase 8.9 frozen; application code `1acd789`).
 - This is a fresh review. It does not repeat the Phase 8.9 findings. Known items that are still open are listed in §6 with their existing IDs.
 
@@ -319,3 +320,139 @@ These are not part of the discovery counts in §1.
   - the four hotfix tests fail 4 / 4 on `9cba8e3` and pass on `599f0c5`.
   
   **The production Critical stays open until Release A is deployed.** Deployment is gated by D8.10-021 (build route: the production Dockerfile pins PHP 8.3) and D8.10-005. Release A keeps the production line's dependency versions, so P810-SEC-015 also remains open in production until Release B, or an explicit decision.
+
+## 9. Workstream C: security hardening (2026-10-03)
+
+- **Authorised by:** "Phase 8.10 — Parallel Security & Data Integrity Hardening".
+- **Branch:** `feature/sep_25_hrm`. Not merged, not pushed, not deployed.
+- **Production line:** `9cba8e3` (and Release A) still carry SEC-001 and SEC-004.
+- **Discovery counts:** §1 is unchanged.
+
+### 9.1 P810-SEC-001: FIXED on the branch (`6ead373`)
+
+**Original finding:** §2.
+
+**Root cause (FACT):** absolute URLs, including the emailed signed links, took their host from the request (`UrlGenerator::formatRoot` → `request->root()`). Nothing pinned the host, and the vhost answers any Host.
+
+**Path traced:**
+
+| Link | Path | Built in |
+|---|---|---|
+| Candidate set-password | `POST portal/password/forgot` → `PasswordController::sendLink` → `CandidatePortalService::sendPasswordLink` → `passwordLink()` (`URL::temporarySignedRoute`) → `CandidatePortalLink` (queued, encrypted) | the anonymous request |
+| Staff reset | Filament `RequestPasswordReset::request()` → `Filament::getResetPasswordUrl()` (`URL::signedRoute`) → `ResetPassword` notification (queued, encrypted) | the anonymous request |
+| Other signed links (`InterviewSchedulingService`, `SchedulingController`, `PrivateFileController`) | same generator | staff or signed-link contexts |
+
+- `X-Forwarded-Host` is ignored today because no proxy is trusted (SEC-88-10). It would be honoured as soon as one is.
+
+**Fix (the trusted-origin strategy):**
+- **Pinned root.** Outside `local`, `AppServiceProvider::configureTrustedOrigin()` calls `URL::forceRootUrl(config('app.url'))`.
+  - Every generated absolute URL takes APP_URL's host and base path.
+  - The scheme still follows the request, so the `signed` middleware (which checks against the request URL) keeps matching.
+- **Optional `APP_TRUSTED_HOSTS`.** `config('app.trusted_hosts')`: exact names, anchored in `bootstrap/app.php`.
+  - When set, a request for any other Host is refused with 400.
+  - Unset, behaviour is unchanged.
+  - Documented in `.env.example`; no production value is hard-coded.
+- **No redirect added.** `back()` and `intended()` are unchanged, so no open redirect is introduced.
+
+**Tests:** `tests/Feature/Security/P810SEC001PasswordLinkOriginTest.php` (8).
+- The portal and staff links are requested on the application host, on a forged Host, and with a forged `X-Forwarded-Host` through a trusted proxy. Each link uses APP_URL's host and opens.
+- With a trusted-host list set, other hosts (including a suffix trick) are refused, and the listed hosts and `/up` on `localhost` are served.
+- With no list, any host is served.
+
+**Verification:**
+- With the pin removed, the 4 forged-origin cases fail (the link host becomes `evil.example`).
+- Full suite passes.
+- Browser (non-local server, APP_URL = the served origin): panel and portal work, and forged Host and `X-Forwarded-Host` requests produce links to APP_URL that open (`phase-8-10-verification.md` §11).
+
+**Remaining limitations and environment requirements (documented, not hard-coded):**
+- `APP_URL` must be the public origin, including any base path, in every non-local environment. Serving the panel under another hostname is not supported: Livewire and assets use APP_URL.
+- **Scheme:** it follows the request. Behind an untrusted TLS-terminating proxy, links are `http://`, as today. Configure trusted proxies (SEC-88-10) or HTTPS end to end; only then consider forcing the scheme.
+- **Host-rewriting proxy:** if a proxy rewrites Host, signed links fail validation until trusted proxies are configured.
+- **Production hostname needed:** `APP_TRUSTED_HOSTS` and a vhost `ServerName` with a default reject vhost both need it (D8.9-026). The list must include `localhost` for the compose health check.
+- **Local:** the `local` environment keeps request-based links.
+- **Production line:** not fixed.
+
+**Status:** FIXED on the branch; OPEN on the production line.
+
+### 9.2 P810-SEC-004: FIXED on the branch (`88df53a`)
+
+**Original finding:** §3.
+
+**Root cause (FACT):** the candidate picker used an unscoped relationship, and application creation re-checked only the requisition. Candidate visibility derives from applications, so creating one acquires the candidate.
+
+**Every acquisition path, traced from UI to persistence:**
+
+| Path | Before | After |
+|---|---|---|
+| `CandidatePicker::make()` (application form, daily-activity form) | every candidate listed, searched and labelled | scoped through `selectableCandidates()`: options, search, label and Filament's server-side check of the submitted value |
+| Application create page | requisition check only | adds `CreateCandidateApplication::ensureCandidateAndRecruiterInScope()`: the candidate must be visible, and the recruiter must be the user or their team (the Reassign-recruiter rule). The recruiter select is scoped. |
+| Candidate page "New application" (relation manager) | recruiter unscoped | the same guard and a scoped select; the candidate is the already-authorized owner record |
+| Talent Rediscovery: add to requisition or pool | any result of the requisition's latest run, including a wider-scoped colleague's run | the candidate must be within the actor's own reach (visible, or in a visible pool) |
+| Daily activity (`RecruitmentActivityService`) | a candidate without an application was unchecked | must be visible |
+| `CandidatePicker::scoped()` / `multiple()`, talent-pool members, Send message | scoped | unchanged |
+| Bulk add-to-pool | records from the scoped table query | unchanged (regression test) |
+| Global search, command palette | `getEloquentQuery()` | unchanged |
+| Copilot candidate tools | scoped by visible recruiters (AI-11 open) | unchanged |
+| Referral acceptance | explicit, reviewed and audited cross-team channel | by design |
+| Careers apply | anonymous self-application (SEC-88-01 hardening) | by design |
+
+**Tests:** `tests/Feature/Security/P810SEC004CandidateScopeTest.php` (11). They cover:
+- the authorized path;
+- unauthorized submissions (a tampered candidate, a tampered recruiter);
+- cross-manager access, and the cross-hierarchy server guard past the form;
+- a direct request (a Livewire payload);
+- alternate endpoints (the candidate-page action, rediscovery);
+- the bulk path;
+- persistence (the activity log; no application is written).
+
+**Verification:**
+- 9 of the 11 fail without the fix. The authorized path and the already-scoped bulk path pass both ways, as expected.
+- Browser smoke checks 2–5.
+
+**Remaining limitations:**
+- `CandidateApplication` still has no `created_by` and is not Auditable. That needs a migration and was not done.
+- SEC-006 (the application-picker label leak) remains; it was not in this authorization.
+- Rediscovery results show names from the runner's reach: P810-SEC-016, below.
+- Talent-pool sharing remains a designed cross-team reach (Phase 7).
+- The production line is not fixed.
+
+**Status:** FIXED on the branch.
+
+### 9.3 Found during Workstream C (not in the discovery counts)
+
+- **P810-SEC-016 (Low, NEW):** Talent Rediscovery's latest run is shown on the requisition intelligence page to anyone who can open it, and it lists candidate names from the reach of whoever ran it.
+  - Acting on those results is now refused (§9.2).
+  - Names only.
+  - **Status:** OPEN. Recommendation: show only the results within the viewer's reach.
+
+**No new Critical or High finding.**
+
+### 9.4 Classification of the Phase 8.10 security findings (2026-10-03)
+
+No finding was accepted, deferred, marked duplicate or superseded in this round, because no such decision was made.
+
+| ID | Severity | Status | Note |
+|---|---|---|---|
+| P810-SEC-001 | High | **FIXED** (branch, `6ead373`) | Open on the production line |
+| P810-SEC-002 | Medium | STILL OPEN | — |
+| P810-SEC-003 | Low | STILL OPEN | Align, or accept under D8.8-002 / 003 |
+| P810-SEC-004 | High | **FIXED** (branch, `88df53a`) | Open on the production line |
+| P810-SEC-005 | Low | STILL OPEN | Known: 8.5 RR-1 |
+| P810-SEC-006 | Medium | STILL OPEN | Not in this authorization |
+| P810-SEC-007 | Low | STILL OPEN | — |
+| P810-SEC-008 | Medium | STILL OPEN | D8.10-009, separation of duties |
+| P810-SEC-009 | Low | STILL OPEN, **partly fixed** | The application-create recruiter selects and their server check are fixed by `88df53a`. Follow-up, manual activity, talent-pool owner and requisition form remain. |
+| P810-SEC-010 | Low | STILL OPEN | — |
+| P810-SEC-011 | Low | STILL OPEN | Known: E-06 residual |
+| P810-SEC-012 | Info | STILL OPEN | Needs a decision |
+| P810-SEC-013 | Info | STILL OPEN | — |
+| P810-SEC-014 | Low | STILL OPEN | — |
+| P810-SEC-015 | High (advisory) | **FIXED** (branch, `ae48029`) | Open on the production line |
+| P810-SEC-016 | Low | STILL OPEN (new) | §9.3 |
+| P810-DI-04 (cross-reference) | High | **FIXED** (branch, `612c7a9`) | Workstream D |
+| P810-AI-01 (cross-reference) | High | STILL OPEN | D8.10-012; outside C and D |
+| P810-AI-02, AI-03, AI-05 | Medium | STILL OPEN | AI workstream |
+| P810-AI-06, AI-11 | Low | STILL OPEN | — |
+| P810-DI-03, DI-09 | Medium | STILL OPEN | D8.10-010 / 017 |
+| P810-OP-13, OP-14 | Low | STILL OPEN | — |
+| Production delete-authorization gap (P89-OPS-012, SEC-86-I-01) | Critical (production) | STILL OPEN in production | Release A prepared, not deployed (Workstream A) |

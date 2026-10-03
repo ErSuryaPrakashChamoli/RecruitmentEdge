@@ -462,11 +462,49 @@ Engineering does not set any of these values. The tested procedure is in `phase-
 - **D8.10-003:** OPEN. The rehearsal is accepted as "successful, production baseline not verified". The owner must accept that limited rehearsal or provide production facts.
 - **D8.9-026:** **OWNER / INFRASTRUCTURE INPUT REQUIRED.** The exact facts to collect are in `phase-8-10-release-readiness.md` §6.
 
+### Status at 2026-10-03 (Workstreams C and D)
+
+The authorization "Phase 8.10 — Parallel Security & Data Integrity Hardening" settled these parts. Each is implemented on the branch only.
+
+- **D8.10-009 (incentive eligibility):**
+  - **(a) Preconditions: DECIDED and IMPLEMENTED** (`2404763`). Selection needs Selected, Offer accepted needs an Accepted offer, Joining needs a Joined joining. **Event dates: still OPEN.** Manual Selection and Offer-accepted pricing still uses the day of the run; changing it moves incentives between periods, so it is a business rule.
+  - **(b) One calculation per occurrence: DECIDED and IMPLEMENTED** under the rule lock. The DB index is D8.10-022.
+  - **(c) Referral bonus anchored on the joining record: DECIDED and IMPLEMENTED** (`1a40e6c`). No historical recalculation.
+  - **(d) payment reconciliation and (e) retention checks: OPEN** (DI-07, DI-08).
+- **D8.10-011 (manual joining): option (a) IMPLEMENTED** (`612c7a9`). No joining without an accepted offer.
+  - The recovery for an accepted offer whose joining is missing stays, through `CandidateJoiningService::createForApplication()`.
+  - No offer-less emergency path exists. If the business needs one, option (b) is required: explicit permission, reason, audit, provenance, a hierarchy restriction and a second approver.
+  - Pending joinings created by hand before this change can no longer be marked Joined until an offer is accepted through `OfferService`.
+
+### D8.10-022: Database uniqueness for one incentive per occurrence (added 2026-10-03)
+- **Decision required:** whether to add a unique index on `recruiter_incentive_calculations (incentive_rule_id, candidate_application_id)`.
+- **Why:** P810-DI-01 now enforces one calculation per rule and application in the service, under the rule's row lock. This is proven on MySQL, and every pricing path goes through that lock. A DB constraint would also bind any future path that skips the service.
+- **Blocker (STOP condition):**
+  - Existing data may already hold cross-month duplicates (the DI-01 defect).
+  - The index needs a duplicate report first, and a decision on each duplicate (none may be altered without approval: historical incentive records).
+- **Migration if approved:**
+  - the exact index;
+  - a pre-check query listing duplicate (rule, application) pairs, with their status and amount;
+  - a cleanup strategy decided by Finance (no automatic merge);
+  - rollback: drop the index.
+- **Production impact:** an online index build on a small table; unknown until the production row count is known (D8.9-026).
+- **Tech rec.:** run the duplicate report on production data first. Add the index only if it is empty, or after Finance resolves each pair.
+
+### D8.10-023: Production trusted-origin configuration (added 2026-10-03)
+- **Decision required:** the production values that P810-SEC-001 depends on. They are environment-specific and are not hard-coded.
+  - `APP_URL`: the exact public origin, including any base path.
+  - `APP_TRUSTED_HOSTS`: the exact host names, plus `localhost` for the compose health check. It is optional and refuses other Hosts with 400.
+  - Apache: a `ServerName` and a default virtual host that rejects unknown hosts (the shipped vhost answers any Host).
+  - Whether TLS terminates in front of Apache. If it does, trusted proxies are required (SEC-88-10), or links stay `http://` and a Host-rewriting proxy breaks signed links.
+- **Why:** since `6ead373`, links use APP_URL's host in every non-local environment, so a wrong APP_URL breaks every emailed link. The scheme still follows the request.
+- **Owner input:** the production front end (part of D8.9-026).
+- **Tech rec.:** set APP_URL and APP_TRUSTED_HOSTS. Add the vhost rule once the production hostname is known, and re-open SEC-88-10 if a proxy exists.
+
 ## 3. Summary
 
 | Group | Count |
 |---|---|
-| New Phase 8.10 decisions (D8.10-001…019 at discovery; D8.10-020 and D8.10-021 added during implementation) | **19 + 2** |
+| New Phase 8.10 decisions (D8.10-001…019 at discovery; D8.10-020…023 added during implementation) | **19 + 4** |
 | Earlier decisions still open that block production | D8.9-007…010, 028, 026, 027 → D8.10-002 |
 | Earlier decisions that block parts of the proposed 8.10 scope | D8.9-016, D8.9-015, D8.9-014 / 018, D8.8-005…007, D8.8-RETENTION-001, D8.8-EXPORT-001 |
 | Earlier decisions needing reconsideration | D8.9-022 (image defect, first-release size), D8.9-027 (→ D8.10-002), D8.8-038 (→ D8.10-006), D8.6-006 (widen) |

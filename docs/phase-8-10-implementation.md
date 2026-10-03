@@ -2,7 +2,11 @@
 
 **For:** the project owner, Security, Operations and Engineering.
 
-**Status: Workstream A in progress. NOT complete (decision-gated, §2).**
+**Status:**
+- **Workstream A:** in progress. **NOT complete** (decision-gated, §2).
+- **Workstream C (security):** P810-SEC-001 and SEC-004 fixed on the branch (§6).
+- **Workstream D (data integrity):** P810-DI-01, DI-02 and DI-04 fixed on the branch (§7).
+- **Production readiness is not declared by any workstream.**
 - Production: **NOT DEPLOYED / NOT CHANGED.**
 - Push: **NOT DONE.**
 - No production branch has been merged.
@@ -79,3 +83,133 @@
 | (P810-OP-03 commits) | `feature/sep_25_hrm` | `queue:drain-status` + `QueueHealthService::drainState()` + tests; deploy runbook drain and rollback; the recorded rule `.ai/rules/console-commands-services.md`; documentation updates |
 
 `hotfix/filament-delete-authorization` (`2fab3fd`) is untouched.
+
+## 6. Workstream C: security hardening (2026-10-03)
+
+Authorised by "Phase 8.10 — Parallel Security & Data Integrity Hardening". Workstream A stays open and blocked; nothing here changes its gates.
+
+| Finding | Root cause | Fix | Tests | Status |
+|---|---|---|---|---|
+| **P810-SEC-001** (High) | Emailed signed links took their host from the request | Outside `local`, every generated URL uses APP_URL's host and base path (`URL::forceRootUrl`; the scheme follows the request). Optional `APP_TRUSTED_HOSTS` refuses other Hosts. | 8 (`P810SEC001PasswordLinkOriginTest`) | **FIXED** (`6ead373`) |
+| **P810-SEC-004** (High) | Unscoped candidate picker; creation re-checked only the requisition | Scoped picker; server guard (candidate visible, recruiter in the team) on both application-create paths; scoped recruiter selects; rediscovery actions bounded by the actor's reach; activity log checks the candidate | 11 (`P810SEC004CandidateScopeTest`) | **FIXED** (`88df53a`) |
+
+- **Details:** `phase-8-10-security-review.md` §9, including the path trace for each finding and the classification of every security finding.
+- **Remaining limitations:** listed there (APP_URL as the single origin, the scheme behind proxies, production host names, no `created_by` on applications).
+- **SEC-006:** not fixed; it was not in this authorization.
+
+## 7. Workstream D: data integrity (2026-10-03)
+
+No formula, metric or outcome definition changed. No historical record was altered. No migration.
+
+### 7.1 P810-DI-01: manual incentive calculation (High): FIXED (`2404763`, follow-up `198bbf3`)
+
+**Original finding:** discovery §6.
+- Selection and OfferAccepted were priced for any visible application at `now()`.
+- A Joining rule was priced for a joining in any status.
+- A later-month run created a second calculation for the same occurrence.
+
+**Root cause:** the calculator had no lifecycle preconditions. Its duplicate guard was keyed by period, and the action called the calculator with no actor checks or audit.
+
+**Fix:**
+- **Preconditions.** Each `calculateFor*` refuses (DomainException) until the event has happened:
+  - Selection: the application at or after Selected;
+  - Offer accepted: an Accepted offer;
+  - Joining: a Joined joining.
+- **One calculation per occurrence.** One rule and one application have at most one calculation in any period. An existing row from another month is returned untouched, checked under the existing rule lock.
+- **Manual entry point:** `calculateManually()`.
+  - Needs `incentives.calculate` and the application's recruiter in the actor's hierarchy.
+  - Takes the application lock first (`RowLock::fresh`).
+  - Audits every request and every refusal (`incentive_calculation_requested` / `_refused`).
+  - The Filament action uses it and reports refusals.
+
+**Tests:**
+- `tests/Feature/Integrity/DI01ManualIncentiveCalculationTest.php` (9).
+- MySQL race (`tests/Concurrency/IntegrityRace810Test.php`): two months, one calculation.
+
+**Not changed:**
+- Event dates: manual Selection and Offer accepted still use the day of the run (D8.10-009(a)).
+- No DB unique index on (rule, application); that needs a data check (D8.10-022).
+- Existing calculations, including any historical cross-month duplicates, are untouched.
+
+**Fixture change:** `ReferralIncentiveBeneficiaryTest` priced a Selection rule for a Sourced application (it relied on the defect). It now moves the application to Selected first.
+
+### 7.2 P810-DI-02: referral bonus anchored on the joining record (High): FIXED (`1a40e6c`)
+
+**Original finding:** discovery §6. A referral became Joined, and its bonus was priced, whenever the stage reached Joined, with `joining_date = now()` when no joining existed.
+
+**Root cause:** `syncFromApplication` and the eligibility check used the stage.
+
+**Fix:**
+- **Joining record as anchor.** Joined means the application's joining record is Joined, read from the database. The joining date (the pricing date) is that record's. The eligibility check and the calculator's referral entry check the same record.
+- **Concurrent syncs.** `CandidateStageChanged` is dispatched after commit, so syncs run outside the application lock and can overlap. The sync now locks the referral (`RowLock::fresh`) and re-reads the application; a late sync can no longer move a Joined referral backwards or reopen a rejected one.
+
+**Tests:**
+- `tests/Feature/Integrity/DI02ReferralBonusJoiningRecordTest.php` (10) covers:
+  - a valid joining;
+  - non-joining: a stage-only Joined, with no joining record or with one not yet joined;
+  - rejection;
+  - dropout;
+  - duplicate pricing: later changes and reactivation in another month;
+  - history left untouched;
+  - direct pricing refused;
+  - cached and stale copies.
+- MySQL race: a late sync racing the join.
+
+**History:** referrals and bonuses written before the rule are not re-synced backwards and not re-priced. No historical recalculation was needed, so no decision was requested.
+
+**Fixture change:** `EmployeeReferralTest` and `ReferralIncentiveBeneficiaryTest` reached Joined by a stage move. They now join through an accepted offer, its joining and Mark Joined.
+
+### 7.3 P810-DI-04: manual joining bypassed the offer chain (High): FIXED (`612c7a9`)
+
+**Original finding:** discovery §6. This is the residual of SEC-86-I-01.
+
+**Root cause:** a plain `CreateRecord` with a free offer select, and a `markJoined` without offer precondition.
+
+**Fix:**
+- **Creation path.** New joining goes through `CandidateJoiningService::createForApplication()`:
+  - `joining.confirm` and the application in the actor's hierarchy;
+  - the application locked first;
+  - an active application with an Accepted offer and no joining.
+  
+  The offer is derived; the field is hidden on create. The creation is audited (`joining_created_for_accepted_offer`). This is also the recovery for an accepted offer whose joining is missing.
+- **Mark Joined.** `markJoined` refuses unless the joining's offer is an Accepted offer of the same application (read under the application lock).
+- **No offer-less emergency path** was added. None was shown to be needed, and D8.10-011 option (b) remains available.
+
+**Tests:**
+- `tests/Feature/Integrity/DI04JoiningFollowsAcceptedOfferTest.php` (13) covers:
+  - authorization;
+  - lifecycle refusals;
+  - the direct request (a submitted offer is ignored);
+  - the Filament page and the Mark Joined action (no stage change, incentive or `CandidateJoined` on refusal);
+  - the accepted path.
+- MySQL race: a manual create racing the offer acceptance.
+
+**Legacy joinings without an accepted offer** can no longer be marked Joined. Their path is to accept an offer through `OfferService`, which re-links the pending joining (existing behaviour).
+
+**Fixture change:** `CandidateJoiningFactory::withAcceptedOffer()` was added. Fixtures that mark a joining Joined now use it: `CandidateJoiningServiceTest`, `DQ89StaleStateDecisionTest`, `JoiningOutcomeTest`, and `IntegrityRaceTest` DQ-002 / 003.
+
+### 7.4 Data-integrity findings still open
+
+DI-03, 05, 06, 07, 08, 09 (Medium) and DI-10…13, 15, 16 (Low); DI-14 and DI-17 (Info). They are unchanged. **No High data-integrity finding is open.**
+
+## 8. Findings discovered during Workstreams C and D (not in the discovery counts)
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| P810-SEC-016 | Low | Rediscovery's latest run shows candidate names from the runner's reach to anyone on the requisition page | OPEN (acting on them is refused since `88df53a`) |
+| P810-DI-02-01 | Medium | The referral sync (after commit, no lock) could regress a Joined referral or reopen a rejected one from a stale copy | **FIXED** in `1a40e6c` (DI-02's concurrent-state requirement); MySQL race test |
+| P810-DI-01-01 | Info | `calculateManually` locked the application then called `refresh()` (the project rule forbids lock-then-refresh). Correct only because the lock was the transaction's first statement. | **FIXED** in `198bbf3` |
+
+## 9. Commits (Workstreams C and D)
+
+| Commit | Change |
+|---|---|
+| `6ead373` | C1: P810-SEC-001 trusted origin |
+| `88df53a` | C2: P810-SEC-004 candidate scope |
+| `2404763` | D1: P810-DI-01 manual incentive calculation |
+| `1a40e6c` | D2: P810-DI-02 referral bonus on the joining record |
+| `612c7a9` | D3: P810-DI-04 joining follows an accepted offer |
+| `198bbf3` | D1 follow-up: `RowLock::fresh` in `calculateManually` |
+| (this commit) | Documentation |
+
+Rules recorded in `.ai/rules`: `providers-services.md`, `intelligence-services.md`, `recruiter-incentive-calculations.md`, `app-services-services.md`, `candidate-joinings-factories.md`.
