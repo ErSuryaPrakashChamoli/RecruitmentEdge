@@ -60,6 +60,69 @@ class QueueHealthService
     }
 
     /**
+     * Phase 8.10 (P810-OP-03): what a deploy drain must see before workers are stopped and the
+     * schema changes — per queue, jobs ready to run, jobs delayed until later and jobs a worker
+     * holds right now, plus scheduled tasks still holding their withoutOverlapping lock (a task
+     * started with runInBackground outlives the scheduler process). Counts only; read-only.
+     * Running tasks are null when the cache store is not the database (their locks live elsewhere).
+     * The column aliases avoid MySQL reserved words (`delayed`), which SQLite accepts.
+     *
+     * @return array{queues: array<int, array{queue: string, ready: int, delayed: int, reserved: int}>, ready: int, delayed: int, reserved: int, running_tasks: int|null}
+     */
+    public function drainState(): array
+    {
+        $now = now()->getTimestamp();
+
+        $rows = DB::table('jobs')
+            ->selectRaw(
+                'queue,'
+                .' sum(case when reserved_at is null and available_at <= ? then 1 else 0 end) as ready_jobs,'
+                .' sum(case when reserved_at is null and available_at > ? then 1 else 0 end) as delayed_jobs,'
+                .' sum(case when reserved_at is not null then 1 else 0 end) as reserved_jobs',
+                [$now, $now],
+            )
+            ->groupBy('queue')
+            ->get()
+            ->keyBy('queue');
+
+        $queues = collect([...self::QUEUES, ...$rows->keys()->diff(self::QUEUES)->all()])->map(fn (string $queue): array => [
+            'queue' => $queue,
+            'ready' => (int) ($rows[$queue]->ready_jobs ?? 0),
+            'delayed' => (int) ($rows[$queue]->delayed_jobs ?? 0),
+            'reserved' => (int) ($rows[$queue]->reserved_jobs ?? 0),
+        ])->values();
+
+        return [
+            'queues' => $queues->all(),
+            'ready' => $queues->sum('ready'),
+            'delayed' => $queues->sum('delayed'),
+            'reserved' => $queues->sum('reserved'),
+            'running_tasks' => $this->runningScheduledTasks($now),
+        ];
+    }
+
+    /**
+     * Scheduled tasks whose withoutOverlapping lock is held and unexpired. onOneServer locks carry
+     * an HHmm suffix and stay held for their minute after the run, so they are not counted.
+     */
+    private function runningScheduledTasks(int $now): ?int
+    {
+        $store = (string) config('cache.default');
+
+        if (config("cache.stores.{$store}.driver") !== 'database') {
+            return null;
+        }
+
+        return DB::connection(config("cache.stores.{$store}.lock_connection") ?: config("cache.stores.{$store}.connection"))
+            ->table(config("cache.stores.{$store}.lock_table") ?: 'cache_locks')
+            ->where('key', 'like', '%framework/schedule-%')
+            ->where('expiration', '>', $now)
+            ->pluck('key')
+            ->filter(fn (string $key): bool => preg_match('#framework/schedule-[0-9a-f]{40}$#', $key) === 1)
+            ->count();
+    }
+
+    /**
      * @return array{last_hour: int, total: int, recent: array<int, array{id: int, uuid: string, queue: string, job: string, failed_at: string, error: string}>}
      */
     public function failedJobs(int $limit = 20): array
