@@ -36,6 +36,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // candidate guard authenticates the request.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, EnsureCandidateSessionIsCurrent::class);
         $middleware->alias(['candidate.step-up' => RequireCandidateStepUp::class]);
+        // Phase 8.10 (P810-SEC-001): when APP_TRUSTED_HOSTS is set, only those exact host names are
+        // served (Laravel skips the check in local and test runs); unset, every Host is served.
+        $middleware->trustHosts(at: fn (): array => array_map(fn (string $host): string => '^'.preg_quote($host).'$', config('app.trusted_hosts')), subdomains: false);
         // Phase 8.8 (SEC-88-11): defensive headers on portal, career and staff sign-in pages.
         $middleware->web(append: [AddSecurityHeaders::class]);
     })

@@ -70,6 +70,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Hosts
+    |--------------------------------------------------------------------------
+    |
+    | Phase 8.10 (P810-SEC-001): optional. The exact host names this deployment
+    | answers to, comma separated (APP_TRUSTED_HOSTS); a request for any other
+    | Host is refused. Include the name the container health check uses
+    | (localhost). Unset, every Host is served. Emailed and generated links use
+    | APP_URL either way (AppServiceProvider::configureTrustedOrigin).
+    |
+    */
+
+    'trusted_hosts' => array_values(array_filter(array_map(trim(...), explode(',', (string) env('APP_TRUSTED_HOSTS', ''))))),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

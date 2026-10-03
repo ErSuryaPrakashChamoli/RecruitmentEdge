@@ -68,6 +68,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -141,6 +142,7 @@ class AppServiceProvider extends ServiceProvider
         $failer = $this->app->make('queue.failer');
         $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
 
+        $this->configureTrustedOrigin();
         $this->configureAsyncContext();
         $this->configureSchedulerHeartbeat();
         $this->configureHealthCheck();
@@ -153,6 +155,23 @@ class AppServiceProvider extends ServiceProvider
         $this->configureUploads();
         $this->configureExports();
         $this->configurePrivateFiles();
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-001): every absolute URL the application generates takes its host (and
+     * any base path) from APP_URL, never from the request's Host or X-Forwarded-Host — above all the
+     * signed links emailed during an anonymous request (candidate set-password, staff password
+     * reset), which a forged Host would otherwise point at an attacker's site. The scheme still
+     * follows the request, as the `signed` middleware checks the signature against the request URL.
+     * Local development keeps the request's host (`artisan serve` on another address than APP_URL).
+     */
+    private function configureTrustedOrigin(): void
+    {
+        if ($this->app->environment('local')) {
+            return;
+        }
+
+        URL::forceRootUrl((string) config('app.url'));
     }
 
     /**
