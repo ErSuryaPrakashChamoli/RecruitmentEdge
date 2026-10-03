@@ -300,4 +300,17 @@ These are not part of the discovery counts in §1.
   - Only signed-in staff view it.
   - The raw-HTML bypass is unlikely to apply under `html_input: strip`.
   - The Laravel advisory requires `APP_DEBUG=true`.
-- **Recommendation:** patch-level updates within the current majors: `league/commonmark` ≥ 2.10.2 and `laravel/framework` ≥ v13.30.0. Then run the full suite. This changes dependency versions and needs approval: **D8.10-020**. Not implemented.
+- **Recommendation:** patch-level updates within the current majors: `league/commonmark` ≥ 2.10.2 and `laravel/framework` ≥ v13.30.0. Then run the full suite. This changes dependency versions and needs approval: **D8.10-020**.
+- **Status: FIXED on `feature/sep_25_hrm` (`ae48029`; D8.10-020 approved).**
+  - `laravel/framework` v13.30.1 and `league/commonmark` 2.10.3; no other package changed.
+  - `composer audit`: no advisories.
+  - Full suite 2,064 passed, 21,555 assertions (local PHP 8.5.4).
+  - **Still present on the production line** (`9cba8e3` and the hotfix branches built on it), which keeps the old lock. See D8.10-002.
+
+### A2 result: production-line authorization (Phase 8.10 implementation)
+§5's analysis is now backed by an audit of the production-line code and by tests. Details are in `phase-8-10-release-readiness.md` §2.
+- `9cba8e3`: 62 exercised Filament abilities without a policy method (the delete bypass).
+- `2fab3fd`: 11 remain, all bounded by the owner record's own policy.
+- SEC-86-I-01 (joining `create`) is bounded on the production line by `viewAny`, which requires `joining.confirm`: tested 403 / 200. It is made explicit by `599f0c5` on the new local branch `hotfix/p810-production-authorization`.
+- **Smallest safe production patch:** `2fab3fd` + `599f0c5`. No migration. 646 production-line tests pass on it.
+- Not merged, not deployed.

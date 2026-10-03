@@ -2,8 +2,7 @@
 
 **For:** the project owner, Security, Operations and Engineering.
 
-**Status: Workstream A in progress. STOPPED at a decision boundary (§3).**
-
+**Status: Workstream A in progress. NOT complete (decision-gated, §2).**
 - Production: **NOT DEPLOYED / NOT CHANGED.**
 - Push: **NOT DONE.**
 - No production branch has been merged.
@@ -13,107 +12,65 @@
 | Phase 8.9 frozen baseline | `5d522df`; application code `1acd789` |
 | Phase 8.10 implementation baseline | `358edbf`: the discovery documents, committed before any implementation |
 | Branch | `feature/sep_25_hrm` (no upstream) |
-| Authoritative discovery | `phase-8-10-discovery.md` (89 findings). Those counts are not re-interpreted here. Findings that come up during implementation are listed in §4 and kept apart from them. |
+| Authoritative discovery | `phase-8-10-discovery.md` (89 findings). Those counts are not changed by remediation. New findings are listed in §4 and kept apart from them. |
+| Detailed evidence | `phase-8-10-release-readiness.md` (A1–A4) and `phase-8-10-verification.md` (test runs) |
 
-## 1. Workstream A: progress
+## 1. Workstream A items
 
-| Item | Finding | Status | Evidence |
+| Item | Finding / decision | Status | Evidence |
 |---|---|---|---|
-| A3 | P810-OP-01: image cannot build | **Fixed in code (`bd32662`), build not executed.** | §2 |
-| A1 | P89-OPS-001: backup / restore | **Not started.** Stopped (§3). | — |
-| A2 | P89-OPS-012 / D8.10-002: hotfix release decision | **Not started.** Stopped (§3). | — |
-| A4 | P810-OP-02: upgrade rehearsal | **Not started.** Stopped (§3). | — |
+| D8.10-020 | P810-SEC-015, dependency advisories | **DONE.** Approved and applied in `ae48029`. | §3 |
+| A3 | P810-OP-01, image build | **Fixed in code (`bd32662`). NOT VERIFIED.** The image has never been built. | release-readiness §1 |
+| — | D8.10-005, Docker-capable runner | **BLOCKED.** Docker-capable runner unavailable. | — |
+| A2 | P89-OPS-012 / D8.10-002, production authorization gap | **Exact patch identified and tested.** Local branch `hotfix/p810-production-authorization` @ `599f0c5` (= `2fab3fd` + explicit `CandidateJoiningPolicy::create`). Release decision pending (Security / Operations). | release-readiness §2 |
+| A1 | P89-OPS-001, backup / restore | **Procedure corrected and tested on the development host:** encrypted backup, exact restore, failure detection. **Production backup NOT established.** Owner decisions D8.9-007…010 and 028 are not provided. | release-readiness §3 |
+| A4 | P810-OP-02, upgrade rehearsal | **REHEARSAL — PRODUCTION BASELINE NOT VERIFIED.** 89 / 89 migrations, schema identical to a fresh install, data preserved, application, queue and scheduler boot. Restore-based rollback verified. | release-readiness §4 |
 
-## 2. A3, P810-OP-01: Docker build
+## 2. Why Workstream A is not complete (decision-gated)
 
-**Root cause (FACT).**
-- The Dockerfile pinned `PHP_VERSION=8.3` for every stage.
-- `composer.lock` requires PHP ≥ 8.4.1 (`symfony/console` and `symfony/http-kernel` 8.1.5 declare `php >=8.4.1`). The generated `vendor/composer/platform_check.php` enforces `PHP_VERSION_ID >= 80401`.
-- `config/database.php` imports `Pdo\Mysql`, which exists only from PHP 8.4.
-- So `composer install` refused the lock, and a forced install could not boot.
+1. **D8.10-005.** No container runtime is available, so the production image cannot be built or tested (P810-OP-01 not verified).
+2. **D8.9-007…010, 028.** Backup policy, RTO, RPO, DR and restore cadence are not decided. Without them no production backup exists (P89-OPS-001).
+3. **D8.9-026.** Production facts are not provided, so the rehearsal baseline is assumed, not verified (P810-OP-02).
+4. **D8.10-002.** The hotfix release decision belongs to Security and Operations.
+5. **D8.10-003.** The first-release strategy and downtime window (with D8.9-023) are not decided.
 
-**Further defects found in the same file (FACT):**
-- **`docker-php-ext-install pdo_pgsql`.** `libpq-dev` is not installed, so the extension cannot compile. The application does not use PostgreSQL.
-- **`docker-php-ext-install mbstring pdo_sqlite`.** Both are compiled into the official images. The official 8.5 build uses `--enable-mbstring` and `--with-pdo-sqlite=/usr`.
-- **`docker-php-ext-install opcache` in the runtime stage.** Since PHP 8.5, OPcache is always compiled in. The official 8.5 Dockerfile has no OPcache step.
+## 3. D8.10-020: dependency security (approved by the owner)
 
-**Fix (`bd32662`):**
-- **Every base image pinned by version and digest.** Each tag was resolved on Docker Hub on 2026-10-03.
+| Package | Before | After | Advisories cleared |
+|---|---|---|---|
+| `laravel/framework` | v13.29.0 | **v13.30.1** | GHSA-jh5r-qr3c-85q8 / CVE-2026-102279 (Low) |
+| `league/commonmark` (pulled in through `laravel/framework`) | 2.10.0 | **2.10.3** | GHSA-3q6v-r5mr-hxv8 (High), GHSA-97jj-33gv-5xf9 (Medium) |
 
-  | Image | Digest |
+- **Scope.** `composer update laravel/framework league/commonmark --with laravel/framework:13.30.1 --with league/commonmark:2.10.3`. The dry run and the real run both showed exactly 2 updates. No other package changed (181 in total), and `composer.json` is unchanged. `composer why league/commonmark` shows only `laravel/framework`.
+- **Checks.** `composer validate`: valid. `composer audit`: **no security vulnerability advisories.**
+- **Tests (local PHP 8.5.4):**
+
+  | Suite | Result |
   |---|---|
-  | `php:8.5.11-cli-trixie` | `sha256:19642e17…` |
-  | `php:8.5.11-apache-trixie` | `sha256:70d80539…` |
-  | `composer:2.9.5` | `sha256:698d3801…` (the local Composer version) |
-  | `node:22.22.1-alpine` | `sha256:8094c002…` (the local Node version) |
+  | AI / Copilot / conversation / privacy (`tests/Feature/Ai`, `AiIdentitySecurityTest`, `SideEffectIdempotencyTest`) | 280 passed, 4,580 assertions |
+  | Security (`tests/Feature/Security`) | 126 passed, 652 assertions |
+  | **Full parallel suite** | **2,064 passed, 21,555 assertions**, 0 files written to storage |
 
-- **PHP 8.5** is the line the test suite runs on (D8.10-004, technical recommendation (a)). The patch release is **8.5.11**, the current 8.5 patch, chosen for security fixes. The local suite has been verified on **8.5.4**, so the suite must be re-run inside the built image (§3, D8.10-005).
-- **Extension list.** `gd intl zip pdo_mysql bcmath exif pcntl` are installed. `mbstring`, `pdo_sqlite`, `sodium` and `opcache` come with the image. `docker/php/local.ini` keeps configuring OPcache.
-- **`composer.json`.** `"php": "^8.3"` became `"^8.5"`, which reflects the real requirement and **strengthens** it. `composer.lock` changed only its `content-hash` and the platform entry; no package moved.
+- **Browser.** Not re-run. The packages affect server-side Markdown rendering and framework internals, which the feature tests cover. Browser verification remains part of the final Phase 8.10 gate.
+- **Not run inside the production image** (D8.10-005).
 
-**Compatibility (FACT, static):**
+## 4. Findings discovered during implementation (not part of the discovery counts)
 
-| Component | Result |
-|---|---|
-| Workers, scheduler, `migrate`, `app` | One shared image (`x-app-base` in `docker-compose.yml`), so they all get the same runtime. |
-| `pcntl` | Still installed (queue worker timeouts). |
-| Platform requirements | `composer check-platform-reqs --no-dev` passes on PHP 8.5: `ext-gd`, `intl`, `zip`, plus extensions built into the image. |
-| `composer validate` | Valid. |
-| `IdentityArchitectureTest` | Reads `composer.json`: 8 passed. |
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| P810-SEC-015 | High (advisory) | Dependency advisories in `league/commonmark` 2.10.0 and `laravel/framework` v13.29.0 | **FIXED on `feature/sep_25_hrm` (`ae48029`).** The production line (`9cba8e3`, and the hotfix branch built on it) still has the old versions. Updating that line is a separate release decision (noted under D8.10-002). |
+| P810-A4-01 | Info | Migration rollback is not a data rollback: 10 `grant_phase_*` migrations have empty `down()`, and several backfills cannot be reversed | Documented. **Restore-from-backup is the only approved rollback.** |
+| P810-A1-01 | Low (documentation) | The backup runbook lacked `--no-tablespaces` (needed by a user without PROCESS), an encryption procedure, concrete verification, and "restore into an empty database" | **Fixed** in `docs/runbooks/backup-restore.md` |
 
-**Not verified:**
-- **The image build has not been executed.** This development host has no container runtime (`docker`, `podman`, `buildah`: none installed). Installing one changes the host and is not authorised.
-- `apt` packages within the pinned Debian snapshot are not version-pinned. The digest pins the base OS layer only.
+## 5. Commits (Workstream A)
 
-**Gate impact.** "Production Docker image builds successfully" remains **OPEN**. It needs a Docker-capable runner (D8.10-005; see also §3).
+| Commit | Branch | Change |
+|---|---|---|
+| `358edbf` | `feature/sep_25_hrm` | Phase 8.10 discovery documents (implementation baseline) |
+| `bd32662` | `feature/sep_25_hrm` | Dockerfile and `composer.json` / `composer.lock` alignment (P810-OP-01) |
+| `b487ac6` | `feature/sep_25_hrm` | Workstream A log; stop at D8.10-020 |
+| `ae48029` | `feature/sep_25_hrm` | Dependency security updates (D8.10-020) |
+| `599f0c5` | `hotfix/p810-production-authorization` (new; parent `2fab3fd`) | Explicit `CandidateJoiningPolicy::create` for the production line (SEC-86-I-01) |
+| (this commit and the runbook commit) | `feature/sep_25_hrm` | Backup runbook corrections; release-readiness, verification and decision-register updates |
 
-## 3. STOP: decision boundary reached
-
-Two of the brief's stop conditions were met, so implementation stopped.
-
-### 3.1 A new High issue was discovered (P810-SEC-015, §4)
-
-`composer audit` (run when `composer.lock` was refreshed) reports advisories affecting installed packages:
-
-| Package | Installed | Advisory | Severity (advisory) | Fixed in |
-|---|---|---|---|---|
-| `league/commonmark` | 2.10.0 | GHSA-3q6v-r5mr-hxv8: quadratic-time denial of service in the GFM table extension block-start scan | **High** | 2.10.2 (2.10.3 available) |
-| `league/commonmark` | 2.10.0 | GHSA-97jj-33gv-5xf9: `DisallowedRawHtml` bypass when a disallowed tag name ends the raw-HTML literal | Medium | 2.10.2 |
-| `laravel/framework` | v13.29.0 | GHSA-jh5r-qr3c-85q8 (CVE-2026-102279): XSS in debug page information | Low | v13.30.0 (v13.34.0 available) |
-
-Fixing these means changing dependency versions. CLAUDE.md requires approval for that, so it is **decision D8.10-020**. No dependency was updated.
-
-### 3.2 Production-like infrastructure is unavailable for A3 verification
-
-The image cannot be built on this host (§2). This is recorded under D8.10-005, which is now blocking for the build gate.
-
-### 3.3 Not started because of the stop
-
-A1 (backup / restore), A2 (hotfix release decision) and A4 (upgrade rehearsal). None of them depends on the dependency decision technically. They wait for the instruction to continue.
-
-## 4. Findings discovered during implementation
-
-These are not part of the discovery counts.
-
-| ID | Severity | Finding | Component | Evidence | Status |
-|---|---|---|---|---|---|
-| P810-SEC-015 | **High** (advisory severity; exposure assessment below) | Installed dependencies carry published advisories, including a High denial of service in `league/commonmark` | `league/commonmark` 2.10.0; `laravel/framework` v13.29.0 | `composer audit`, 2026-10-03 | **Open. Decision D8.10-020.** |
-
-**Exposure (INFERENCE from code; nothing executed):**
-- `league/commonmark` is reached through `Str::markdown` (GitHub-flavoured, tables enabled) in two places:
-  - `resources/views/filament/pages/ai-copilot.blade.php:49`;
-  - `resources/views/filament/components/ai-conversation-transcript.blade.php:43`.
-- Both render **model output**. Candidate-editable text can influence that output through prompt injection (P810-AI-02).
-- Output is bounded by `AI_MAX_TOKENS` (default 4,000), and only signed-in staff can view these pages.
-- No other `->markdown()` use was found in `app/` or the views.
-- Exploitability therefore looks limited, but it is not disproved. The severity stays High until Security accepts a different rating.
-- Both renders use `html_input: strip`, so the raw-HTML bypass (Medium) is unlikely to apply (INFERENCE).
-- The Laravel advisory needs `APP_DEBUG=true`, which the production checklist forbids (`production-environment.md`).
-
-## 5. Commits in this workstream
-
-| Commit | Change |
-|---|---|
-| `358edbf` | Phase 8.10 discovery documents (implementation baseline) |
-| `bd32662` | Dockerfile and `composer.json` / `composer.lock` alignment (P810-OP-01) |
-| (this commit) | Implementation log, security-review addendum, decision D8.10-020 |
+`hotfix/filament-delete-authorization` (`2fab3fd`) is untouched.

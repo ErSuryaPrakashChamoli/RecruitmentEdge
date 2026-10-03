@@ -403,8 +403,24 @@ Each entry follows the same layout. "Tech rec." appears only when the question i
 - **Tech rec.:** (a). Patch and minor updates within the same major, then full verification.
 
 ### Status updates during implementation
+- **D8.10-020 (dependency security).** **APPROVED by the owner and IMPLEMENTED** (`ae48029`):
+  - `laravel/framework` v13.29.0 → v13.30.1;
+  - `league/commonmark` 2.10.0 → 2.10.3;
+  - no other change; `composer audit` clean.
+  
+  The production line keeps the old versions (see D8.10-002).
 - **D8.10-004 (PHP runtime).** Implemented in code per the technical recommendation: PHP 8.5, image `php:8.5.11-*-trixie` pinned by digest (`bd32662`). The owner may still override. The test suite was verified on 8.5.4 locally and must also run in the built image.
-- **D8.10-005 (CI / tooling).** **Now blocking** the build gate. The development host has no container runtime, so the image built from `bd32662` has never been built. A Docker-capable runner (CI or an approved host) is required.
+- **D8.10-005 (CI / tooling).** **BLOCKED: Docker-capable runner unavailable.** The image from `bd32662` / `ae48029` has never been built. **P810-OP-01 cannot be closed** until it is built and tested on such a runner. No container tooling was installed (not authorised).
+- **D8.10-002 (production remediation path).** Exact patch identified and tested (`phase-8-10-release-readiness.md` §2).
+  - **Patch:** `9cba8e3` + `2fab3fd` + `599f0c5` (local branch `hotfix/p810-production-authorization`). Policies and tests only, no migration; 646 production-line tests pass.
+  - **Technical recommendation:** hotfix first, as its own release.
+  - **Still to decide (Security + Operations):**
+    - (a) release it or not;
+    - (b) whether to bring the D8.10-020 dependency updates to the production line in the same release (the hotfix branch keeps `laravel/framework` 13.29.0 and `league/commonmark` 2.10.0);
+    - (c) how the production line is built, since its Dockerfile has the same PHP 8.3 defect.
+  - Not merged, not deployed.
+- **D8.10-003 (first-release strategy).** The rehearsal evidence now exists (`phase-8-10-release-readiness.md` §4): 89 / 89 migrations in 32.75 s on 91k synthetic rows; schema identical to a fresh install; restore-based rollback verified; `migrate:rollback` is not a data rollback. **PRODUCTION BASELINE NOT VERIFIED.** The decision is still open.
+- **D8.9-007…010, 028 (backup).** Still OPEN. The engineering capability is tested on the development host (`phase-8-10-release-readiness.md` §3). No production backup exists.
 
 ## 3. Summary
 
