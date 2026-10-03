@@ -68,3 +68,28 @@ test('the worker and scheduler health checks follow their heartbeat', function (
     $this->travel(4)->minutes();
     $this->artisan('ops:heartbeat', ['component' => 'worker', '--queues' => 'communications,default'])->assertFailed();
 });
+
+test('the deploy runbook drains intake, scheduler and every worker before it backs up and migrates (P810-OP-03)', function (): void {
+    $runbook = file_get_contents(dirname(__DIR__, 3).'/docs/runbooks/queue-operations.md');
+    $deploy = substr($runbook, strpos($runbook, '## 1. Deployment'), strpos($runbook, '## 2. Queue topology') - strpos($runbook, '## 1. Deployment'));
+    $workers = collect(deploymentCompose()['services'])
+        ->filter(fn (array $service): bool => ($service['command'][2] ?? null) === 'queue:work')
+        ->keys()
+        ->all();
+    $stopWorkers = 'docker compose stop '.implode(' ', $workers);
+
+    $steps = [
+        'php artisan down',
+        'docker compose stop scheduler',
+        'queue:drain-status --wait=',
+        $stopWorkers,
+        '**Back up now**',
+        'APP_IMAGE_TAG=<new> docker compose up -d',
+    ];
+
+    $positions = array_map(fn (string $step): int|false => strpos($deploy, $step), $steps);
+
+    expect($positions)->not->toContain(false)
+        ->and($positions)->toBe(collect($positions)->sort()->values()->all())
+        ->and(preg_match('/exec \S+ php artisan queue:restart/', $deploy))->toBe(0);
+});

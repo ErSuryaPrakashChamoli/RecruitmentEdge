@@ -75,14 +75,14 @@ If the data itself is damaged, restore from backup (`docs/runbooks/backup-restor
 
 ## 5. Deploy went wrong
 
-**Migration failed.** The `migrate` service exits non-zero and nothing else starts on the new image, so the old containers keep serving until replaced.
+**Migration failed.** The `migrate` service exits non-zero, and nothing else starts on the new image. With the Phase 8.10 drain (`queue-operations.md` §1), the old app is still in maintenance mode and the workers and scheduler are stopped, so nothing writes.
 - Read the error: MySQL DDL is not transactional, so a partial table can remain.
 - Fix the cause, then run `docker compose up -d` again (`queue-operations.md` §1).
 
 **New release misbehaves:**
-- roll back by tag: `APP_IMAGE_TAG=<previous> docker compose up -d`;
-- migrations are never rolled back in production;
-- the Phase 8.9 migrations only add indexes and one table, so the previous image runs on the new schema.
+- **release with migrations:** restore the pre-release backup into an empty database, plus the matching files (`backup-restore.md` §3), then `APP_IMAGE_TAG=<previous> docker compose up -d`. `migrate:rollback` is not a rollback (`docs/phase-8-10-release-readiness.md` §4.3);
+- **release without migrations:** roll back by tag, `APP_IMAGE_TAG=<previous> docker compose up -d`;
+- the previous image runs on a newer schema only if every migration of the release was verified backward-compatible. That is **not** true of the first release of Phases 4–8.9 (89 migrations).
 
 **Never run `optimize:clear` / `cache:clear`.** See `queue-operations.md` §1 step 5 for what it destroys.
 

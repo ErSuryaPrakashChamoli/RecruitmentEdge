@@ -4,20 +4,90 @@ For whoever deploys and operates Recruitment Edge. Describes the system as shipp
 
 ## 1. Deployment
 
-Phase 8.9 (D8.9-022, P89-OPS-004/005): the compose stack starts itself in a safe order — the one-shot `migrate` service runs the migrations and exits; `app` starts only after it succeeded and is healthy when `GET /up` answers (which checks the database); the four workers start once the app is healthy; the scheduler starts last, once every worker reports a heartbeat. No serving container migrates on start.
+Phase 8.9 (D8.9-022, P89-OPS-004/005) ordered the stack:
+- the one-shot `migrate` service runs the migrations and exits;
+- `app` starts only after it succeeded, and is healthy when `GET /up` answers (which checks the database);
+- the four workers start once the app is healthy;
+- the scheduler starts last, once every worker reports a heartbeat.
 
-1. **Prerequisites:** the production environment checklist (`docs/runbooks/production-environment.md`) is satisfied, and a **verified backup** exists (`docs/runbooks/backup-restore.md` §2). Without one, do not migrate.
-2. **Drain the workers:** `docker compose exec queue php artisan queue:restart`. Each worker finishes its current job and exits. Wait until no job is reserved:
-   `docker compose exec app php artisan tinker --execute 'echo DB::table("jobs")->whereNotNull("reserved_at")->count();'` → `0`.
-   Drain `communications` fully before a release that changes message handling (a message still queued at deploy time skips the send-time checks that need its queue-time snapshot).
-3. **Build the release image, tagged:** `export APP_IMAGE_TAG=$(git rev-parse --short HEAD) && docker compose build`.
-4. **Start:** `APP_IMAGE_TAG=… docker compose up -d`. Compose runs `migrate` (watch `docker compose logs -f migrate`), then the app, workers and scheduler as each becomes healthy. If `migrate` fails, nothing else starts on the new image: fix the cause and run `docker compose up -d` again. MySQL DDL is not transactional — a failed migration can leave a partial table; read the full error before retrying (`.ai/rules/migrations.md`).
-5. **Caches:** each container rebuilds the config, route, view and event caches on start. **Never run `optimize:clear` or `cache:clear` on a live system**: the cache store is the database, and clearing it deletes sign-in lockouts and rate limits, pending step-up codes, the provider circuit breaker, the scheduler and worker heartbeats, alert de-duplication and held delivery statuses. To drop only compiled files: `php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan event:clear`.
-6. **Verify:**
-   - `docker compose ps`: every service `healthy` (`migrate` exited 0);
-   - `GET /up` → 200; `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
-   - `php artisan schedule:list` lists 20 tasks; Administration → **Queue health**: nothing under "Needs attention", scheduler and worker heartbeats present.
-7. **Roll back:** `APP_IMAGE_TAG=<previous tag> docker compose up -d`. Migrations are never rolled back in production; Phase 8.9's migrations only add indexes, so the previous image runs against the new schema.
+No serving container migrates on start.
+
+**Phase 8.10 (P810-OP-03): a release with migrations is a maintenance window.**
+- No old code may run while the schema changes.
+- No work created by the old release may be half-done when the new one starts.
+- **`queue:restart` is not a drain.** It only makes each worker exit after its current job. Compose then restarts the exited worker at once (`restart: unless-stopped`), on the same old image, and the scheduler and the web tier keep creating work.
+
+**The release is drained in order:** stop intake → stop the scheduler → let the workers empty the queues → stop the workers → back up → migrate → start.
+
+1. **Prerequisites (before the window).**
+   - The production environment checklist (`docs/runbooks/production-environment.md`) is satisfied.
+   - The release image is built and tagged: `export APP_IMAGE_TAG=$(git rev-parse --short HEAD) && docker compose build`.
+   - Record the running tag and the last migration (`docker compose exec app php artisan migrate:status | tail -1`).
+2. **Stop intake:** `docker compose exec app php artisan down --retry=60`.
+   - Web requests now get 503, so nobody creates new jobs.
+   - `GET /up` keeps answering 200 (Laravel exempts the health route from maintenance mode), so the app container stays healthy.
+   - The maintenance flag is per container (`APP_MAINTENANCE_DRIVER=file`). The workers are not in maintenance mode and keep draining.
+3. **Stop the scheduler:** `docker compose stop scheduler`.
+   - On SIGTERM, `schedule:work` stops starting new runs and waits for the runs in progress.
+   - Docker waits up to `stop_grace_period` (330 s).
+   - A task started with `runInBackground` can outlive it. It holds its overlap lock until it finishes, which the next step checks.
+4. **Let the workers empty the queues:** `docker compose exec app php artisan queue:drain-status --wait=1800`.
+   - It exits 0 once no job is ready, no job is held by a worker, and no scheduled task still holds its overlap lock. It checks every 5 s.
+   - **Delayed jobs** (for example reminders due later) are listed but do not block. They stay queued and run on the new release.
+   - If it does not reach 0 within the wait, find what is stuck (Administration → Queue health). Do not stop the workers with jobs still ready unless you accept that those jobs will run on the new release.
+   - For a release that changes message handling, `communications` must be fully drained, which "0 ready" already means.
+5. **Stop the workers:** `docker compose stop queue queue-priority queue-automation queue-background`.
+   - Each worker receives SIGTERM, delivered because the entrypoint `exec`s it through `setpriv`.
+   - It finishes its current job, which is bounded by its `--timeout` (at most 300 s), and exits. Docker waits `stop_grace_period` (330 s) before SIGKILL.
+   - A manual `docker compose stop` is not undone by `restart: unless-stopped`.
+6. **Verify drained and stopped.**
+   - `docker compose ps --status running --services` lists only `app` and `db`.
+   - `docker compose exec app php artisan queue:drain-status` exits 0.
+   - If a worker was killed at the end of the grace period, its job shows as reserved until `retry_after` (330 s) and then runs again on the new release (at-least-once). Wait, then re-check.
+7. **Back up now** (`docs/runbooks/backup-restore.md` §2) and verify the backup (§2 step 5).
+   - Nothing writes any more: intake, scheduler and workers are all stopped. This backup is therefore the exact pre-migration state, and the rollback point.
+   - **Without a verified backup, do not migrate.** Reopen instead:
+     1. `docker compose start queue queue-priority queue-automation queue-background scheduler`;
+     2. `docker compose exec app php artisan up`.
+8. **Migrate and start the new release:** `APP_IMAGE_TAG=<new> docker compose up -d`.
+   - Compose runs `migrate` first; watch `docker compose logs -f migrate`.
+   - On success it recreates `app`. The new container has no maintenance flag, so the site comes back.
+   - It then starts the workers once the app is healthy, and the scheduler once every worker reports a heartbeat.
+   - **If `migrate` fails,** nothing starts on the new image, and the old app stays in maintenance mode. MySQL DDL is not transactional, so a partial table can remain: read the full error (`.ai/rules/migrations.md`). Then either fix the cause and run `up -d` again, or roll back (step 11).
+9. **Caches:** each container rebuilds the config, route, view and event caches on start.
+   - **Never run `optimize:clear` or `cache:clear` on a live system.** The cache store is the database, and clearing it deletes sign-in lockouts and rate limits, pending step-up codes, the provider circuit breaker, the scheduler and worker heartbeats, alert de-duplication and held delivery statuses.
+   - To drop only compiled files: `php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan event:clear`.
+10. **Verify the release.**
+    - **Containers:** `docker compose ps` shows every service `healthy`, and `migrate` exited 0.
+    - **Application:** `GET /up` → 200, and the sign-in page loads.
+    - **Queues:**
+      - `docker compose exec app php artisan queue:health-check` exits 0;
+      - `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
+      - `docker compose exec app php artisan queue:drain-status` shows a recent heartbeat for each of the four workers.
+    - **Scheduler:**
+      - `docker compose exec app php artisan schedule:list` lists 20 tasks;
+      - the scheduler container is `healthy` (its check is `ops:heartbeat scheduler`);
+      - Administration → **Queue health** shows nothing under "Needs attention".
+11. **Roll back.**
+    - **A release with migrations** (for example the first release of Phases 4–8.9):
+      1. Restore the pre-release backup from step 7: database into an **empty** database, plus the matching files (`docs/runbooks/backup-restore.md` §3).
+      2. Then start the previous image: `APP_IMAGE_TAG=<previous> docker compose up -d`.
+      3. `migrate:rollback` is **not** a rollback. Several migrations cannot undo their data changes (`docs/phase-8-10-release-readiness.md` §4.3), and the previous image must never run on a newer schema unless every migration of the release was verified backward-compatible.
+    - **A release without migrations:** `APP_IMAGE_TAG=<previous> docker compose up -d`.
+
+If production does not run this compose stack, how its workers run is unknown (D8.9-026). The operator must then do the same with the production mechanism:
+- stop intake;
+- stop the scheduler;
+- wait for `queue:drain-status` to exit 0;
+- stop the workers with SIGTERM and a grace period above the longest `--timeout`;
+- verify, migrate, start, verify.
+
+**Verification status.** The Docker steps above were not executed in Phase 8.10, because no container runtime was available (D8.10-005). The Laravel behaviours they rely on were verified on the development host against MySQL (`docs/phase-8-10-verification.md` §5):
+- a worker finishing its in-flight job on SIGTERM and taking no new one;
+- `queue:drain-status`;
+- `/up` staying 200 in maintenance mode while other pages return 503.
+
+That `schedule:work` stops starting runs on SIGTERM and waits for the runs in progress comes from the framework source (`ScheduleWorkCommand`). It was not run.
 
 **Environment** (see `.env.example` and `docs/runbooks/production-environment.md`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, `QUEUE_HEALTH_TOKEN`, `QUEUE_EXPECT_PROCESSES=true`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeats live there.
 
