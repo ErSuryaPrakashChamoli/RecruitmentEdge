@@ -64,3 +64,21 @@ test('an out-of-scope application cannot be submitted on the interview form', fu
 
     expect(Interview::query()->count())->toBe(0);
 });
+
+test('a submitted id of another team\'s application never resolves to its candidate (P810-SEC-006)', function (): void {
+    $other = CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id]);
+    $other->candidate->update(['full_name' => 'Other Team Candidate', 'mobile' => '9000022222']);
+
+    $picker = createInterviewApplicationPicker();
+    $picker->state($other->id);
+    $ownPicker = createInterviewApplicationPicker();
+    $ownPicker->state($this->application->id);
+
+    expect($picker->getOptionLabel(withDefault: false))->toBeNull()
+        ->and($ownPicker->getOptionLabel())->toContain('Pickable Interview Candidate');
+
+    Livewire::test(CreateInterview::class)
+        ->set('data.candidate_application_id', $other->id)
+        ->assertDontSee('Other Team Candidate')
+        ->assertDontSee('9000022222');
+});

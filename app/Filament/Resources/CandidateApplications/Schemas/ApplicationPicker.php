@@ -12,8 +12,8 @@ use Illuminate\Database\Eloquent\Builder;
  * The single "pick an application" field for every form (offers, interviews, follow-ups, daily
  * activities, joinings, incentive calculation). An application code alone isn't recognisable, so
  * each option carries the candidate's name and mobile alongside the codes and stage, and search
- * matches the candidate's name or mobile as well as the code. Options and the validation rule are
- * hierarchy-scoped exactly like the Applications list.
+ * matches the candidate's name or mobile as well as the code. Options, labels and the validation
+ * rule are hierarchy-scoped exactly like the Applications list.
  */
 class ApplicationPicker
 {
@@ -27,7 +27,9 @@ class ApplicationPicker
             ->helperText('Search by candidate name, mobile number or application code.')
             ->options(fn (): array => self::options($modifyOptionsQueryUsing))
             ->getSearchResultsUsing(fn (string $search): array => self::options($modifyOptionsQueryUsing, $search))
-            ->getOptionLabelUsing(fn (mixed $value): ?string => ($application = CandidateApplication::query()->with(['candidate', 'requisition'])->find($value))
+            // Phase 8.10 (P810-SEC-006): labels resolve through the same scope, so a submitted or
+            // tampered id never reveals another team's candidate name, mobile or codes.
+            ->getOptionLabelUsing(fn (mixed $value): ?string => ($application = self::selectableApplications()->with(['candidate', 'requisition'])->find($value))
                 ? self::label($application)
                 : null)
             ->searchable()
