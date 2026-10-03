@@ -1,0 +1,282 @@
+# Phase 8.10 Security Review (Discovery)
+
+**For:** the project owner, Security and Engineering.
+
+**Status: discovery only.**
+- No fix has been implemented, and no code, configuration, route, migration or test was changed.
+- Baseline: `feature/sep_25_hrm` @ `5d522df` (Phase 8.9 frozen; application code `1acd789`).
+- This is a fresh review. It does not repeat the Phase 8.9 findings. Known items that are still open are listed in §6 with their existing IDs.
+
+**Method.**
+- Two independent read-only reviews were run:
+  - staff-side authorization and data access;
+  - authentication, sessions and the external attack surface.
+- Security-relevant results of the AI review and the data-integrity review are cross-referenced in §4.
+- Every High finding was re-traced in code by the discovery lead before inclusion. No exploit was executed. Exploitability statements are labelled INFERENCE.
+
+**Labels:** **FACT** = read in code, configuration or git. **INFERENCE** = reasoned about runtime or deployment behaviour, not executed.
+
+## 1. Summary
+
+| Severity | New in this review (§2–§3) | Cross-referenced from other reviews (§4, counted there) |
+|---|---|---|
+| Critical | 0 | 0 |
+| High | 2 (P810-SEC-001, SEC-004) | 2 (P810-AI-01, P810-DI-04) |
+| Medium | 3 (SEC-002, SEC-006, SEC-008) | 3 (AI-02, AI-03, AI-05) |
+| Low | 7 (SEC-003, 005, 007, 009, 010, 011, 014) | several (§4) |
+| Informational | 2 (SEC-012, SEC-013) | — |
+
+**No new Critical finding.**
+
+**The carried-forward Critical exposure on the production line is unchanged:** the Phase 8.6 SEC-1 delete-authorization gap, plus SEC-86-I-01 (§5).
+
+## 2. New findings: authentication and external surface
+
+### P810-SEC-001: Host-header poisoning of emailed password links (High, NEW)
+- **Component:**
+  - `CandidatePortalService::passwordLink()` (`app/Services/CandidatePortalService.php:144-150`), called by `sendPasswordLink()` (`:161-170`) from `POST portal/password/forgot`;
+  - Filament staff `RequestPasswordReset` → `getResetPasswordUrl()` (vendor, absolute signed URL).
+- **Evidence (FACT):**
+  - Both links are absolute signed URLs built **during the anonymous request**.
+  - Laravel's URL generator takes the root from the request (`UrlGenerator::formatRoot`: `forcedRoot ?: request->root()`).
+  - Nothing in `app/`, `bootstrap/`, `config/` or `routes/` calls `trustHosts`, `forceRootUrl` or `forceScheme` (grep: 0 hits).
+  - The shipped Apache vhost (`docker/apache/000-default.conf`) is a single `<VirtualHost *:80>` with no `ServerName`, so it answers any `Host`.
+- **Impact (INFERENCE):**
+  - An unauthenticated attacker can make the system send a genuine password email whose link points to an attacker-controlled host.
+  - If the recipient clicks it, the signed token leaks:
+    - for a candidate, this means taking over the portal account;
+    - for a staff member, a password reset (staff MFA, where required, still blocks sign-in, but the password is changed and sessions are revoked).
+- **Confidence:** High for the code path. Medium for production exploitability, which depends on the unknown production front end (D8.9-026).
+- **Recommendation (not implemented):**
+  - configure trusted hosts for `APP_URL`;
+  - generate emailed links from the configured root;
+  - give the vhost a `ServerName` with a default vhost that rejects unknown hosts;
+  - add a regression test with a foreign `Host` header.
+
+### P810-SEC-002: Public-disk image uploads accept SVG and are served from the app origin without `nosniff` (Medium, NEW; related to P88-BACKLOG-007)
+- **Component:** `app/Filament/Pages/Profile.php:169-174` (any staff user, own photo) and `app/Filament/Resources/Employees/Schemas/EmployeeForm.php:79-84`. Both are `FileUpload::make(...)->image()->avatar()->disk('public')`.
+- **Evidence (FACT):**
+  - `->image()` validates `mimetypes:image/*`, which admits `image/svg+xml`.
+  - The stored file keeps the uploader's original extension.
+  - `public/storage` is served directly by Apache (the `storage:link` symlink).
+  - `AddSecurityHeaders::appliesTo()` covers only `portal/*`, `careers/*` and the panel login pages, so `/storage/*` responses carry no `nosniff` and no CSP.
+- **Impact (INFERENCE):** a scripted SVG opened top-level from `/storage/employee-photos/…` runs script in the application origin. Avatars render through `<img>`, where SVG script does not run, so the realistic vector is a victim opening the direct URL. Session cookies are HttpOnly.
+- **Confidence:** Medium.
+- **Recommendation:**
+  - restrict to raster types (PNG / JPEG / WebP);
+  - add `nosniff` and a restrictive CSP to `/storage`, or serve the files through a controller.
+
+### P810-SEC-003: Candidate password policy weaker than staff (Low, NEW)
+- **Component:** `app/Http/Requests/Portal/SetPasswordRequest.php:21`, `Password::min(10)->letters()->numbers()->mixedCase()`.
+- **Evidence (FACT):** staff passwords use `Password::defaults()`: minimum 12, symbols, `NotCommonPassword`, optionally `uncompromised()` (`AppServiceProvider.php:205-213`). Candidates have no common-password check.
+- **Recommendation:** align the rules, or record the difference as accepted under D8.8-002 / 003.
+
+### P810-SEC-007: Unauthenticated `/up` runs a database query and is not throttled (Low, NEW)
+- **Component:** `bootstrap/app.php` (`health: '/up'`); `AppServiceProvider::configureHealthCheck` (database `select 1`).
+- **Evidence (FACT):** public, no throttle, one database round trip per hit. Contrast `/health/queue`, which needs an administrator or a bearer token and has `throttle:60,1`.
+- **Recommendation:** throttle `/up`, or restrict it to the monitoring network (D8.8-022 rate limiting).
+
+### P810-SEC-014: Webhook signatures have no timestamp / replay window (Low, NEW)
+- **Component:** `Webhooks/CommunicationWebhookController.php:31-52`; `WhatsAppCloudProvider::verifyWebhook`; `TwilioSmsProvider::verifyWebhook`.
+- **Evidence (FACT):**
+  - The HMAC check is timing-safe (`hash_equals`).
+  - Replay is bounded only by event-id idempotency (unique `provider_event_id`), which is adequate for idempotent status callbacks.
+  - Twilio verification uses `fullUrl()`, which breaks behind a proxy (SEC-88-10).
+- **Recommendation:** add a tolerance window where the provider supplies a timestamp.
+
+## 3. New findings: staff-side authorization
+
+### P810-SEC-004: The unscoped candidate picker lets a recruiter list every candidate and bring any of them into their own scope (High, NEW)
+- **Component:**
+  - `CandidatePicker::make()` (`app/Filament/Resources/Candidates/Schemas/CandidatePicker.php:18-25`);
+  - used by `CandidateApplicationForm.php:33` (create application) and `RecruitmentDailyActivityForm.php:34`;
+  - `CreateCandidateApplication::mutateFormDataBeforeCreate` (`:22-31`).
+- **Evidence (FACT, re-verified):**
+  - `->relationship('candidate', 'full_name')->searchable(['full_name','mobile','candidate_code'])->preload()` has no query scope, so it lists every candidate (labels include name and mobile).
+  - The create page checks only that the requisition accepts applications. It does not check that the candidate is visible to the actor, or that the chosen recruiter is in the actor's team. The recruiter select (`CandidateApplicationForm.php:55`) is also unscoped.
+  - Candidate visibility follows the applications of visible recruiters (`Candidate::visibleTo`, `CandidatePolicy::isInScope`).
+  - `CandidateApplication` is not Auditable and has no `created_by`.
+- **Impact (INFERENCE):** a user with `candidates.create` (the recruiter role) can:
+  - search the whole candidate base;
+  - create an application for another team's candidate on any open requisition they can see, with themselves as recruiter;
+  - thereby gain full access to that candidate's profile, salary fields, documents and communications.
+  
+  No actor trace remains on the application. The same picker exists on the production line (`9cba8e3`).
+- **Confidence:** High (code path).
+- **Recommendation:**
+  - scope the picker to visible candidates;
+  - re-check the candidate and recruiter on the server at creation;
+  - make cross-team attachment an explicit, audited flow if it is needed at all;
+  - audit application creation;
+  - add recruiter-role tests (`CandidatePickerTest` runs as CHRO only).
+
+### P810-SEC-006: Application-picker label resolution leaks any application's candidate name and mobile (Medium, NEW)
+- **Component:** `ApplicationPicker::make()` (`app/Filament/Resources/CandidateApplications/Schemas/ApplicationPicker.php:30`), used across the follow-up, activity, interview, offer, joining, recruiter-action and incentive forms.
+- **Evidence (FACT):**
+  - Search and validation are scoped, but `getOptionLabelUsing` resolves any id without scope.
+  - Filament exposes `getOptionLabel` as a Livewire-callable method, and `data.*` is client-writable.
+- **Impact (INFERENCE):** a user can enumerate the sequential application ids and read each candidate's name, mobile, application and requisition codes, and stage.
+- **Recommendation:** resolve labels through the scoped query, and audit every `getOptionLabelUsing` closure.
+
+### P810-SEC-008: Incentive approvers can approve, mark payable and adjust their own incentive (Medium, NEW)
+- **Component:** `RecruiterIncentiveCalculationPolicy` (`approve`, `markPayable`, `adjust`, `reject`, `:43-70`, scope at `:82-85`); `IncentiveApprovalService::adjust` (`:276-290`).
+- **Evidence (FACT):**
+  - The scope is `HierarchyService::canView($user, $employee)`, which includes the user themselves.
+  - There is no beneficiary ≠ actor check.
+  - `adjust` takes any `amount_delta` in any state.
+  - VP HR holds `incentives.approve` and `referrals.submit`, and referral bonuses pay the referrer.
+- **Impact (INFERENCE):** a beneficiary-approver can approve and raise their own calculation. Payment still needs `incentives.pay` (CHRO by default).
+- **Recommendation:**
+  - refuse self-approval, self-marking-payable and self-adjustment in the service and the policy, and audit refused attempts;
+  - bound adjustments (see also P810-DI-07, D8.10-009).
+
+### P810-SEC-009: Unscoped employee pickers assign records outside the actor's hierarchy (Low, NEW)
+- **Component:** recruiter selects in `RecruitmentFollowupForm.php:24`, `RecruitmentManualActivityForm.php:22`, `CandidateApplicationForm.php:55` and `Candidates/RelationManagers/ApplicationsRelationManager.php:43`; `TalentPoolForm.php:36` (owner); `RecruitmentRequisitionForm.php:88-118`.
+- **Evidence (FACT):** the full employee directory is listed, and the create pages do not re-check on the server. `RecruitmentDailyActivityForm` already uses the correct `recruitersFor()` pattern.
+- **Recommendation:** use `recruitersFor()` or the visible-employee scope, with a server re-check.
+
+### P810-SEC-010: The CHRO role can be removed by a non-holder through revoke or separation (Low, conditional, NEW)
+- **Component:** `StaffAccessService::revoke` (`:108-135`); `EmployeeLifecycleService::recordSeparation`.
+- **Evidence (FACT):** Phase 8.4 states that protected roles are removed only by a holder (`RoleAssignmentService.php:67` enforces this for role sync). Revoke and separation detach every role after `users.access.manage`, not-self, scope and last-CHRO checks only.
+- **Reachability (INFERENCE):** only when a CHRO holder sits inside the actor's hierarchy, or the actor has view-all.
+- **Recommendation:** apply the holder-only rule in revoke, suspend and separation.
+
+### P810-SEC-011: Candidate-document changes are not audited (Low; KNOWN-untracked: E-06 residual)
+- **Component:** `CandidateDocument` (not Auditable); `Candidates/RelationManagers/DocumentsRelationManager.php:77-86`; joining-document verify and reject (`CandidateJoinings/RelationManagers/DocumentsRelationManager.php:73-92`), which are direct `update()` calls with no actor recorded.
+- **Recommendation:** make the model Auditable, or route changes through a service that records the actor.
+
+### P810-SEC-005: Compensation section of the offer form not gated by `compensation.view` (Low; KNOWN-untracked: 8.5 RR-1)
+- **Component:** `app/Filament/Resources/Offers/Schemas/OfferForm.php:43-62`. The gate exists in `OffersTable.php:68` and `OfferExporter.php:36`.
+- **Evidence (FACT):** every seeded role with `offers.manage` also holds `compensation.view`, so exposure is limited to custom roles.
+- **Recommendation:** gate the section.
+
+### P810-SEC-012: Completing an interview can close an application the actor cannot transition (Informational, NEW)
+- **Evidence (FACT):**
+  - `InterviewPolicy::isInScope` includes the interviewer.
+  - `InterviewService::complete` (`:245-285`) calls `reject()` / `transitionTo()` with no `transitionStage` check.
+  - `performSelectCandidate` does check it.
+- **Recommendation:** decide the intended rule explicitly.
+
+### P810-SEC-013: Calendar OAuth routes skip the staff-MFA middleware (Informational, NEW)
+- **Evidence (FACT):** `routes/web.php:25-28` uses `['auth', 'throttle:calendar-oauth']`. The controller's `can('calendar.connect')` still fails closed for suspended or revoked users. The only gap is the MFA-enrolment requirement for connecting one's own calendar.
+
+## 4. Security-relevant findings recorded in other reviews (counted there)
+
+| ID | Severity | Summary | Where |
+|---|---|---|---|
+| P810-DI-04 | High | Manual joining-record creation (`joining.confirm`, held by recruiters) followed by Mark Joined bypasses the offer chain. It moves the application to Joined, prices the actor's own joining incentive (still subject to approval) and counts a hire. The residual of SEC-86-I-01 at HEAD. | discovery §6 |
+| P810-AI-01 | High | Copilot approval card omits the action parameters: target stage, rejection reason, schedule, email body. One click approves, including HighImpact bulk rejection. | discovery §7 |
+| P810-AI-02 | Medium | Indirect prompt injection: candidate-editable fields (`current_designation`, `current_city`, `location`) reach the model verbatim; the defence is prompt instructions only. | discovery §7 |
+| P810-AI-03 | Medium | Model output rendered as Markdown allows auto-loading `https://` images. With no panel CSP (`img-src`), injected output can exfiltrate context on render. | discovery §7 |
+| P810-AI-05 | Medium | The Copilot stage-move tool accepts any stage, including decision stages. On pipeline-less applications `advance()` falls through to a forward-only `transitionTo()`. | discovery §7 |
+| P810-AI-11 | Low | `compare_candidates` eager-loads the latest application without hierarchy scope, so it leaks another team's stage and compensation fit. | discovery §7 |
+| P810-AI-06 | Low | No per-response tool-call cap, turn deadline or input length limit, and the turn runs synchronously in the request (cost and DoS). | discovery §7 |
+| P810-DI-03 | Medium | Manual moves into offer and joining milestones are not refused. | discovery §6 |
+| P810-DI-09 | Medium | Requisitions are unaudited, editable after approval, and soft-deletable while in use. Includes the authorization side of an unaudited delete with no reason. | discovery §6 |
+| P810-OP-14 | Low | Compose falls back to `DB_PASSWORD=secret` when it is unset; every service receives every secret. | discovery §12 |
+| P810-OP-13 | Low | Rotating `APP_KEY` silently invalidates portal sessions, links and step-up codes (HMACs use the current key only). | discovery §12 |
+
+## 5. Carried-forward production exposure: hotfix `2fab3fd` (P89-OPS-012)
+
+**Exact state (FACT, re-verified):**
+- **Commit:** `2fab3fd` "Security hotfix: close Filament's missing-policy-method delete bypass" (2026-09-27).
+- **Parent:** `9cba8e3`, the production line.
+- **Location:** only on the local branch `hotfix/filament-delete-authorization`. No remote-tracking ref contains it, and it is not an ancestor of HEAD, `origin/main` or `origin/production`.
+- **Not merged, not pushed, not deployed.**
+
+**Vulnerability.**
+- On the production line, Filament treats a missing policy method as *allowed* (non-strict mode).
+- Resources that render Delete, ForceDelete, Restore or bulk actions, but whose policies lack those methods, allow those actions to anyone who can reach the resource.
+- This is Phase 8.6 SEC-1, Critical.
+
+**What the hotfix changes:** 25 files, +404 lines; policy methods and tests only; no schema or data change.
+- A `ForbidsDeletion` trait for Candidate, CandidateApplication, Interview, Offer and CandidateJoining.
+- Explicit delete, restore and force-delete rules for requisitions, master data, Employee (`*Any` false) and ten other resources.
+- `DeleteAuthorizationTest` and a static `PolicyActionCoverageTest`.
+
+**Is it still required?**
+- **On the production line: yes.** `main` / `production` @ `9cba8e3` lack it.
+- **On this branch: no.** HEAD already contains:
+  - the equivalent `dcff76e`, which 2fab3fd's own message calls "the same fix … adapted to main";
+  - the stronger `3e51819`, strict authorization with a fail-closed `Gate::before` for any missing policy ability (`AppServiceProvider.php:136, 276-287`);
+  - plus `PolicyCoverageTest` and `StrictAuthorizationTest`.
+  
+  Merging 2fab3fd into this branch is unnecessary.
+
+**Is it sufficient for production? No.**
+- **`CandidateJoiningPolicy::create()` is absent on the hotfix branch and on `9cba8e3`** (methods: `viewAny`, `view`, `update`, plus the deletion trait). The production line has a `CreateCandidateJoining` page, so anyone who can reach the joining resource can create joining records there (SEC-86-I-01).
+- The hotfix adds no fail-closed gate, so other missing methods on the production line still default to allowed: `create`, `update`, `replicate`, `reorder`, `attach`.
+
+**Is it safe to merge into the production line?** It changes policy methods and tests only, with no schema or data change, so the change itself is low-risk (INFERENCE; not executed on that line). Its tests would need to run on the production line first. Releasing it is a Security and Operations decision (D8.10-002).
+
+**Release dependency:**
+- D8.10-002 chooses between hotfix-first (with `create()` added) and releasing the full branch.
+- The full branch release depends on D8.10-003 / 004 and on the backup prerequisite (P89-OPS-001).
+
+**Residual at HEAD.** `CandidateJoiningPolicy::create` exists but requires only `joining.confirm`, which the recruiter, assistant-manager and manager roles hold. This is what makes P810-DI-04 possible.
+
+## 6. Known security items still open (not re-reported)
+
+Not counted as new:
+- **Production delete-authorization gap and SEC-86-I-01** (§5).
+- **SEC-88-02** retention / erasure (deferred C).
+- **SEC-88-05** PII and salary in audit values (accepted B).
+- **SEC-88-07** long-lived scheduling links (accepted B).
+- **SEC-88-10** no trusted proxy (deferred C, conditional).
+- **SEC-88-14** consent evidence (accepted B).
+- **SEC-88-16** exports into the AI knowledge base (deferred C).
+- **SEC-88-18** portal identity drift (deferred C).
+- **SEC-88-20** self-scheduling integrity (deferred C).
+- **SEC-88-21** rate-limit gaps on careers pages; staff lockout keyed by email (deferred C).
+- **SEC-88-22** client `X-Request-Id` trusted (deferred C).
+- **SEC-88-23** staff reasons shown to candidates (deferred C).
+- **SEC-88-25** interviewer import: row cap, formulas and type check remain.
+- **SEC-88-26** AI bulk tools truncate silently.
+- **SEC-88-27** development defaults in `.env.example`.
+- **SEC-88-28** AI actions audited as the approver.
+- **P86-BACKLOG-004** audit rows not immutable at model level (no UI path edits them).
+- **P88-BACKLOG-002** export governance remainder.
+- **P89-SEC-006, 008, 010, 012** residuals as recorded at the 8.9 freeze.
+
+## 7. Areas checked and found sound
+
+**Authorization**
+- The missing-policy-method fallback is closed at HEAD: a fail-closed `Gate::before`, strict mode in local and testing, and `PolicyCoverageTest`, `PolicyActionCoverageTest` and `StrictAuthorizationTest`.
+- All 54 resources map to policies; the 12 history models are read-only.
+- Hidden or disabled Filament actions cannot be mounted or called on the server.
+- Bulk selections come from the scoped table query. Destructive bulk actions are safe today because the per-record rule equals the query scope; the policy docblocks that claim a per-record re-check are inaccurate.
+- View and edit URLs are scoped through `getEloquentQuery()`. `$record` and `$ownerRecord` are `#[Locked]`.
+- Page and Livewire actions (Pipeline, InterviewWorkspace, Copilot, QueueHealth, Integrations, NotificationCenter, CommandPalette) re-resolve records with scope.
+- Role and permission escalation controls (`RoleAssignmentService`, `RolePolicy`, `UserPolicy`, last-CHRO lock); immutable role `key` and `is_protected`.
+- Access lifecycle: `StaffAccessService::permits` in `Gate::before`; persistent `EnforceStaffAccess`; session epoch and remember-token cycling on suspend, revoke, password reset and MFA reset.
+- No `$guarded = []` on application models. `GuardsLifecycleAttributes` protects lifecycle columns on update.
+
+**Files, exports and audit**
+- Exports are owner-only with expiry and an audited download.
+- `files.private` is signed, bound to the user, short-lived, `no-store` with a sandbox CSP and `nosniff`, and audited.
+- File-path tampering is prevented.
+- The audit UI is view-only.
+
+**Candidate portal**
+- Neutral and Timebox-padded responses.
+- Single-use 48-hour set-password links.
+- Step-up codes: CSPRNG, HMAC-stored, 10-minute TTL, 5 attempts.
+- Every portal query scoped to the signed-in candidate.
+
+**Careers and integrations**
+- Careers: honeypot, `throttle:career-apply`, resume type and size limits, consent required, and anonymous submissions never mutate a matched candidate.
+- Calendar OAuth: state compared with `hash_equals`; tokens encrypted and hidden.
+- Webhook HMAC verification is timing-safe.
+
+**Injection and processing**
+- No server-side fetch of user-controlled URLs (SSRF).
+- DomPDF with remote access and PHP disabled, chrooted.
+- LibreOffice invoked with an argv array (no shell).
+- PhpWord output escaping on.
+- Communication templates use a whitelist substitution, never `Blade::render`.
+- The only `Artisan::call` is a gated `queue:retry`.
+
+**Logging, queues and transport**
+- Log redaction tap; encrypted queued auth mails on the `security` queue.
+- The Apache access log omits the query string and the Referer.
+- CSRF is exempt only for `webhooks/*`.
