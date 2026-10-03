@@ -66,7 +66,7 @@ test('two joinings in one month are priced at consecutive slab positions (DQ-002
     $rule = RecruitmentIncentiveRule::factory()->slabByCount()->create();
     RecruitmentIncentiveSlab::factory()->create(['incentive_rule_id' => $rule->id, 'achievement_min' => 1, 'achievement_max' => 1.5, 'amount' => 1000]);
     RecruitmentIncentiveSlab::factory()->create(['incentive_rule_id' => $rule->id, 'achievement_min' => 2, 'achievement_max' => null, 'amount' => 2000]);
-    $joinings = collect([1, 2])->map(fn () => CandidateJoining::factory()->create([
+    $joinings = collect([1, 2])->map(fn () => CandidateJoining::factory()->withAcceptedOffer()->create([
         'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id, 'current_stage' => CandidateStage::JoiningConfirmed])->id,
         'status' => JoiningStatus::Confirmed,
     ]));
@@ -85,7 +85,7 @@ test('two joinings in one month are priced at consecutive slab positions (DQ-002
 });
 
 test('a dropout recorded while the join commits is refused (DQ-003)', function (): void {
-    $joining = CandidateJoining::factory()->create([
+    $joining = CandidateJoining::factory()->withAcceptedOffer()->create([
         'candidate_application_id' => CandidateApplication::factory()->create(['current_stage' => CandidateStage::JoiningConfirmed])->id,
         'status' => JoiningStatus::Confirmed,
     ]);

@@ -16,6 +16,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php, app/Services/RecruitmentActivityService.php, app/Services/** | .ai/rules/app-services.md |
 | app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
+| app/Services/CandidateJoiningService.php,app/Filament/Resources/CandidateJoinings/**,database/factories/CandidateJoiningFactory.php | .ai/rules/candidate-joinings-factories.md |
 | app/Models/Candidate.php,app/Services/CandidateSearchTerm.php,app/Filament/Resources/Candidates/** | .ai/rules/candidates.md |
 | docker-compose.yml,docker/**,app/Console/Commands/HeartbeatCheck.php,app/Services/WorkerHeartbeat.php,config/logging.php | .ai/rules/commands-services.md |
 | routes/console.php,app/Console/Commands/** | .ai/rules/commands.md |

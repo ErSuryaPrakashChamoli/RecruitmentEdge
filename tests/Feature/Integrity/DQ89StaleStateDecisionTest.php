@@ -70,7 +70,7 @@ test('an approval from a stale copy cannot override a rejection (DQ-001)', funct
 
 test('a dropout recorded from a stale copy cannot undo a join (DQ-003)', function (): void {
     $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::JoiningConfirmed]);
-    $joining = CandidateJoining::factory()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Confirmed]);
+    $joining = CandidateJoining::factory()->withAcceptedOffer()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Confirmed]);
     $stale = CandidateJoining::query()->find($joining->id);
     $service = app(CandidateJoiningService::class);
 

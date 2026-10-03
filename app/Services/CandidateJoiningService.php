@@ -2,16 +2,20 @@
 
 namespace App\Services;
 
+use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
+use App\Enums\OfferStatus;
 use App\Events\CandidateJoined;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
+use App\Models\AuditLog;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
 use App\Models\Offer;
 use App\Models\RecruitmentRejectionReason;
+use App\Models\User;
 use App\Services\Lifecycle\LifecycleGuard;
 use App\Services\Lifecycle\RowLock;
 use Closure;
@@ -27,6 +31,12 @@ use Illuminate\Support\Facades\DB;
  * the joining (RowLock order), and checks the joining's latest committed status — so Joined racing
  * Dropout/No-show, or a double Joined with two different dates, is refused instead of paying an
  * incentive for a non-hire or pricing two incentive periods for one join.
+ *
+ * Phase 8.10 (P810-DI-04): a joining completes the offer chain — application, Selected, offer,
+ * Accepted, joining. Staff create one only for an accepted offer (createForApplication(), which
+ * derives the offer), and Mark Joined needs the joining's offer to be that application's accepted
+ * offer, so a hand-made joining can no longer move an application to Joined, price an incentive
+ * or count a hire.
  */
 class CandidateJoiningService
 {
@@ -34,7 +44,50 @@ class CandidateJoiningService
         private readonly StageTransitionService $stageTransitions,
         private readonly RecruiterIncentiveCalculator $incentiveCalculator,
         private readonly NotificationDispatchService $notifications,
+        private readonly HierarchyService $hierarchy,
     ) {}
+
+    /**
+     * Phase 8.10 (P810-DI-04): the staff "New joining" path, and the recovery for an accepted offer
+     * whose joining record is missing. The actor needs joining.confirm and the application in their
+     * hierarchy; the application must be active, have an accepted offer and no joining yet. The
+     * offer is the application's accepted one — never chosen — and the creation is audited.
+     *
+     * @param  array{expected_doj?: mixed, documents_status?: mixed, remarks?: string|null}  $details
+     *
+     * @throws DomainException when the actor may not create it or the offer chain is incomplete
+     */
+    public function createForApplication(CandidateApplication $application, User $actor, array $details = []): CandidateJoining
+    {
+        if (! $actor->can('joining.confirm') || ! $this->hierarchy->canView($actor, $application->recruiter)) {
+            throw new DomainException('You cannot create a joining record for this application.');
+        }
+
+        return DB::transaction(function () use ($application, $actor, $details): CandidateJoining {
+            RowLock::fresh($application);
+
+            if ($application->status !== ApplicationStatus::Active) {
+                throw new DomainException("This application is {$application->status->label()}; a joining record needs an active application.");
+            }
+
+            if (CandidateJoining::query()->where('candidate_application_id', $application->id)->exists()) {
+                throw new DomainException('This application already has a joining record.');
+            }
+
+            $offer = Offer::query()->where('candidate_application_id', $application->id)->where('status', OfferStatus::Accepted)->latest('id')->first()
+                ?? throw new DomainException('A joining record follows an accepted offer — record the offer as accepted first.');
+
+            $joining = $this->createForAcceptedOffer($offer);
+            $joining->forceFill([
+                ...array_filter(collect($details)->only(['expected_doj', 'documents_status', 'remarks'])->all(), filled(...)),
+                'created_by' => $actor->employee_id,
+            ])->save();
+
+            AuditLog::record($joining, 'joining_created_for_accepted_offer', null, ['offer_id' => $offer->id, 'by_user_id' => $actor->id]);
+
+            return $joining->refresh();
+        });
+    }
 
     /**
      * Phase 8.3: creates the joining record for an accepted offer, inside the offer's own
@@ -81,6 +134,8 @@ class CandidateJoiningService
     public function markJoined(CandidateJoining $joining, ?Carbon $actualDoj = null, ?Employee $actor = null): CandidateJoining
     {
         return $this->lockedActive($joining, function () use ($joining, $actualDoj, $actor): CandidateJoining {
+            $this->guardAcceptedOffer($joining);
+
             LifecycleGuard::allow(fn () => $joining->forceFill(['status' => JoiningStatus::Joined, 'actual_doj' => $actualDoj ?? now()])->save());
 
             $this->stageTransitions->transitionTo($joining->candidateApplication, CandidateStage::Joined, $actor);
@@ -239,6 +294,23 @@ class CandidateJoiningService
 
             return $change();
         });
+    }
+
+    /**
+     * Phase 8.10 (P810-DI-04): the hire completes the offer chain. Read under the application lock,
+     * which OfferService takes first too.
+     */
+    private function guardAcceptedOffer(CandidateJoining $joining): void
+    {
+        $accepted = Offer::query()
+            ->whereKey($joining->offer_id)
+            ->where('candidate_application_id', $joining->candidate_application_id)
+            ->where('status', OfferStatus::Accepted)
+            ->exists();
+
+        if (! $accepted) {
+            throw new DomainException('A joining is marked Joined only on an accepted offer for this application — record the offer as accepted first.');
+        }
     }
 
     private function guardActive(CandidateJoining $joining): void

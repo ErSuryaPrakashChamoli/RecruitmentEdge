@@ -6,7 +6,9 @@ use App\Enums\JoiningStatus;
 use App\Enums\OfferStatus;
 use App\Enums\ReferralStatus;
 use App\Enums\RequisitionStatus;
+use App\Models\AuditLog;
 use App\Models\CandidateApplication;
+use App\Models\CandidateJoining;
 use App\Models\CandidateSource;
 use App\Models\CandidateTimelineEvent;
 use App\Models\Employee;
@@ -15,7 +17,9 @@ use App\Models\Offer;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruitmentIncentiveRule;
 use App\Models\RecruitmentRequisition;
+use App\Models\User;
 use App\Services\CandidateJoiningService;
+use App\Services\OfferService;
 use App\Services\RecruiterIncentiveCalculator;
 use App\Services\ReferralService;
 use Database\Seeders\RolePermissionSeeder;
@@ -80,4 +84,23 @@ test('a late referral sync racing the join cannot move the joined referral backw
         ->and($referral->fresh()->status)->toBe(ReferralStatus::Joined)
         ->and(CandidateTimelineEvent::query()->where('candidate_id', $referral->candidate_id)->where('title', 'like', "Referral {$referral->referral_code}:%→ Joined")->count())->toBe(1)
         ->and(RecruiterIncentiveCalculation::query()->where('employee_referral_id', $referral->id)->count())->toBe(1);
+});
+
+test('a joining created by hand while the offer is being accepted leaves one joining; the loser writes nothing (DI-04)', function (): void {
+    $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::OfferReleased]);
+    $offer = Offer::factory()->create(['candidate_application_id' => $application->id, 'status' => OfferStatus::Released]);
+    $staff = User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro');
+
+    $race = Race::run(
+        holder: fn () => app(OfferService::class)->moveTo(Offer::query()->find($offer->id), OfferStatus::Accepted, $staff->employee),
+        contender: fn () => app(CandidateJoiningService::class)->createForApplication(CandidateApplication::query()->find($application->id), User::query()->find($staff->id)),
+    );
+
+    $joining = CandidateJoining::query()->where('candidate_application_id', $application->id)->sole();
+
+    expect($race['blocked'])->toBeTrue()
+        ->and($race['exception'])->toBe(DomainException::class)
+        ->and($race['message'])->toContain('already has a joining record')
+        ->and($joining->offer_id)->toBe($offer->id)
+        ->and(AuditLog::query()->where('action', 'joining_created_for_accepted_offer')->where('auditable_id', $joining->id)->exists())->toBeFalse();
 });

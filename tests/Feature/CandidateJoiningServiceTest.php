@@ -28,7 +28,7 @@ test('confirming a joining updates status and syncs the application stage', func
 
 test('marking joined updates status, actual DOJ, and syncs the application stage', function (): void {
     $application = CandidateApplication::factory()->create(['current_stage' => CandidateStage::JoiningConfirmed]);
-    $joining = CandidateJoining::factory()->create([
+    $joining = CandidateJoining::factory()->withAcceptedOffer()->create([
         'candidate_application_id' => $application->id,
         'status' => JoiningStatus::Confirmed,
     ]);

@@ -29,7 +29,7 @@ beforeEach(function (): void {
         'full_name' => 'PRIVATE-CANDIDATE-ALICE', 'email' => 'PRIVATE-ALICE@example.invalid', 'mobile' => '9999912345',
         'expected_salary' => 99999999, 'remarks' => 'PRIVATE-CANDIDATE-REMARK', 'skills' => ['Laravel', 'Go'], 'total_experience' => 4,
     ]);
-    $this->joining = CandidateJoining::factory()->create(['candidate_application_id' => $this->application->id, 'status' => JoiningStatus::Confirmed]);
+    $this->joining = CandidateJoining::factory()->withAcceptedOffer()->create(['candidate_application_id' => $this->application->id, 'status' => JoiningStatus::Confirmed]);
 });
 
 function joiningOutcomeConverter(): User
