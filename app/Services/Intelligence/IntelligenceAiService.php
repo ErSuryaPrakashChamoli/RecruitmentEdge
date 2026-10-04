@@ -2,6 +2,7 @@
 
 namespace App\Services\Intelligence;
 
+use App\Enums\Entitlement;
 use App\Enums\IntelligenceAiStatus;
 use App\Enums\RequirementLevel;
 use App\Enums\RoleDnaCategory;
@@ -17,6 +18,7 @@ use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Gateway\ModelRouter;
+use App\Services\Entitlements\EntitlementService;
 use Illuminate\Support\Arr;
 use Throwable;
 
@@ -74,10 +76,24 @@ class IntelligenceAiService
         private readonly RoleDnaService $roleDna,
     ) {}
 
+    /**
+     * Why AI cannot be asked for now, or null: no provider is configured, or (SaaS-3) the AI
+     * assistant is not in the tenant's plan — its queued job would be skipped and the request left
+     * Processing.
+     */
+    private function unavailableReason(): ?string
+    {
+        return match (true) {
+            ! $this->gateway->isConfigured() => 'No AI provider is configured.',
+            ! app(EntitlementService::class)->allows(Entitlement::AiAssistant) => Entitlement::AiAssistant->unavailableMessage(),
+            default => null,
+        };
+    }
+
     public function requestRoleDnaSuggestions(RoleDnaProfile $profile, User $actor): IntelligenceAiStatus
     {
-        if (! $this->gateway->isConfigured()) {
-            $profile->forceFill(['ai_status' => IntelligenceAiStatus::Unavailable, 'ai_error' => 'No AI provider is configured.'])->save();
+        if (($unavailable = $this->unavailableReason()) !== null) {
+            $profile->forceFill(['ai_status' => IntelligenceAiStatus::Unavailable, 'ai_error' => $unavailable])->save();
 
             return IntelligenceAiStatus::Unavailable;
         }
@@ -189,7 +205,7 @@ class IntelligenceAiService
 
     public function requestMemorySummary(HiringMemoryRecord $record, User $actor): IntelligenceAiStatus
     {
-        if (! $this->gateway->isConfigured()) {
+        if ($this->unavailableReason() !== null) {
             $record->forceFill(['ai_status' => IntelligenceAiStatus::Unavailable])->save();
 
             return IntelligenceAiStatus::Unavailable;
@@ -250,7 +266,7 @@ class IntelligenceAiService
      */
     public function requestInsightSummary(OutcomeInsight $insight, User $actor): IntelligenceAiStatus
     {
-        if (! $this->gateway->isConfigured()) {
+        if ($this->unavailableReason() !== null) {
             $insight->forceFill(['ai_status' => IntelligenceAiStatus::Unavailable])->save();
 
             return IntelligenceAiStatus::Unavailable;

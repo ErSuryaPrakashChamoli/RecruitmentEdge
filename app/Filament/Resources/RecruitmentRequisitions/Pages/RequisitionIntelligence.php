@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RecruitmentRequisitions\Pages;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\Entitlement;
 use App\Enums\IntelligenceAiStatus;
 use App\Enums\RequirementLevel;
 use App\Enums\RoleDnaCategory;
@@ -22,6 +23,7 @@ use App\Models\RoleDnaVersion;
 use App\Models\TalentPool;
 use App\Models\TalentSignalSnapshot;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Intelligence\HiringHealthService;
 use App\Services\Intelligence\HiringRiskRadar;
 use App\Services\Intelligence\IntelligenceAiService;
@@ -258,7 +260,7 @@ class RequisitionIntelligence extends Page
             ->color('gray')
             ->requiresConfirmation()
             ->modalDescription('Sends role-level information only (designation, skills, experience, qualification, public job description — no candidate data) to the configured AI provider. Suggestions are added unconfirmed; they affect nothing until a person confirms each one.')
-            ->visible(fn () => $this->userCan('intelligence.role-dna.manage') && $this->userCan('ai.query') && $this->dna() !== null)
+            ->visible(fn () => $this->userCan('intelligence.role-dna.manage') && $this->userCan('ai.query') && $this->dna() !== null && app(EntitlementService::class)->allows(Entitlement::AiAssistant))
             ->disabled(fn () => $this->profile()?->ai_status === IntelligenceAiStatus::Processing)
             ->action(function (): void {
                 $status = app(IntelligenceAiService::class)->requestRoleDnaSuggestions($this->profile(), auth()->user());

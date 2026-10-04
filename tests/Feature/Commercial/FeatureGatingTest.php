@@ -2,17 +2,22 @@
 
 use App\Enums\AutomationExecutionStatus;
 use App\Enums\Entitlement;
+use App\Enums\IntelligenceAiStatus;
 use App\Enums\RequisitionStatus;
 use App\Filament\Pages\AiCopilot;
+use App\Filament\Resources\AiDocuments\AiDocumentResource;
+use App\Filament\Resources\AiKnowledgeArticles\AiKnowledgeArticleResource;
 use App\Filament\Resources\AutomationRules\AutomationRuleResource;
 use App\Filament\Resources\AutomationRules\Pages\ListAutomationRules;
 use App\Filament\Resources\Candidates\Pages\ListCandidates;
+use App\Filament\Resources\RecruitmentRequisitions\Pages\RequisitionIntelligence;
 use App\Jobs\AI\IndexAiDocumentJob;
 use App\Models\AiDocument;
 use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
 use App\Models\Export;
 use App\Models\JobPosting;
+use App\Models\OutcomeInsight;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\AI\Gateway\AiGateway;
@@ -21,6 +26,8 @@ use App\Services\Automation\AutomationRuleService;
 use App\Services\Distribution\JobDistributionService;
 use App\Services\Entitlements\EntitlementDenied;
 use App\Services\Export\ReportExportService;
+use App\Services\Intelligence\IntelligenceAiService;
+use App\Services\Intelligence\RoleDnaService;
 use App\Services\Platform\Commercial\EntitlementOverrideService;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Support\Facades\Queue;
@@ -64,6 +71,56 @@ test('AI work queued for a tenant that has lost the AI assistant is skipped, not
     $this->world->in('trialStarter', fn () => IndexAiDocumentJob::dispatchSync($document->id));
 
     expect($this->world->in('trialStarter', fn () => $document->fresh()->status))->toBe($document->status);
+});
+
+test('asking for an AI summary without the AI assistant answers "unavailable" at once — nothing queued or left processing', function (): void {
+    Queue::fake();
+    app()->instance(AiGateway::class, new class extends AiGateway
+    {
+        public function __construct() {}
+
+        public function isConfigured(): bool
+        {
+            return true;
+        }
+    });
+    $starterInsight = $this->world->in('trialStarter', fn () => OutcomeInsight::factory()->create());
+    $growthInsight = $this->world->in('growth', fn () => OutcomeInsight::factory()->create());
+
+    expect($this->world->in('trialStarter', fn () => app(IntelligenceAiService::class)->requestInsightSummary($starterInsight, $this->world->admins['trialStarter']->fresh())))->toBe(IntelligenceAiStatus::Unavailable)
+        ->and($this->world->in('trialStarter', fn () => $starterInsight->fresh()->ai_status))->toBe(IntelligenceAiStatus::Unavailable);
+    Queue::assertNothingPushed();
+
+    expect($this->world->in('growth', fn () => app(IntelligenceAiService::class)->requestInsightSummary($growthInsight, $this->world->admins['growth']->fresh())))->toBe(IntelligenceAiStatus::Processing);
+});
+
+test('the Role DNA "Suggest with AI" action is offered only with the AI assistant', function (): void {
+    foreach (['trialStarter' => false, 'growth' => true] as $tenant => $offered) {
+        $requisition = $this->world->in($tenant, function (): RecruitmentRequisition {
+            $requisition = RecruitmentRequisition::factory()->create(['status' => RequisitionStatus::Open]);
+            app(RoleDnaService::class)->currentVersionFor($requisition);
+
+            return $requisition;
+        });
+        $this->actInTenant($this->world->tenant($tenant));
+        $this->actingAs($this->world->admins[$tenant]->fresh());
+
+        $page = Livewire::test(RequisitionIntelligence::class, ['record' => $requisition->id]);
+        $offered ? $page->assertActionVisible('requestAiSuggestions') : $page->assertActionHidden('requestAiSuggestions');
+    }
+});
+
+test('the AI knowledge base is hidden and refused without the AI assistant; its documents are kept', function (): void {
+    $document = $this->world->in('trialStarter', fn () => AiDocument::factory()->create());
+    $this->actInTenant($this->world->tenant('trialStarter'));
+    $this->actingAs($this->world->admins['trialStarter']->fresh());
+
+    expect(AiDocumentResource::canAccess())->toBeFalse()
+        ->and(AiKnowledgeArticleResource::canAccess())->toBeFalse();
+    $this->get('/admin/alpha-trial/ai-documents')->assertForbidden();
+    $this->get('/admin/alpha-trial/ai-knowledge-articles')->assertForbidden();
+
+    expect($this->world->in('trialStarter', fn () => AiDocument::query()->whereKey($document->id)->exists()))->toBeTrue();
 });
 
 test('automation: building and switching on rules is refused, the engine creates and runs nothing', function (): void {

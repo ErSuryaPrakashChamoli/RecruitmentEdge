@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\AiDocuments;
 
+use App\Enums\Entitlement;
+use App\Filament\Concerns\RequiresEntitlement;
 use App\Filament\Resources\AiDocuments\Pages\CreateAiDocument;
 use App\Filament\Resources\AiDocuments\Pages\ListAiDocuments;
 use App\Filament\Resources\AiDocuments\Schemas\AiDocumentForm;
@@ -16,6 +18,8 @@ use UnitEnum;
 
 class AiDocumentResource extends Resource
 {
+    use RequiresEntitlement;
+
     protected static ?string $model = AiDocument::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
@@ -23,6 +27,15 @@ class AiDocumentResource extends Resource
     protected static string|UnitEnum|null $navigationGroup = 'AI Assistant';
 
     protected static ?string $navigationLabel = 'Knowledge Documents';
+
+    /**
+     * SaaS-3: the knowledge base feeds the AI assistant; without it in the plan, nothing could be
+     * indexed. Existing documents are kept.
+     */
+    protected static function requiredEntitlement(): Entitlement
+    {
+        return Entitlement::AiAssistant;
+    }
 
     public static function form(Schema $schema): Schema
     {
