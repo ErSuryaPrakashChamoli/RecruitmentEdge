@@ -141,6 +141,11 @@ class TenantProvisioningService
             throw new DomainException("The slug \"{$request->slug}\" is already taken.");
         }
 
+        // A closed tenant is never handed back (or re-provisioned) by a repeated request.
+        if (in_array($existing->status, [TenantStatus::Cancelled, TenantStatus::DeletionPending, TenantStatus::Deleted], true)) {
+            throw new DomainException("The slug \"{$request->slug}\" belongs to a closed tenant.");
+        }
+
         if ($existing->provisioned_at === null && $existing->status === TenantStatus::Provisioning) {
             TenantContext::current()->run($existing, fn () => AuditLog::record($existing, 'tenant_provisioning_retried', null, ['previous_error' => $existing->provisioning_error, 'by_user_id' => $operator?->getKey()]));
         }
