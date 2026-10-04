@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\Auth\StaffLogin;
+use App\Filament\Resources\Users\UserResource;
 use App\Notifications\StaffDatabaseNotification;
 use App\Services\Tenancy\TenantContext;
 use Filament\Facades\Filament;
@@ -99,4 +100,13 @@ test('a notification for one tenant is never shown in the other, even to the sam
 
     expect($this->world->personA->notifications()->count())->toBe(0)
         ->and(TenantContext::current()->run($this->world->beta, fn () => $this->world->personA->notifications()->count()))->toBe(1);
+});
+
+test('global search finds this tenant\'s people only — never a member of another tenant', function (): void {
+    $this->actingAs($this->world->adminA);
+
+    expect(UserResource::getGlobalSearchResults('Bala')->count())->toBe(1)
+        ->and(UserResource::getGlobalSearchResults('Beta Chief')->count())->toBe(0)
+        ->and(UserResource::getGlobalSearchResults('Asha')->count())->toBe(1)
+        ->and(UserResource::getGlobalSearchResults('Dev Nowhere')->count())->toBe(0);
 });

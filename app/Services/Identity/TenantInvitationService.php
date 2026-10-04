@@ -231,6 +231,11 @@ class TenantInvitationService
                 throw new InvitationUnavailable('wrong_identity', 'This invitation was sent to a different email address. Sign out, then open the link again and sign in with that address.');
             }
 
+            // An identity the platform disabled joins nothing.
+            if (! app(StaffAccessService::class)->identityPermits($user)) {
+                throw new InvitationUnavailable('identity_disabled');
+            }
+
             // One identity's acceptances run one after the other (two invitations into one tenant).
             User::query()->whereKey($user->getKey())->lockForUpdate()->first();
 
@@ -333,13 +338,20 @@ class TenantInvitationService
         $employee = $this->stillLinkable($invitation, $user);
 
         if ($membership === null) {
-            $membership = TenantMembership::query()->create([
-                'tenant_id' => $invitation->tenant_id,
-                'user_id' => $user->getKey(),
-                'employee_id' => $employee?->getKey(),
-                'status' => AccessState::Active,
-                'joined_at' => now(),
-            ]);
+            try {
+                // A savepoint: the unique keys (one membership per tenant and person, one login per
+                // employee record) are the last word if another acceptance got there first.
+                $membership = DB::transaction(fn (): TenantMembership => TenantMembership::query()->create([
+                    'tenant_id' => $invitation->tenant_id,
+                    'user_id' => $user->getKey(),
+                    'employee_id' => $employee?->getKey(),
+                    'status' => AccessState::Active,
+                    'joined_at' => now(),
+                ]));
+            } catch (UniqueConstraintViolationException) {
+                throw new InvitationUnavailable('membership_conflict');
+            }
+
             $event = 'membership_created';
         } else {
             LifecycleGuard::allow(fn () => $membership->forceFill([

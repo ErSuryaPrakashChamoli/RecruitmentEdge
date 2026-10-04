@@ -3,6 +3,7 @@
 use App\Enums\AccessState;
 use App\Enums\InvitationStatus;
 use App\Enums\TenantStatus;
+use App\Filament\Resources\TenantInvitations\Pages\ListTenantInvitations;
 use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Http\Controllers\Identity\TenantInvitationController;
 use App\Mail\TenantInvitationMail;
@@ -63,7 +64,8 @@ test('an invitation stores only the hash of its single-use token, emails the lin
         ->and(str_contains(json_encode(AuditLog::query()->get()->toArray()), $token))->toBeFalse()
         ->and(AuditLog::query()->where('action', 'invitation_created')->sole()->getAttribute('changes'))->toMatchArray(['email' => 'new.person@example.test', 'roles' => ['recruiter'], 'source' => 'administrator']);
 
-    Mail::assertSent(TenantInvitationMail::class, fn (TenantInvitationMail $mail) => $mail->hasTo('new.person@example.test') && $mail->tenantName === 'Acme Hiring' && ! str_contains($mail->url, 'acme'));
+    // The link names no tenant, and is built on the application's own host (P810-SEC-001).
+    Mail::assertSent(TenantInvitationMail::class, fn (TenantInvitationMail $mail) => $mail->hasTo('new.person@example.test') && $mail->tenantName === 'Acme Hiring' && ! str_contains($mail->url, 'acme') && str_starts_with($mail->url, rtrim((string) config('app.url'), '/').'/invitations/'));
 });
 
 test('inviting needs users.manage, roles the inviter may grant, and this tenant\'s roles only', function (): void {
@@ -260,4 +262,28 @@ test('acceptance re-checks the promise: roles that no longer exist, or an invite
         ->and(User::query()->whereIn('email', ['one@example.test', 'two@example.test'])->exists())->toBeFalse()
         ->and(AuditLog::query()->where('action', 'invitation_refused')->sole()->getAttribute('changes'))->toMatchArray(['reason' => 'roles_changed'])
         ->and(TenantContext::current()->run($this->world->beta, fn () => AuditLog::query()->where('action', 'invitation_refused')->sole()->getAttribute('changes')))->toMatchArray(['reason' => 'inviter_authority_changed']);
+});
+
+test('an identity the platform disabled joins nothing', function (): void {
+    $invitation = invitationInviteToBeta($this->world, 'bala@example.test');
+    $this->artisan('identity:disable bala@example.test --reason="Compromised"')->assertSuccessful();
+
+    expect(fn () => TenantContext::current()->run($this->world->beta, fn () => $this->invitations->accept($invitation, $this->world->personB->fresh())))->toThrow(InvitationUnavailable::class)
+        ->and(TenantMembership::query()->where('tenant_id', $this->world->beta->id)->where('user_id', $this->world->personB->id)->exists())->toBeFalse();
+});
+
+test('the invitations list and its actions are the tenant\'s own', function (): void {
+    $acme = $this->invitations->invite(['email' => 'acme.only@example.test', 'roles' => [Role::byKeyOrFail('recruiter')->id]], $this->world->adminA);
+    $beta = invitationInviteToBeta($this->world, 'beta.only@example.test');
+    $this->actingAs($this->world->adminA);
+
+    Livewire::test(ListTenantInvitations::class)
+        ->assertCanSeeTableRecords([$acme])
+        ->assertCountTableRecords(1);
+
+    expect($this->world->adminA->can('update', TenantContext::current()->run($this->world->beta, fn () => $beta->fresh())))->toBeFalse()
+        ->and(fn () => $this->invitations->revoke($beta, $this->world->adminA, 'Not ours'))->toThrow(DomainException::class)
+        ->and(TenantContext::current()->run($this->world->beta, fn () => $beta->fresh()->status))->toBe(InvitationStatus::Pending);
+
+    $this->actingAs($this->world->personB)->get('/admin/acme/tenant-invitations')->assertForbidden();
 });

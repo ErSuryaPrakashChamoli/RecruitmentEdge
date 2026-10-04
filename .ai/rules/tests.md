@@ -25,3 +25,6 @@ Phase 8.9 (P89-DQ-016): tests/Pest.php fakes the local and public disks before e
 
 ## Tests run inside the "acme" tenant; cross-tenant fixtures via TenantWorld
 SaaS-1: TestCase (RefreshDatabase tests) creates tenant slug "acme" and calls actInTenant() (TenantContext + Filament tenant + {tenant} URL default). Panel paths are /admin/acme/…, careers /careers/acme/…, portal /portal/acme/…. Raw DB::table()->insert() on tenant tables must include 'tenant_id' => $this->tenant->id. A hand-built queue payload needs 'tenant_id' and 'illuminate:log:context' => Context::dehydrate(), or the worker hydration clears the tenant. Two-tenant fixtures: Tests\Feature\Tenancy\TenantWorld::build(). Concurrency tests run in tenant "concurrency" (Race::prepareDatabase).
+
+## SaaS-2 test fixtures: IdentityWorld; Livewire replays flush state
+Multi-tenant identity fixtures: Tests\Feature\IdentityAccess\IdentityWorld::build($this->tenant) (acme + beta, persons A–E of the authorisation matrix, adminA/adminB). User::factory()->create(['employee_id' => …]) still works: the factory moves the link onto the membership of the current tenant. When replaying a raw Livewire update more than once in one test, call Livewire::flushState() before each (Livewire skips persistent middleware already applied in the "same request"). Concurrency emails must be lowercase (invitations are normalised).

@@ -168,6 +168,9 @@ class TenancyVerifier
                     ->whereColumn('tenant_memberships.user_id', 'model_has_roles.model_id')
                     ->whereColumn('tenant_memberships.tenant_id', 'model_has_roles.tenant_id'))
                 ->count(),
+            // SaaS-2: only the three access states exist; an employee record has one login at most.
+            'membership with an unknown access state' => DB::table('tenant_memberships')->whereNotIn('status', ['active', 'suspended', 'revoked'])->count(),
+            'employee record linked to more than one membership' => DB::table('tenant_memberships')->whereNotNull('employee_id')->groupBy('employee_id')->havingRaw('count(*) > 1')->get(['employee_id'])->count(),
             'membership linked to another tenant\'s employee' => DB::table('tenant_memberships')
                 ->join('employees', 'employees.id', '=', 'tenant_memberships.employee_id')
                 ->whereColumn('employees.tenant_id', '!=', 'tenant_memberships.tenant_id')
