@@ -507,6 +507,10 @@ The authorization "Phase 8.10 — Parallel Security & Data Integrity Hardening" 
 - **D8.10-022, D8.10-023:** unchanged, OPEN; no values invented.
 - **D8.10-010, 013, 014:** OPEN; their findings are dispositioned (D, and C for AI-15) in `rms-final-release-candidate.md` §4.
 
+### Status at 2026-10-04 (Phase 8.11)
+- **D8.10-002 / 003 / 021:** the strategy recommendation (deploy release candidate `226bc7d`, which contains Release A's protection, verified) is recorded in `phase-8-11-production-release.md` §2. **Awaiting release-owner approval.**
+- **D8.10-005, D8.9-007…010, 026, 028, D8.10-006, 014, 023:** unchanged. **OWNER ACTION REQUIRED.** Phase 8.11 is blocked on them (§8 there).
+
 ## 3. Summary
 
 | Group | Count |
