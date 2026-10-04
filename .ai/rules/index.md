@@ -9,13 +9,15 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
-| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php | .ai/rules/app-models.md |
+| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php, app/Models/Billing*.php | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php, app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php | .ai/rules/app-services-services.md |
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php, app/Services/RecruitmentActivityService.php, app/Services/** | .ai/rules/app-services.md |
 | app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
+| app/Services/Billing/Providers/** | .ai/rules/billing-providers.md |
+| app/Services/Billing/** | .ai/rules/billing.md |
 | app/Services/CandidateJoiningService.php,app/Filament/Resources/CandidateJoinings/**,database/factories/CandidateJoiningFactory.php | .ai/rules/candidate-joinings-factories.md |
 | app/Models/Candidate.php,app/Services/CandidateSearchTerm.php,app/Filament/Resources/Candidates/** | .ai/rules/candidates.md |
 | docker-compose.yml,docker/**,app/Console/Commands/HeartbeatCheck.php,app/Services/WorkerHeartbeat.php,config/logging.php | .ai/rules/commands-services.md |
@@ -38,6 +40,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php, app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Enums/StageHistoryEvent.php | .ai/rules/enums.md |
 | app/Filament/**,app/Services/Export/**,app/Policies/ExportPolicy.php | .ai/rules/export-policies.md |
 | database/seeders/**,database/factories/** | .ai/rules/factories.md |
+| tests/Feature/Billing/** | .ai/rules/feature-billing.md |
 | resources/css/filament/admin/theme.css | .ai/rules/filament-admin.md |
 | app/Filament/Pages/*.php, app/Filament/Pages/Profile.php | .ai/rules/filament-pages.md |
 | app/Filament/Widgets/** | .ai/rules/filament-widgets.md |

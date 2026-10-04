@@ -5,6 +5,7 @@ paths:
   - 'app/Models/**'
   - app/Models/User.php
   - app/Models/Tenant.php
+  - 'app/Models/Billing*.php'
 ---
 
 # App Models
@@ -26,3 +27,6 @@ User::relationLoaded()/setRelation() discard loaded roles, permissions and emplo
 
 ## Use effectiveStatus()/isUsable(), never the stored status, for access
 An ended trial is Suspended from the second trial_ends_at passes (Tenant::effectiveStatus()), before the hourly sweep records it. Decide access, entitlements and background work with isUsable()/allowsBackgroundWork(), not `status`. Only TenantLifecycleService writes status, trial_ends_at or entitlement_version (architecture test). MySQL JSON columns reorder object keys — compare decoded JSON arrays without key order.
+
+## Billing records are immutable history; create them only through services
+Issued invoices change only payment progress (status, amount paid/due, paid/void dates); payments never change amount, currency, invoice or reference (provider ref set once); prices are never edited (publish a new one); subscriptions, invoices, payments are never deleted — the models throw. One live subscription per tenant (unique tenant_id+is_live, NULL for ended). Invoice numbers come from the platform-wide series (InvoiceNumberer), not CodeSequence. Tests create billing records through the services (no factories) so the invariants are exercised.

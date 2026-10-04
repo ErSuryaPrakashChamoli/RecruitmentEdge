@@ -209,16 +209,25 @@ test('a refund and the provider\'s notice of it at once: refunded once', functio
 test('two invoices issued at once in two tenants take consecutive numbers of the one series', function (): void {
     $second = Tenant::factory()->onPlan('growth')->create(['slug' => 'bill-'.Str::lower(Str::random(10))]);
 
+    // Two paid subscriptions due for renewal: renewing creates no subscription row, so the only
+    // thing the two tenants share is the platform's invoice series.
+    foreach ([$this->tenant, $second] as $tenant) {
+        billingRaceSubscribe($tenant, $this->growth);
+        billingRaceProcess(billingRaceEvent(billingRacePayment($tenant), 'payment.succeeded'));
+        billingRaceIn($tenant, fn () => DB::table('billing_subscriptions')->where('tenant_id', $tenant->id)->update(['current_period_end' => now()->subMinute()]));
+    }
+
     $race = Race::run(
-        holder: fn () => billingRaceSubscribe($this->tenant, $this->growth),
-        contender: fn () => billingRaceSubscribe($second, $this->growth),
+        holder: fn () => billingRaceIn($this->tenant, fn () => app(BillingClock::class)->tick()),
+        contender: fn () => billingRaceIn($second, fn () => app(BillingClock::class)->tick()),
     );
 
-    $numbers = [billingRaceIn($this->tenant, fn () => BillingInvoice::query()->sole()->number), billingRaceIn($second, fn () => BillingInvoice::query()->sole()->number)];
+    $numbers = [billingRaceIn($this->tenant, fn () => BillingInvoice::query()->latest('id')->firstOrFail()->number), billingRaceIn($second, fn () => BillingInvoice::query()->latest('id')->firstOrFail()->number)];
     [$a, $b] = array_map(fn (string $number): int => (int) Str::afterLast($number, '/'), $numbers);
 
     expect($race['blocked'])->toBeTrue()
-        ->and($numbers[0])->not->toBe($numbers[1])
+        ->and($race['completed'])->toBeTrue()
+        ->and(billingRaceIn($second, fn () => BillingInvoice::query()->count()))->toBe(2)
         ->and($b)->toBe($a + 1);
 });
 

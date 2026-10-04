@@ -153,7 +153,7 @@ Every commercial change (plan assignment, override, lifecycle transition) takes 
 - **Nothing deletes data.** Cancelled, deletion-pending and deleted are states; purging is a later, separately approved phase.
 - **Trial:** `trial_ends_at` is evaluated on every request (`Tenant::effectiveStatus()`): an ended trial is Suspended from that second, without waiting for the scheduler. The hourly `tenants:lifecycle-sweep` records it (status `suspended`, reason `trial_expired`, audit `trial_expired`) and re-checks each tenant under its lock. `extendTrial` extends a running trial or re-opens an ended one; `activate` converts it.
 - **Paused work resumes (closes S1-05).** Queued work of an unusable tenant fails at the queue guard (`TenantUnavailable`) and waits in `failed_jobs`. When a Suspended tenant (or an ended trial) becomes usable again, exactly that tenant's waiting jobs are retried after the commit, and audited (`tenant_work_resumed`). A cancelled or deleted tenant's work is never resumed.
-- PastDue is a manual platform state only. Nothing sets it automatically: payments are SaaS-4.
+- PastDue is set by billing since SaaS-4 (a failed payment's grace period, through `CommercialSubscriptionService`; `saas-4-billing.md` §9), and can still be set by the platform. SaaS-4 also adds `access_ends_at`, evaluated like `trial_ends_at`.
 
 **Background work policy** (deterministic; brief §24, §37):
 
