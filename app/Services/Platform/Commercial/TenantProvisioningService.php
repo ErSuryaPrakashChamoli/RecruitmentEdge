@@ -136,8 +136,15 @@ class TenantProvisioningService
         }
 
         $recorded = ((array) $existing->provisioning_state)['request'] ?? null;
+        $fingerprint = $request->fingerprint();
 
-        if ($recorded !== null && $recorded !== $request->fingerprint()) {
+        // Compared without key order: a MySQL JSON column returns object keys in its own order.
+        if (is_array($recorded)) {
+            ksort($recorded);
+            ksort($fingerprint);
+        }
+
+        if ($recorded !== null && $recorded !== $fingerprint) {
             throw new DomainException("The slug \"{$request->slug}\" is already taken.");
         }
 
