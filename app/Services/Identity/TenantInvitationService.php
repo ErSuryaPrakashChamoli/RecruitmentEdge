@@ -227,7 +227,7 @@ class TenantInvitationService
         return $this->refusalsAudited($invitation, $user, fn (): TenantMembership => DB::transaction(function () use ($invitation, $user): TenantMembership {
             $locked = $this->lockOpen($invitation);
 
-            if (User::normaliseEmail($user->email) !== $locked->email) {
+            if (User::normaliseEmail($user->email) !== User::normaliseEmail($locked->email)) {
                 throw new InvitationUnavailable('wrong_identity', 'This invitation was sent to a different email address. Sign out, then open the link again and sign in with that address.');
             }
 

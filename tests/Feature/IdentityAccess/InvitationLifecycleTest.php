@@ -7,6 +7,7 @@ use App\Filament\Resources\Users\Pages\ListUsers;
 use App\Http\Controllers\Identity\TenantInvitationController;
 use App\Mail\TenantInvitationMail;
 use App\Models\AuditLog;
+use App\Models\Employee;
 use App\Models\Role;
 use App\Models\TenantInvitation;
 use App\Models\TenantMembership;
@@ -215,13 +216,16 @@ test('a resend replaces the link: the old one stops working', function (): void 
     $this->get($new)->assertRedirect(route('invitations.show'));
 });
 
-test('a suspended or cancelled tenant activates no membership', function (TenantStatus $status): void {
-    $invitation = invitationInviteToBeta($this->world, 'brand.new@example.test');
+test('a suspended or cancelled tenant activates no membership — whoever sent the invitation', function (TenantStatus $status, string $source): void {
+    $invitation = $source === 'administrator'
+        ? invitationInviteToBeta($this->world, 'brand.new@example.test')
+        : TenantContext::current()->run($this->world->beta, fn () => $this->invitations->inviteEmployee(Employee::factory()->create(['email' => 'brand.new@example.test']), $this->world->adminB, 'conversion'));
     $this->world->beta->update(['status' => $status]);
 
     expect(fn () => TenantContext::current()->run($this->world->beta, fn () => $this->invitations->acceptAsNewIdentity($invitation, 'Brand New', 'Tr1cky-Ledger-Horse')))->toThrow(InvitationUnavailable::class)
-        ->and(User::query()->where('email', 'brand.new@example.test')->exists())->toBeFalse();
-})->with([TenantStatus::Suspended, TenantStatus::Cancelled]);
+        ->and(User::query()->where('email', 'brand.new@example.test')->exists())->toBeFalse()
+        ->and(TenantContext::current()->run($this->world->beta, fn () => AuditLog::query()->where('action', 'invitation_refused')->sole()->getAttribute('changes')))->toMatchArray(['reason' => 'tenant_unusable']);
+})->with([TenantStatus::Suspended, TenantStatus::Cancelled])->with(['administrator', 'conversion']);
 
 test('an invitation never lifts a suspension; it re-activates a revoked membership with the invited roles only', function (): void {
     // A suspended member cannot be invited again through the screen; an invitation that reaches one

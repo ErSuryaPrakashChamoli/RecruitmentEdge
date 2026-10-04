@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Filament\Auth\StaffAppAuthentication;
 use App\Filament\Pages\Auth\ChooseTenant;
 use App\Filament\Pages\Auth\StaffLogin;
+use App\Filament\Pages\Auth\StaffRequestPasswordReset;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
 use App\Http\Middleware\AddSecurityHeaders;
@@ -75,7 +76,8 @@ class AdminPanelProvider extends PanelProvider
             // missing method is denied by AppServiceProvider's Gate::before (fail closed, no error).
             ->strictAuthorization(fn (): bool => app()->environment(['local', 'testing']))
             ->login(StaffLogin::class)
-            ->passwordReset()
+            // SaaS-2: the request page answers the same for every address (no enumeration).
+            ->passwordReset(StaffRequestPasswordReset::class)
             ->emailChangeVerification()
             // Phase 8.4: authenticator-app MFA with recovery codes, required per person (roles and
             // permissions in config/identity.php) by EnsureStaffMfa.

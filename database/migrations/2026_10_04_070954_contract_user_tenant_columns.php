@@ -54,6 +54,16 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // The foreign key on employee_id needs an index of its own once the unique key goes (MySQL);
+        // done first, so a failure cannot leave users half restored.
+        Schema::table('tenant_memberships', function (Blueprint $table): void {
+            $table->index('employee_id', 'tenant_memberships_employee_idx');
+        });
+
+        Schema::table('tenant_memberships', function (Blueprint $table): void {
+            $table->dropUnique('tenant_memberships_employee_unique');
+        });
+
         Schema::table('users', function (Blueprint $table): void {
             $table->foreignId('employee_id')->nullable()->unique()->after('id')->constrained()->nullOnDelete();
             $table->string('access_status', 20)->default('active')->after('employee_id');
@@ -75,10 +85,6 @@ return new class extends Migration
                 'access_source' => $membership->status_source,
                 'revoked_roles' => $membership->revoked_roles,
             ]);
-        });
-
-        Schema::table('tenant_memberships', function (Blueprint $table): void {
-            $table->dropUnique('tenant_memberships_employee_unique');
         });
     }
 };

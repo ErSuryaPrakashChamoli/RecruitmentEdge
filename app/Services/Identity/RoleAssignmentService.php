@@ -7,7 +7,9 @@ use App\Events\UserRoleChanged;
 use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\TenantInvitation;
+use App\Models\TenantMembership;
 use App\Models\User;
+use App\Services\Tenancy\TenantContext;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -72,6 +74,14 @@ class RoleAssignmentService
         }
 
         return $this->authority->protecting('role_removed', $actor, fn (): User => DB::transaction(function () use ($target, $wanted, $current, $removed, $actor): User {
+            // SaaS-2: decided on the membership as committed — a revocation that won the race (it
+            // locks the same row) is never followed by roles on a revoked membership.
+            $membership = TenantMembership::query()->where('tenant_id', TenantContext::current()->requireId())->where('user_id', $target->getKey())->lockForUpdate()->first();
+
+            if ($membership === null || $membership->status === AccessState::Revoked) {
+                throw new DomainException('This login is revoked. Restore access first; it then starts with the base role.');
+            }
+
             if ($removed->contains(fn (Role $role) => $role->key === config('identity.chro_role'))) {
                 $this->authority->assertEffectiveChroRemainsWithout($target);
             }

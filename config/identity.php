@@ -38,6 +38,12 @@ return [
         'ttl_hours' => (int) env('IDENTITY_INVITATION_TTL_HOURS', 72),
     ],
 
+    // SaaS-2 (foundation for SaaS-5): the longest support access a tenant can grant a platform
+    // support operator at once.
+    'support' => [
+        'max_minutes' => (int) env('IDENTITY_SUPPORT_MAX_MINUTES', 480),
+    ],
+
     'mfa' => [
         // Enforce MFA enrolment for privileged users. The test suite turns this off (phpunit.xml)
         // except in the MFA tests; production must keep it on.

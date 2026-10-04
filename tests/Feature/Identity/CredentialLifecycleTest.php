@@ -1,6 +1,7 @@
 <?php
 
 use App\Filament\Pages\Auth\StaffLogin;
+use App\Filament\Pages\Auth\StaffRequestPasswordReset;
 use App\Filament\Pages\Profile;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Models\AuditLog;
@@ -8,11 +9,10 @@ use App\Models\Employee;
 use App\Models\User;
 use App\Notifications\Auth\ResetPassword as ResetPasswordNotification;
 use App\Notifications\Auth\VerifyEmailChange;
-use App\Services\Identity\CredentialService;
 // Phase 8.7 (SEC-87-02): Filament resolves this encrypted subclass of its reset-password mail.
+use App\Services\Identity\CredentialService;
 use App\Services\Identity\StaffAccessService;
 use Database\Seeders\RolePermissionSeeder;
-use Filament\Auth\Pages\PasswordReset\RequestPasswordReset;
 use Filament\Auth\Pages\PasswordReset\ResetPassword;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -79,7 +79,7 @@ test('changing your own password on the profile page is audited', function (): v
 test('a staff password reset link is sent, audited, single-use and expires', function (): void {
     Notification::fake();
 
-    Livewire::test(RequestPasswordReset::class)->fillForm(['email' => $this->member->email])->call('request');
+    Livewire::test(StaffRequestPasswordReset::class)->fillForm(['email' => $this->member->email])->call('request');
 
     Notification::assertSentTo($this->member, ResetPasswordNotification::class);
     expect(AuditLog::query()->where('action', 'password_reset_requested')->where('auditable_id', $this->member->id)->exists())->toBeTrue();
@@ -107,7 +107,7 @@ test('a suspended or revoked login is never sent a reset link', function (): voi
     Notification::fake();
     app(StaffAccessService::class)->revoke($this->member, $this->chro, 'Left');
 
-    Livewire::test(RequestPasswordReset::class)->fillForm(['email' => $this->member->email])->call('request');
+    Livewire::test(StaffRequestPasswordReset::class)->fillForm(['email' => $this->member->email])->call('request');
 
     Notification::assertNotSentTo($this->member, ResetPasswordNotification::class);
 });

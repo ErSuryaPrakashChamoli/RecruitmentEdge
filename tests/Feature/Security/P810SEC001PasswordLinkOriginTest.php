@@ -1,12 +1,12 @@
 <?php
 
+use App\Filament\Pages\Auth\StaffRequestPasswordReset;
 use App\Mail\CandidatePortalLink;
 use App\Models\Candidate;
 use App\Models\CandidatePortalAccount;
 use App\Models\User;
 use App\Notifications\Auth\ResetPassword as ResetPasswordNotification;
 use Database\Seeders\RolePermissionSeeder;
-use Filament\Auth\Pages\PasswordReset\RequestPasswordReset;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
@@ -68,7 +68,7 @@ test('a staff password reset link always uses the application host and still ope
     $page = $this->withHeaders($headers)->get($root().route('filament.admin.auth.password-reset.request', absolute: false))->assertOk();
     preg_match_all('/wire:snapshot="([^"]+)"/', $page->getContent(), $matches);
     $snapshot = collect($matches[1])->map(fn (string $encoded): string => html_entity_decode($encoded))
-        ->first(fn (string $json): bool => json_decode($json, true)['memo']['name'] === RequestPasswordReset::class);
+        ->first(fn (string $json): bool => json_decode($json, true)['memo']['name'] === StaffRequestPasswordReset::class);
 
     $this->withHeaders([...$headers, 'X-Livewire' => '1'])->postJson($root().EndpointResolver::updatePath(), ['components' => [[
         'snapshot' => $snapshot,
