@@ -9,9 +9,9 @@ use Database\Seeders\RolePermissionSeeder;
  * content-sniffed, do not leak referrers, and pin HTTPS once served over it. No full CSP.
  */
 dataset('sec8811 pages', [
-    'portal sign-in' => '/portal/login',
-    'portal password reset' => '/portal/password/forgot',
-    'career site' => '/careers',
+    'portal sign-in' => '/portal/acme/login',
+    'portal password reset' => '/portal/acme/password/forgot',
+    'career site' => '/careers/acme',
     'staff sign-in' => '/admin/login',
     'staff password reset' => '/admin/password-reset/request',
 ]);
@@ -34,5 +34,5 @@ test('staff panel pages beyond sign-in are outside the approved scope and unchan
     $this->seed(RolePermissionSeeder::class);
     $staff = User::factory()->create()->assignRole('recruiter');
 
-    $this->actingAs($staff, 'web')->get('/admin')->assertOk()->assertHeaderMissing('X-Frame-Options');
+    $this->actingAs($staff, 'web')->get('/admin/acme')->assertOk()->assertHeaderMissing('X-Frame-Options');
 });

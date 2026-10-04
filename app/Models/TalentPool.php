@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TalentPoolStatus;
 use App\Enums\TalentPoolVisibility;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Services\HierarchyService;
 use Database\Factories\TalentPoolFactory;
@@ -26,7 +27,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class TalentPool extends Model
 {
     /** @use HasFactory<TalentPoolFactory> */
-    use Auditable, HasFactory, ReferencesActiveMasterData;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData;
 
     protected function casts(): array
     {
@@ -64,6 +65,7 @@ class TalentPool extends Model
     public function candidates(): BelongsToMany
     {
         return $this->belongsToMany(Candidate::class, 'talent_pool_memberships')
+            ->using(TenantPivot::class)
             ->wherePivotNull('removed_at')
             ->withPivot(['source', 'reason', 'notes', 'added_by', 'added_at']);
     }

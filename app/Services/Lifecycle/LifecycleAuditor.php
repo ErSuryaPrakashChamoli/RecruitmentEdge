@@ -16,6 +16,7 @@ use App\Models\Interview;
 use App\Models\InterviewFeedback;
 use App\Models\Offer;
 use App\Models\OfferRevision;
+use App\Services\Tenancy\TenantContext;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -91,7 +92,7 @@ class LifecycleAuditor
             });
 
         // Reporting cycles (the closure table lists someone as their own ancestor at depth > 0).
-        DB::table('employee_hierarchy')->whereColumn('ancestor_id', 'descendant_id')->where('depth', '>', 0)->limit($limit)->pluck('ancestor_id')
+        DB::table('employee_hierarchy')->where('tenant_id', TenantContext::current()->requireId())->whereColumn('ancestor_id', 'descendant_id')->where('depth', '>', 0)->limit($limit)->pluck('ancestor_id')
             ->each(fn (int $id) => $add(self::ERROR, 'hierarchy_cycle', "EMP-{$id}", 'The employee appears in their own reporting line.'));
 
         // Open items left on closed applications.

@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Tenancy\TenantContext;
 
 /**
  * Roles and their permission sets are gated entirely by `roles.manage` — misconfiguring this is
@@ -22,7 +23,7 @@ class RolePolicy
 
     public function view(User $user, Role $role): bool
     {
-        return $user->can('roles.manage');
+        return $user->can('roles.manage') && self::inCurrentTenant($role);
     }
 
     public function create(User $user): bool
@@ -32,11 +33,19 @@ class RolePolicy
 
     public function update(User $user, Role $role): bool
     {
-        return $user->can('roles.manage') && ! $user->hasRole($role);
+        return $user->can('roles.manage') && self::inCurrentTenant($role) && ! $user->hasRole($role);
     }
 
     public function delete(User $user, Role $role): bool
     {
-        return $user->can('roles.manage') && ! $role->is_protected && ! $user->hasRole($role);
+        return $user->can('roles.manage') && self::inCurrentTenant($role) && ! $role->is_protected && ! $user->hasRole($role);
+    }
+
+    /**
+     * SaaS-1: roles belong to one tenant; another tenant's role is never visible or editable.
+     */
+    private static function inCurrentTenant(Role $role): bool
+    {
+        return $role->tenant_id !== null && (int) $role->tenant_id === TenantContext::current()->id();
     }
 }

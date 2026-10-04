@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ActivityOutcome;
 use App\Enums\ActivityType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentDailyActivityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentDailyActivity extends Model
 {
     /** @use HasFactory<RecruitmentDailyActivityFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

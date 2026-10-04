@@ -8,14 +8,18 @@ use App\Models\AiDocumentChunk;
 use App\Models\AiKnowledgeArticle;
 use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Collection;
 
 /**
  * Brute-force cosine similarity search over ai_document_chunks — a deliberate choice (not
  * pgvector/etc.) to match the app's current database engine and knowledge-base scale; revisit if
  * the corpus grows large enough for a full scan per query to matter. Only chunks belonging to
- * published documents/articles are ever considered, and tenant/organization scoping is
- * unnecessary here (the app is single-organization — see HierarchyService).
+ * published documents/articles are ever considered.
+ *
+ * SaaS-1: each tenant has its own knowledge base. Chunks carry tenant_id themselves and are filtered
+ * on it directly — never only through their parent document — so retrieval can only return the
+ * current tenant's text (and the scan stays within one tenant's corpus).
  */
 class VectorSearch
 {
@@ -74,6 +78,7 @@ class VectorSearch
             ->pluck('id');
 
         return AiDocumentChunk::query()
+            ->where('ai_document_chunks.tenant_id', TenantContext::current()->requireId())
             ->when($sourceType !== null, fn ($q) => $q->where('source_type', $sourceType))
             ->where(function ($query) use ($publishedDocumentIds, $publishedArticleIds): void {
                 $query->where(fn ($q) => $q->where('source_type', 'document')->whereIn('source_id', $publishedDocumentIds))

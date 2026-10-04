@@ -26,7 +26,7 @@ beforeEach(function (): void {
 });
 
 test('the first paint shows the day\'s numbers and defers every other widget into one bundled load', function (): void {
-    $html = actingAs($this->chro)->get('/admin')->assertSuccessful()->getContent();
+    $html = actingAs($this->chro)->get('/admin/acme')->assertSuccessful()->getContent();
 
     preg_match_all('/wire:snapshot="([^"]+)"/', $html, $snapshots);
     $widgets = collect($snapshots[1])

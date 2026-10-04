@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AiUsageRequestType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiUsageLogFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AiUsageLog extends Model
 {
     /** @use HasFactory<AiUsageLogFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

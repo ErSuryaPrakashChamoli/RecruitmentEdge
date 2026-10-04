@@ -18,6 +18,7 @@ use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
 use App\Services\RecruitmentSettingService;
 use App\Services\RecruitmentSlaService;
+use App\Services\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Support\Collection;
@@ -169,7 +170,7 @@ class SlaLegCompliance extends MetricDefinition
             ->toBase()
             ->chunkById(2000, function (Collection $applications) use ($endEntries, $measure): void {
                 // The leg ends at the application's first entry into the target stage in the period.
-                $ends = $endEntries(DB::table('candidate_stage_histories')->whereIn('candidate_stage_histories.candidate_application_id', $applications->pluck('id')))
+                $ends = $endEntries(DB::table('candidate_stage_histories')->where('candidate_stage_histories.tenant_id', TenantContext::current()->requireId())->whereIn('candidate_stage_histories.candidate_application_id', $applications->pluck('id')))
                     ->groupBy('candidate_stage_histories.candidate_application_id')
                     ->selectRaw('candidate_stage_histories.candidate_application_id, min(candidate_stage_histories.created_at) as ended_at')
                     ->pluck('ended_at', 'candidate_application_id')
@@ -195,6 +196,7 @@ class SlaLegCompliance extends MetricDefinition
         $ids = array_keys($ends);
 
         DB::table('candidate_stage_histories')
+            ->where('tenant_id', TenantContext::current()->requireId())
             ->whereIn('candidate_application_id', $ids)
             ->where('new_stage', $from->value)
             ->tap(fn ($q) => CandidateStageHistory::constrainToMilestoneEntries($q))
@@ -208,7 +210,7 @@ class SlaLegCompliance extends MetricDefinition
             });
 
         if ($from === CandidateStage::Sourced) {
-            DB::table('candidate_applications')->whereIn('id', $ids)->get(['id', 'created_at'])
+            DB::table('candidate_applications')->where('tenant_id', TenantContext::current()->requireId())->whereIn('id', $ids)->get(['id', 'created_at'])
                 ->each(function ($application) use (&$starts): void {
                     $starts[$application->id] ??= strtotime((string) $application->created_at);
                 });

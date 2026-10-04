@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\IntelligenceEvidence;
 use App\Models\User;
 use App\Services\Intelligence\Data\EvidenceItem;
+use App\Services\Tenancy\TenantContext;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 
@@ -24,9 +25,12 @@ class EvidenceRecorder
     {
         $now = now();
         $rows = [];
+        // SaaS-1: a bulk insert skips model events, so the tenant is written explicitly.
+        $tenantId = TenantContext::current()->requireId();
 
         foreach ($items as $item) {
             $rows[] = [
+                'tenant_id' => $tenantId,
                 'owner_type' => $owner->getMorphClass(),
                 'owner_id' => $owner->getKey(),
                 'subject_key' => $item->subjectKey,

@@ -6,6 +6,7 @@ use App\Enums\AutomationFailureBehavior;
 use App\Enums\AutomationRuleStatus;
 use App\Enums\AutomationScope;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Services\Automation\AutomationEngine;
 use Carbon\CarbonInterface;
 use Database\Factories\AutomationRuleFactory;
@@ -49,7 +50,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class AutomationRule extends Model
 {
     /** @use HasFactory<AutomationRuleFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

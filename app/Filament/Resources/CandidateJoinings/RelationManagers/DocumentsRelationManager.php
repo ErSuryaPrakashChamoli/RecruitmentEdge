@@ -6,6 +6,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
 use App\Filament\Resources\Candidates\RelationManagers\DocumentsRelationManager as CandidateDocumentsRelationManager;
 use App\Models\CandidateDocument;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
@@ -37,7 +38,7 @@ class DocumentsRelationManager extends RelationManager
                 FileUpload::make('file_path')
                     ->disk('local')
                     ->visibility('private')
-                    ->directory('candidate-documents')
+                    ->directory(fn (): string => TenantStorage::path('candidate-documents'))
                     ->acceptedFileTypes(CandidateDocument::STAFF_UPLOAD_MIME_TYPES)
                     ->maxSize(CandidateDocument::STAFF_UPLOAD_MAX_KB)
                     ->columnSpanFull(),

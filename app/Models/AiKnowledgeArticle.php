@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Jobs\AI\ReindexKnowledgeArticleJob;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiKnowledgeArticleFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -16,7 +17,7 @@ use Illuminate\Support\Str;
 class AiKnowledgeArticle extends Model
 {
     /** @use HasFactory<AiKnowledgeArticleFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

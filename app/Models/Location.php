@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GovernedMasterData;
 use Database\Factories\LocationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Location extends Model
 {
     /** @use HasFactory<LocationFactory> */
-    use Auditable, GovernedMasterData, HasFactory, SoftDeletes;
+    use Auditable, BelongsToTenant, GovernedMasterData, HasFactory, SoftDeletes;
 
     protected function casts(): array
     {

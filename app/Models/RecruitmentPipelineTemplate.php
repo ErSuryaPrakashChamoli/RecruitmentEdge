@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentPipelineTemplateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -22,7 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruitmentPipelineTemplate extends Model
 {
     /** @use HasFactory<RecruitmentPipelineTemplateFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

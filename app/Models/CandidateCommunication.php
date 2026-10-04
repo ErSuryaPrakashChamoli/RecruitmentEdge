@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CommunicationChannel;
 use App\Enums\CommunicationStatus;
 use App\Enums\CommunicationTrigger;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\CandidateCommunicationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -41,7 +42,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CandidateCommunication extends Model
 {
     /** @use HasFactory<CandidateCommunicationFactory> */
-    use HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * @return array<int, string>

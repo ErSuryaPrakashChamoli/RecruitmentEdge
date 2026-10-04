@@ -14,6 +14,7 @@ use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -85,6 +86,7 @@ class TimeInStage extends MetricDefinition
                 $created = $applications->mapWithKeys(fn ($a) => [$a->id => strtotime((string) $a->created_at)])->all();
 
                 $entries = DB::table('candidate_stage_histories')
+                    ->where('tenant_id', TenantContext::current()->requireId())
                     ->whereIn('candidate_application_id', array_keys($created))
                     ->tap(fn ($q) => CandidateStageHistory::constrainToMilestoneEntries($q))
                     ->where('created_at', '<', $periodEnd)

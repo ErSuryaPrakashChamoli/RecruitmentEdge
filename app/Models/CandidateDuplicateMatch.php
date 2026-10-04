@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DuplicateMatchStatus;
 use App\Enums\DuplicateMatchType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\CandidateDuplicateMatchFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CandidateDuplicateMatch extends Model
 {
     /** @use HasFactory<CandidateDuplicateMatchFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

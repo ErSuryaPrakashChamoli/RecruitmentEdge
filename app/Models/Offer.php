@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OfferStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\OfferFactory;
@@ -35,7 +36,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 ])]
 class Offer extends Model
 {
-    use Auditable, GuardsLifecycleAttributes, ReferencesActiveMasterData;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes, ReferencesActiveMasterData;
 
     /** @use HasFactory<OfferFactory> */
     use HasFactory;

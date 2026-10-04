@@ -4,8 +4,8 @@ use App\Filament\Exports\CandidateExporter;
 use App\Models\Candidate;
 use App\Models\CandidateDocument;
 use App\Models\Employee;
+use App\Models\Export;
 use App\Models\User;
-use Filament\Actions\Exports\Models\Export;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Storage;
 
@@ -61,7 +61,8 @@ test('an export file belongs to its export record', function (): void {
         'user_id' => $user->id, 'exporter' => CandidateExporter::class,
         'file_disk' => 'local', 'total_rows' => 1, 'processed_rows' => 1, 'successful_rows' => 1,
     ]);
-    Storage::disk('local')->put("filament_exports/{$export->id}/0000000000000001.csv", 'a,b');
+    // SaaS-1: the export's files are under its tenant (Export::getFileDirectory()).
+    Storage::disk('local')->put($export->getFileDirectory().'/0000000000000001.csv', 'a,b');
     Storage::disk('local')->put('filament_exports/999999/0000000000000001.csv', 'a,b');
 
     $area = collect(storageAuditReport()['areas'])->firstWhere('area', 'filament_exports');

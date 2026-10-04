@@ -166,7 +166,7 @@ test('deleting a role is audited with what it granted', function (): void {
 test('the Users screen never lets an administrator edit their own login and has no delete', function (): void {
     actingAs($this->userAdmin);
 
-    get("/admin/users/{$this->userAdmin->id}/edit")->assertForbidden();
+    get("/admin/acme/users/{$this->userAdmin->id}/edit")->assertForbidden();
     expect($this->userAdmin->can('delete', $this->teamMember))->toBeFalse();
 });
 

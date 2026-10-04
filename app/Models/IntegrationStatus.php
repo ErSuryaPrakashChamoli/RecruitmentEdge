@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['provider', 'category', 'last_test_ok', 'last_test_message', 'last_tested_at', 'last_tested_by'])]
 class IntegrationStatus extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

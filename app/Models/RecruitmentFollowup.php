@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\FollowupStatus;
 use App\Enums\FollowupType;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentFollowupFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentFollowup extends Model
 {
     /** @use HasFactory<RecruitmentFollowupFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

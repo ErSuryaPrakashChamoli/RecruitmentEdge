@@ -15,6 +15,7 @@ use App\Models\AutomationRule;
 use App\Models\User;
 use App\Services\Automation\Actions\ActionOutcome;
 use App\Services\Automation\Data\TriggerDefinition;
+use App\Services\Tenancy\TenantCache;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
@@ -55,7 +56,7 @@ class AutomationEngine
 
     public static function forgetActiveTriggers(): void
     {
-        Cache::forget(self::ACTIVE_TRIGGERS_CACHE_KEY);
+        Cache::forget(TenantCache::key(self::ACTIVE_TRIGGERS_CACHE_KEY));
     }
 
     /**
@@ -346,7 +347,7 @@ class AutomationEngine
      */
     public function activeTriggers(): array
     {
-        return Cache::rememberForever(self::ACTIVE_TRIGGERS_CACHE_KEY, fn () => AutomationRule::query()->active()->distinct()->pluck('trigger')->all());
+        return Cache::rememberForever(TenantCache::key(self::ACTIVE_TRIGGERS_CACHE_KEY), fn () => AutomationRule::query()->active()->distinct()->pluck('trigger')->all());
     }
 
     /**

@@ -46,7 +46,7 @@ test('a candidate set-password link always uses the application host and still o
     Mail::fake();
     $account = CandidatePortalAccount::factory()->create(['candidate_id' => Candidate::factory()->create()->id]);
 
-    $this->withHeaders($headers)->post($root().'/portal/password/forgot', ['email' => $account->email])->assertRedirect();
+    $this->withHeaders($headers)->post($root().'/portal/acme/password/forgot', ['email' => $account->email])->assertRedirect();
 
     $link = null;
     Mail::assertQueued(CandidatePortalLink::class, function (CandidatePortalLink $mail) use (&$link): bool {
@@ -91,9 +91,9 @@ test('with APP_TRUSTED_HOSTS set, only the listed host names are served', functi
     config(['app.trusted_hosts' => ['hr.example.test', 'localhost']]);
     $this->app['env'] = 'production';
 
-    $this->get('http://evil.example/portal/login')->assertBadRequest();
-    $this->get('http://hr.example.test.evil.example/portal/login')->assertBadRequest();
-    $this->get('http://hr.example.test/portal/login')->assertOk();
+    $this->get('http://evil.example/portal/acme/login')->assertBadRequest();
+    $this->get('http://hr.example.test.evil.example/portal/acme/login')->assertBadRequest();
+    $this->get('http://hr.example.test/portal/acme/login')->assertOk();
     $this->get('http://localhost/up')->assertOk();
 });
 
@@ -101,5 +101,5 @@ test('without APP_TRUSTED_HOSTS every host is served, as before', function (): v
     config(['app.trusted_hosts' => []]);
     $this->app['env'] = 'production';
 
-    $this->get('http://evil.example/portal/login')->assertOk();
+    $this->get('http://evil.example/portal/acme/login')->assertOk();
 });

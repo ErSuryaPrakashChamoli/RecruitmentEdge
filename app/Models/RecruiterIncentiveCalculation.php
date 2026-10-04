@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Enums\IncentivePayoutType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruiterIncentiveCalculationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -46,7 +47,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruiterIncentiveCalculation extends Model
 {
     /** @use HasFactory<RecruiterIncentiveCalculationFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

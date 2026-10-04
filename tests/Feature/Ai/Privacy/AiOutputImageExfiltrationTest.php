@@ -48,7 +48,7 @@ test('the Copilot renders AI text without images, keeping the rest of the Markdo
 
 test('the conversation review renders AI text without images', function (): void {
     // The panel chrome has its own images, so the check is on the attacker's host.
-    actingAs($this->user)->get("/admin/ai-conversations/{$this->conversation->id}")
+    actingAs($this->user)->get("/admin/acme/ai-conversations/{$this->conversation->id}")
         ->assertSuccessful()
         ->assertSee('Shortlist')
         ->assertDontSee('evil.example.test');

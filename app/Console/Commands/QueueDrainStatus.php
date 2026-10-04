@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\QueueHealthService;
 use App\Services\SchedulerHeartbeat;
+use App\Services\Tenancy\TenantContext;
 use App\Services\WorkerHeartbeat;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -26,11 +27,13 @@ class QueueDrainStatus extends Command
     public function handle(QueueHealthService $health, WorkerHeartbeat $workers, SchedulerHeartbeat $scheduler): int
     {
         $deadline = now()->addSeconds(max(0, (int) $this->option('wait')));
-        $state = $health->drainState();
+        // SaaS-1: a release drains the platform — every tenant's jobs count.
+        $platform = fn (): array => TenantContext::current()->runWithoutTenant(fn (): array => $health->drainState());
+        $state = $platform();
 
         while (! $this->drained($state) && now()->lt($deadline)) {
             Sleep::for(self::POLL_SECONDS)->seconds();
-            $state = $health->drainState();
+            $state = $platform();
         }
 
         $this->table(

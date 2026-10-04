@@ -71,7 +71,9 @@ class SchedulerHeartbeat
 
     public function nameOf(Event $task): string
     {
-        if (preg_match("/artisan['\"]?\\s+([\\w:.-]+)/", (string) $task->command, $matches) === 1) {
+        // SaaS-1: a tenant task is scheduled as `tenants:dispatch <task>` / `tenants:run <task> --all`;
+        // it is reported by the task it runs for every tenant.
+        if (preg_match("/artisan['\"]?\\s+(?:tenants:(?:dispatch|run)\\s+)?([\\w:.-]+)/", (string) $task->command, $matches) === 1) {
             return $matches[1];
         }
 

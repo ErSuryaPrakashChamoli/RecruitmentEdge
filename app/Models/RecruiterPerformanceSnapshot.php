@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MetricAccountability;
 use App\Enums\TargetMetric;
+use App\Models\Concerns\BelongsToTenant;
 use App\Services\PerformanceEngine;
 use Database\Factories\RecruiterPerformanceSnapshotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruiterPerformanceSnapshot extends Model
 {
     /** @use HasFactory<RecruiterPerformanceSnapshotFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

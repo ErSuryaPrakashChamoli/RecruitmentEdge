@@ -27,7 +27,7 @@ test('the recruitment reports page renders successfully with no data', function 
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/recruitment-reports')
+        ->get('/admin/acme/recruitment-reports')
         ->assertSuccessful()
         ->assertSee('No open or on-hold requisitions');
 });
@@ -37,7 +37,7 @@ test('the recruitment reports page renders successfully for a scoped recruiter',
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('recruiter');
 
-    actingAs($user)->get('/admin/recruitment-reports')->assertSuccessful();
+    actingAs($user)->get('/admin/acme/recruitment-reports')->assertSuccessful();
 });
 
 test('a user with reports.export can export the funnel and vacancy ageing as CSV', function (): void {
@@ -139,7 +139,7 @@ test('the vacancy ageing table shows a priority column', function (): void {
     ]);
 
     actingAs($user)
-        ->get('/admin/recruitment-reports')
+        ->get('/admin/acme/recruitment-reports')
         ->assertSuccessful()
         ->assertSee('Priority')
         ->assertSee('Urgent');

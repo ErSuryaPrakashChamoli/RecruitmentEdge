@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\JobPostingStatus;
 use App\Enums\RequisitionStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\JobPostingFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class JobPosting extends Model
 {
     /** @use HasFactory<JobPostingFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

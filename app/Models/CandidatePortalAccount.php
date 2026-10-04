@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CommunicationChannel;
 use App\Enums\PreferenceStatus;
+use App\Models\Concerns\BelongsToTenant;
 use App\Services\Communication\CommunicationPreferenceService;
 use Database\Factories\CandidatePortalAccountFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -23,7 +24,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 class CandidatePortalAccount extends Authenticatable
 {
     /** @use HasFactory<CandidatePortalAccountFactory> */
-    use HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * Channels a candidate can set a preference for from the portal. Stored in

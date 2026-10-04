@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CampaignStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentCampaignFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruitmentCampaign extends Model
 {
     /** @use HasFactory<RecruitmentCampaignFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -39,7 +40,7 @@ class RecruitmentCampaign extends Model
      */
     public function requisitions(): BelongsToMany
     {
-        return $this->belongsToMany(RecruitmentRequisition::class, 'recruitment_campaign_requisitions', 'recruitment_campaign_id', 'requisition_id')->withTimestamps();
+        return $this->belongsToMany(RecruitmentRequisition::class, 'recruitment_campaign_requisitions', 'recruitment_campaign_id', 'requisition_id')->using(TenantPivot::class)->withTimestamps();
     }
 
     /**
@@ -47,7 +48,7 @@ class RecruitmentCampaign extends Model
      */
     public function sources(): BelongsToMany
     {
-        return $this->belongsToMany(CandidateSource::class, 'recruitment_campaign_sources', 'recruitment_campaign_id', 'source_id')->withTimestamps();
+        return $this->belongsToMany(CandidateSource::class, 'recruitment_campaign_sources', 'recruitment_campaign_id', 'source_id')->using(TenantPivot::class)->withTimestamps();
     }
 
     /**

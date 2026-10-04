@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\RejectionCategory;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GovernedMasterData;
 use Database\Factories\RecruitmentRejectionReasonFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class RecruitmentRejectionReason extends Model
 {
     /** @use HasFactory<RecruitmentRejectionReasonFactory> */
-    use Auditable, GovernedMasterData, HasFactory, SoftDeletes;
+    use Auditable, BelongsToTenant, GovernedMasterData, HasFactory, SoftDeletes;
 
     protected function casts(): array
     {

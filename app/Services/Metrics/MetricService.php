@@ -2,6 +2,7 @@
 
 namespace App\Services\Metrics;
 
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -53,13 +54,14 @@ class MetricService
         $filters = $query->filters;
         ksort($filters);
 
-        return implode(':', [
+        // SaaS-1: under the tenant — two tenants' "view all" viewers never share an entry.
+        return TenantCache::key(implode(':', [
             'metrics',
             $spec->key,
             'v'.$spec->version,
             $this->scope->fingerprint($query->viewer),
             $query->period?->key() ?? 'now',
             md5((string) json_encode($filters)),
-        ]);
+        ]));
     }
 }

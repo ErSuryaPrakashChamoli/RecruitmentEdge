@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\RoleDnaOrigin;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,6 +19,8 @@ use LogicException;
 #[Fillable(['role_dna_profile_id', 'version', 'dna', 'generator', 'generator_version', 'ai_model', 'change_summary', 'created_by'])]
 class RoleDnaVersion extends Model
 {
+    use BelongsToTenant;
+
     public const UPDATED_AT = null;
 
     protected static function booted(): void

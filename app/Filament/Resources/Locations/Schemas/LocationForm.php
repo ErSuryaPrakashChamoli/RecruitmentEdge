@@ -19,7 +19,7 @@ class LocationForm
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true)
+                    ->scopedUnique(ignoreRecord: true)
                     ->disabledOn('edit'),
                 TextInput::make('city')
                     ->maxLength(255),

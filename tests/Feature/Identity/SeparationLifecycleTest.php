@@ -108,10 +108,10 @@ test('access can end ahead of a future last working day while employment runs to
 
 test('a panel request after the separation took effect signs the person out and applies it', function (): void {
     separationFor($this->employee, $this->vp, now()->addDay()->toDateString());
-    $this->actingAs($this->user)->get('/admin')->assertOk();
+    $this->actingAs($this->user)->get('/admin/acme')->assertOk();
     $this->travelTo(now()->addDays(2));
 
-    $this->get('/admin')->assertRedirect(Filament::getLoginUrl());
+    $this->get('/admin/acme')->assertRedirect(Filament::getLoginUrl());
 
     expect($this->employee->fresh()->status)->toBe(EmployeeStatus::Separated)
         ->and($this->user->fresh()->access_status)->toBe(AccessState::Revoked);

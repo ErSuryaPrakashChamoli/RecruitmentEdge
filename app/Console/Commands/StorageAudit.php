@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Tenancy\TenantStorage;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -141,15 +142,24 @@ class StorageAudit extends Command
                 });
         }
 
-        $exportIds = collect($paths)
-            ->filter(fn (string $path): bool => str_starts_with($path, 'filament_exports/'))
-            ->map(fn (string $path): int => (int) explode('/', $path)[1]);
+        // SaaS-1: an export's files sit under its tenant (tenants/{tenant}/filament_exports/{id}/);
+        // a file counts as the export's only under that export's own tenant.
+        $exportOf = function (string $path): ?string {
+            [$tenantId, $relative] = $this->withinTenant($path);
 
-        $liveExports = $exportIds->isEmpty() ? collect() : DB::table('exports')->whereIn('id', $exportIds->unique()->values())->where('file_disk', $disk)->pluck('id')->flip();
+            return str_starts_with($relative, 'filament_exports/') ? ($tenantId ?? 'legacy').':'.(int) explode('/', $relative)[1] : null;
+        };
+        $exportIds = collect($paths)->map($exportOf)->filter();
+
+        $liveExports = $exportIds->isEmpty() ? collect() : DB::table('exports')
+            ->whereIn('id', $exportIds->map(fn (string $key): int => (int) explode(':', $key)[1])->unique()->values())
+            ->where('file_disk', $disk)
+            ->get(['id', 'tenant_id'])
+            ->flatMap(fn (object $export): array => [$export->tenant_id.':'.$export->id => true, 'legacy:'.$export->id => true]);
 
         foreach ($files as $path => $bytes) {
             $path = (string) $path;
-            $isExportFile = str_starts_with($path, 'filament_exports/') && $liveExports->has((int) explode('/', $path)[1]);
+            $isExportFile = ($key = $exportOf($path)) !== null && $liveExports->has($key);
 
             if (isset($referenced[$path]) || $isExportFile) {
                 continue;
@@ -197,9 +207,27 @@ class StorageAudit extends Command
         return ['reference' => "{$reference['table']}.{$reference['column']}", 'records' => $records, 'missing' => $missing];
     }
 
+    /**
+     * SaaS-1: [tenant id, path below tenants/{tenant}/] — legacy (pre-tenancy) paths have no tenant.
+     *
+     * @return array{0: string|null, 1: string}
+     */
+    private function withinTenant(string $path): array
+    {
+        if (preg_match('#^'.TenantStorage::ROOT.'/(\d+)/(.*)$#', $path, $matches) === 1) {
+            return [$matches[1], $matches[2]];
+        }
+
+        return [null, $path];
+    }
+
     private function areaOf(string $path): string
     {
-        return str_contains($path, '/') ? strstr($path, '/', true) : '(root)';
+        // SaaS-1: areas are reported across tenants (resumes, offer-letters, …), whatever tenant
+        // prefix the file has.
+        [, $relative] = $this->withinTenant($path);
+
+        return str_contains($relative, '/') ? strstr($relative, '/', true) : '(root)';
     }
 
     /**

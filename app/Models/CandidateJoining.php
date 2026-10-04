@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\CandidateJoiningFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 ])]
 class CandidateJoining extends Model
 {
-    use Auditable, GuardsLifecycleAttributes;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes;
 
     /**
      * Phase 8.3: status, dates of record, offer and application change only through

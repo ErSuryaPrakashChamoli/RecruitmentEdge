@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -12,14 +14,18 @@ use Illuminate\Support\Facades\DB;
  * Manager -> Recruiter). Every policy and query scope that restricts recruitment data to "my
  * team" should resolve its allowed employee IDs through this service rather than walking
  * `reports_to_id` by hand.
+ *
+ * SaaS-1: the hierarchy lives inside one tenant. "View all" (a null visibility list) means every
+ * employee of the CURRENT tenant — never every tenant: tenant-owned models are scoped by
+ * TenantScope, and every closure-table read here names the current tenant (closure()).
  */
 class HierarchyService
 {
     /**
      * The employee IDs a user is allowed to see (themselves plus everyone below them in the
      * hierarchy), or null when the user holds the `hierarchy.view-all` permission and therefore
-     * has no restriction at all — callers should skip filtering entirely in that case rather than
-     * loading every employee ID.
+     * has no hierarchy restriction within the current tenant — callers skip the hierarchy filter
+     * in that case (the tenant boundary still applies) rather than loading every employee ID.
      *
      * @return Collection<int, int>|null
      */
@@ -56,7 +62,7 @@ class HierarchyService
     public function descendantIdsOf(int $employeeId): Collection
     {
         // Phase 8.9 (P89-PERF-012): remembered for the current request/job — see HierarchyMemo.
-        return app(HierarchyMemo::class)->descendants($employeeId, fn (): Collection => DB::table('employee_hierarchy')
+        return app(HierarchyMemo::class)->descendants($employeeId, fn (): Collection => $this->closure()
             ->where('ancestor_id', $employeeId)
             ->pluck('descendant_id'));
     }
@@ -69,7 +75,7 @@ class HierarchyService
      */
     public function ancestorIdsOf(int $employeeId): Collection
     {
-        return DB::table('employee_hierarchy')
+        return $this->closure()
             ->where('descendant_id', $employeeId)
             ->pluck('ancestor_id');
     }
@@ -83,7 +89,7 @@ class HierarchyService
      */
     public function managementChainOf(int $employeeId): Collection
     {
-        $depths = DB::table('employee_hierarchy')
+        $depths = $this->closure()
             ->where('descendant_id', $employeeId)
             ->where('depth', '>', 0)
             ->pluck('depth', 'ancestor_id');
@@ -94,6 +100,14 @@ class HierarchyService
             ->get()
             ->sortBy(fn (Employee $manager) => $depths[$manager->id])
             ->values();
+    }
+
+    /**
+     * The current tenant's rows of the employee_hierarchy closure table.
+     */
+    private function closure(): Builder
+    {
+        return DB::table('employee_hierarchy')->where('tenant_id', TenantContext::current()->requireId());
     }
 
     /**
@@ -126,7 +140,7 @@ class HierarchyService
             ->get()
             ->keyBy('id');
 
-        $teamSizes = DB::table('employee_hierarchy')
+        $teamSizes = $this->closure()
             ->whereIn('ancestor_id', $descendantIds)
             ->selectRaw('ancestor_id, count(*) - 1 as team_size')
             ->groupBy('ancestor_id')

@@ -29,6 +29,7 @@ use App\Models\RecruitmentSetting;
 use App\Models\RecruitmentSettingChange;
 use App\Services\MasterDataLifecycleService;
 use App\Services\Metrics\MetricPeriod;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -173,8 +174,9 @@ class GovernanceAuditor
         }
 
         $overlap = fn (string $table, array $same): int => (int) DB::table("{$table} as a")
+            ->where('a.tenant_id', TenantContext::current()->requireId())
             ->join("{$table} as b", function ($join) use ($same): void {
-                $join->on('a.id', '<', 'b.id');
+                $join->on('a.id', '<', 'b.id')->on('a.tenant_id', '=', 'b.tenant_id');
 
                 foreach ($same as $column) {
                     $join->where(fn ($q) => $q->whereColumn("a.{$column}", "b.{$column}")->orWhere(fn ($n) => $n->whereNull("a.{$column}")->whereNull("b.{$column}")));

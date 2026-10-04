@@ -57,7 +57,7 @@ test('a signed-in staff user is nobody on the candidate portal', function (): vo
 test('a signed-in candidate is nobody on staff pages', function (): void {
     $this->actingAs(d88Account(), 'candidate');
 
-    $this->get('/admin')->assertRedirect(route('filament.admin.auth.login'));
+    $this->get('/admin/acme')->assertRedirect(route('filament.admin.auth.login'));
     $this->get(CandidateResource::getUrl('index'))->assertRedirect(route('filament.admin.auth.login'));
 });
 

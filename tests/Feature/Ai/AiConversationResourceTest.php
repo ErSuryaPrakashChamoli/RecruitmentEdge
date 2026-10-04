@@ -30,12 +30,12 @@ test('an ai.conversations.view user can list conversations and review one\'s mes
     $admin->assignRole('chro');
 
     actingAs($admin)
-        ->get('/admin/ai-conversations')
+        ->get('/admin/acme/ai-conversations')
         ->assertSuccessful()
         ->assertSee('Stuck candidates review');
 
     actingAs($admin)
-        ->get("/admin/ai-conversations/{$this->conversation->id}")
+        ->get("/admin/acme/ai-conversations/{$this->conversation->id}")
         ->assertSuccessful()
         ->assertSee('Which candidates are stuck?')
         ->assertSee('find_stuck_candidates')
@@ -46,6 +46,6 @@ test('an ai.conversations.view user can list conversations and review one\'s mes
 test('users without ai.conversations.view cannot open the conversation review screen, even for their own conversation', function (): void {
     $this->owner->assignRole('recruiter');
 
-    actingAs($this->owner)->get('/admin/ai-conversations')->assertForbidden();
-    actingAs($this->owner)->get("/admin/ai-conversations/{$this->conversation->id}")->assertForbidden();
+    actingAs($this->owner)->get('/admin/acme/ai-conversations')->assertForbidden();
+    actingAs($this->owner)->get("/admin/acme/ai-conversations/{$this->conversation->id}")->assertForbidden();
 });

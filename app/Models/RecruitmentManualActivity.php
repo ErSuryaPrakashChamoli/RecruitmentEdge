@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TargetMetric;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentManualActivityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentManualActivity extends Model
 {
     /** @use HasFactory<RecruitmentManualActivityFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

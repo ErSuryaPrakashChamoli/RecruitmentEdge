@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\SeparationReason;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\Outcomes\OutcomeEvaluator;
 use Database\Factories\EmployeeSeparationFactory;
@@ -20,7 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class EmployeeSeparation extends Model
 {
     /** @use HasFactory<EmployeeSeparationFactory> */
-    use Auditable, GuardsLifecycleAttributes, HasFactory;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes, HasFactory;
 
     /**
      * Notes can hold personal detail: they stay out of serialization and therefore out of the

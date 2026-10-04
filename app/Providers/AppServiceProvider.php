@@ -7,11 +7,13 @@ use App\Http\Middleware\AuditExportDownload;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
 use App\Http\Middleware\EnsureStaffMfa;
+use App\Http\Middleware\ResolveTenantForFilamentDownload;
 use App\Http\Middleware\UseCandidateSessionContext;
 use App\Http\Session\StaffDatabaseSessionHandler;
 use App\Logging\RedactingFailedJobProvider;
 use App\Models\AuditLog;
 use App\Models\CandidatePortalAccount;
+use App\Models\Export;
 use App\Models\Role;
 use App\Models\User;
 use App\Policies\ExportPolicy;
@@ -35,7 +37,6 @@ use App\Services\SchedulerHeartbeat;
 use App\Services\WorkerHeartbeat;
 use Filament\Actions\ExportAction;
 use Filament\Actions\Exports\ExportColumn;
-use Filament\Actions\Exports\Models\Export;
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
 use Filament\Auth\Notifications\ResetPassword;
 use Filament\Auth\Notifications\VerifyEmailChange;
@@ -197,13 +198,17 @@ class AppServiceProvider extends ServiceProvider
 
         ExportColumn::configureUsing(fn (ExportColumn $column): ExportColumn => $column->preventFormulaInjection());
 
+        // SaaS-1: exports are App\Models\Export (the tenant-owned model Filament resolves); model
+        // events are per class, so the audit hook is registered on it.
         Export::created(fn (Export $export) => ExportGovernance::recordRequested($export));
 
         Gate::policy(Export::class, ExportPolicy::class);
 
         // The download route is Filament's (not a panel route); its middleware group gets the
         // panel's staff-access and MFA checks, then the download audit.
-        $this->app['router']->middlewareGroup('filament.actions', ['web', EnforceStaffAccess::class, EnsureStaffMfa::class, AuditExportDownload::class]);
+        // SaaS-1: first the record's tenant (and the person's access to it), so every lookup after
+        // it — binding, the owner-only policy, the audit — stays in that tenant.
+        $this->app['router']->middlewareGroup('filament.actions', ['web', ResolveTenantForFilamentDownload::class, EnforceStaffAccess::class, EnsureStaffMfa::class, AuditExportDownload::class]);
     }
 
     /**
@@ -437,7 +442,9 @@ class AppServiceProvider extends ServiceProvider
             return false;
         }
 
+        // SaaS-1: tenant tasks are scheduled through tenants:dispatch / tenants:run, which run the
+        // task itself per tenant — still a scheduled run.
         return collect(app(Schedule::class)->events())
-            ->contains(fn ($event) => is_string($event->command) && preg_match('/artisan[\'"]?\s+'.preg_quote($command, '/').'(\s|$)/', $event->command) === 1);
+            ->contains(fn ($event) => is_string($event->command) && preg_match('/artisan[\'"]?\s+(tenants:(dispatch|run)\s+)?'.preg_quote($command, '/').'(\s|$)/', $event->command) === 1);
     }
 }

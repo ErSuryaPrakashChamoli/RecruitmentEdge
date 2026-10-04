@@ -79,7 +79,7 @@ class HierarchyIntegrityService
                 return $employee;
             }
 
-            if ($managerId !== null && ($managerId === $locked->id || DB::table('employee_hierarchy')->where('ancestor_id', $locked->id)->where('descendant_id', $managerId)->exists())) {
+            if ($managerId !== null && ($managerId === $locked->id || DB::table('employee_hierarchy')->where('tenant_id', $locked->tenant_id)->where('ancestor_id', $locked->id)->where('descendant_id', $managerId)->exists())) {
                 $this->refuse($locked, $actor, 'cycle', "{$locked->fullName()} cannot report to someone in their own reporting line.");
             }
 

@@ -7,6 +7,7 @@ use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
@@ -23,7 +24,7 @@ class EmployeeForm
                 TextInput::make('employee_code')
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->scopedUnique(ignoreRecord: true),
                 TextInput::make('first_name')
                     ->required()
                     ->maxLength(255),
@@ -33,7 +34,7 @@ class EmployeeForm
                 TextInput::make('email')
                     ->email()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->scopedUnique(ignoreRecord: true),
                 TextInput::make('mobile')
                     ->tel()
                     ->maxLength(20),
@@ -84,7 +85,7 @@ class EmployeeForm
                     // The public disk is served from the app origin, so an SVG opened directly would run script.
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                     ->disk('public')
-                    ->directory('employee-photos'),
+                    ->directory(fn (): string => TenantStorage::path('employee-photos')),
             ]);
     }
 

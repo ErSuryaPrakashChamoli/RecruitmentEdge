@@ -119,7 +119,7 @@ test('a deleted recruiter\'s applications keep their attribution and their pages
         ->and($this->chro->can('view', $application->fresh()))->toBeTrue();
 
     actingAs($this->manager);
-    get("/admin/candidate-applications/{$application->id}")->assertOk();
+    get("/admin/acme/candidate-applications/{$application->id}")->assertOk();
 });
 
 test('a manager whose employment is made inactive keeps no authority over their team', function (): void {

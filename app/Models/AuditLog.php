@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\TenantMembershipStatus;
+use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,8 +24,13 @@ use Illuminate\Support\Facades\Context;
  * is recorded in the polymorphic `actor` instead.
  *
  * `old_values` holds the previous values and `changes` the new values of the same keys.
+ *
+ * SaaS-1: two streams in one table. Tenant stream: tenant_id set — every read is limited to the
+ * current tenant (TenantScope), so `audit.view` means this tenant's audit only. Platform stream:
+ * tenant_id null (a sign-in attempt for an unknown account, platform commands) — no tenant query
+ * can reach it. record() attributes each row (tenantsFor()).
  */
-#[Fillable(['user_id', 'actor_type', 'actor_id', 'actor_kind', 'on_behalf_of_user_id', 'auditable_type', 'auditable_id', 'action', 'reason', 'changes', 'old_values', 'ip_address', 'request_id'])]
+#[Fillable(['tenant_id', 'user_id', 'actor_type', 'actor_id', 'actor_kind', 'on_behalf_of_user_id', 'auditable_type', 'auditable_id', 'action', 'reason', 'changes', 'old_values', 'ip_address', 'request_id'])]
 class AuditLog extends Model
 {
     public const ?string UPDATED_AT = null;
@@ -48,6 +56,19 @@ class AuditLog extends Model
     private static ?string $defaultActorKind = null;
 
     public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system'];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new TenantScope);
+
+        // An entry written directly (not through record(), which always chooses its stream) belongs
+        // to the current tenant, like every tenant-owned row.
+        static::creating(function (self $entry): void {
+            if (! array_key_exists('tenant_id', $entry->getAttributes())) {
+                $entry->setAttribute('tenant_id', TenantContext::current()->id());
+            }
+        });
+    }
 
     protected function casts(): array
     {
@@ -81,7 +102,7 @@ class AuditLog extends Model
         // subject's redacted attributes (e.g. offer compensation) never reach the audit trail.
         [$oldValues, $newValues] = [self::redact($subject, $oldValues), self::redact($subject, $newValues)];
 
-        return self::query()->create([
+        $attributes = [
             'user_id' => $actor instanceof User ? $actor->getKey() : null,
             'actor_type' => $actor instanceof Model && ! $actor instanceof User ? $actor->getMorphClass() : null,
             'actor_id' => $actor instanceof Model && ! $actor instanceof User ? $actor->getKey() : null,
@@ -96,7 +117,54 @@ class AuditLog extends Model
             'ip_address' => request()?->ip(),
             // Phase 8.4: the request / job correlation id (AssignRequestId).
             'request_id' => Context::get('request_id'),
-        ]);
+        ];
+
+        $entries = array_map(
+            fn (?int $tenantId): self => self::query()->create(['tenant_id' => $tenantId, ...$attributes]),
+            self::tenantsFor($subject),
+        );
+
+        return $entries[0];
+    }
+
+    /**
+     * SaaS-1: which tenant stream(s) an entry belongs to.
+     * - A tenant-owned subject: its own tenant, always.
+     * - Otherwise the current tenant.
+     * - With no tenant (sign-in, MFA, password reset happen before a tenant is chosen), an event
+     *   about a staff identity is recorded in every tenant the person is an active member of, so
+     *   each tenant keeps its staff's sign-in trail.
+     * - Anything else is the platform stream (null).
+     *
+     * @return non-empty-list<int|null>
+     */
+    private static function tenantsFor(Model $subject): array
+    {
+        $subjectTenant = $subject->getAttribute('tenant_id');
+
+        if ($subjectTenant !== null && ! $subject instanceof Tenant) {
+            return [(int) $subjectTenant];
+        }
+
+        if (($current = TenantContext::current()->id()) !== null) {
+            return [$current];
+        }
+
+        if ($subject instanceof User) {
+            $tenants = TenantMembership::query()
+                ->where('user_id', $subject->getKey())
+                ->where('status', TenantMembershipStatus::Active)
+                ->orderBy('tenant_id')
+                ->pluck('tenant_id')
+                ->map(fn (mixed $id): int => (int) $id)
+                ->all();
+
+            if ($tenants !== []) {
+                return $tenants;
+            }
+        }
+
+        return [null];
     }
 
     /**
@@ -231,6 +299,17 @@ class AuditLog extends Model
     /**
      * @return BelongsTo<User, $this>
      */
+    /**
+     * The tenant stream an entry belongs to (null: the platform stream). Filament's tenancy scopes
+     * the Audit Log resource through it; TenantScope does so for every query.
+     *
+     * @return BelongsTo<Tenant, $this>
+     */
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

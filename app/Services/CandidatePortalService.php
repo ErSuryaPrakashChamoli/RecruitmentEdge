@@ -27,6 +27,7 @@ use App\Models\Interview;
 use App\Models\InterviewSchedulingInvitation;
 use App\Models\InterviewSlotBooking;
 use App\Services\Communication\CommunicationPreferenceService;
+use App\Services\Tenancy\TenantStorage;
 use DomainException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -401,7 +402,7 @@ class CandidatePortalService
             throw new DomainException('That document type cannot be uploaded from the portal.');
         }
 
-        $path = $file->store("candidate-documents/{$account->candidate_id}", 'local');
+        $path = $file->store(TenantStorage::path("candidate-documents/{$account->candidate_id}"), 'local');
 
         $document = DB::transaction(function () use ($account, $type, $path): CandidateDocument {
             $document = CandidateDocument::query()->create([

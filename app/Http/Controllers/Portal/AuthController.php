@@ -7,6 +7,7 @@ use App\Http\Requests\Portal\LoginRequest;
 use App\Models\AuditLog;
 use App\Models\CandidatePortalAccount;
 use App\Services\CandidatePortalService;
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -37,7 +38,8 @@ class AuthController extends Controller
 
     public function store(LoginRequest $request, CandidatePortalService $portal): RedirectResponse
     {
-        $key = 'portal-login:'.Str::lower($request->string('email')).'|'.$request->ip();
+        // SaaS-1: accounts are per tenant, so is the lockout.
+        $key = TenantCache::key('portal-login:'.Str::lower($request->string('email')).'|'.$request->ip());
 
         if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {
             $this->recordFailure($request, 'throttled');

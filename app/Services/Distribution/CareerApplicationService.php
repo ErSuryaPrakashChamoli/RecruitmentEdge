@@ -25,6 +25,8 @@ use App\Services\CandidateTimelineService;
 use App\Services\Communication\CommunicationPreferenceService;
 use App\Services\NotificationDispatchService;
 use App\Services\SequenceCodeGenerator;
+use App\Services\Tenancy\TenantCache;
+use App\Services\Tenancy\TenantStorage;
 use DomainException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
@@ -97,7 +99,7 @@ class CareerApplicationService
         // so a double submit finds the candidate the first one created and is held like any match.
         // One still waiting after the wait gets the same neutral response (SEC-88-09).
         try {
-            return Cache::lock('career-apply:'.sha1(CandidateIdentityNormalizer::email($data['email'] ?? null).'|'.CandidateIdentityNormalizer::mobile($data['mobile'] ?? null)), 60)
+            return Cache::lock(TenantCache::key('career-apply:').sha1(CandidateIdentityNormalizer::email($data['email'] ?? null).'|'.CandidateIdentityNormalizer::mobile($data['mobile'] ?? null)), 60)
                 ->block(10, fn (): array => $this->applyOnce($posting, $data, $resume, $attribution, $recruiterId));
         } catch (LockTimeoutException) {
             Log::info('careers.submission_in_flight', ['job_posting_id' => $posting->id]);
@@ -146,7 +148,7 @@ class CareerApplicationService
                 CandidateDocument::query()->create([
                     'candidate_id' => $candidate->id,
                     'document_type' => DocumentType::Resume,
-                    'file_path' => $resume->store("candidate-documents/{$candidate->id}", 'local'),
+                    'file_path' => $resume->store(TenantStorage::path("candidate-documents/{$candidate->id}"), 'local'),
                     'status' => DocumentStatus::Submitted,
                     'remarks' => "Uploaded with online application {$application->application_code}",
                 ]);

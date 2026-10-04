@@ -6,6 +6,7 @@ use App\Enums\RequisitionStatus;
 use App\Models\HiringRisk;
 use App\Models\RecruitmentRequisition;
 use App\Services\Intelligence\HiringRiskRadar;
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -42,7 +43,7 @@ test('a full scan never runs twice at once, and a skipped scan resolves nothing'
     $radar->scan();
     $this->travel(7)->hours();
 
-    $lock = Cache::lock('hiring-risk-radar:full-scan', 60);
+    $lock = Cache::lock(TenantCache::key('hiring-risk-radar:full-scan'), 60);
     $lock->get();
     $skipped = $radar->scan();
     $lock->release();

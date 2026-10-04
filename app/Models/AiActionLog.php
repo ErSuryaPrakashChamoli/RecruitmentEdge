@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AiRiskLevel;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiActionLogFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AiActionLog extends Model
 {
     /** @use HasFactory<AiActionLogFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

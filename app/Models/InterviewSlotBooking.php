@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\SchedulingChannel;
 use App\Enums\SlotBookingStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\InterviewSlotBookingFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -30,7 +31,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class InterviewSlotBooking extends Model
 {
     /** @use HasFactory<InterviewSlotBookingFactory> */
-    use Auditable, HasFactory, HasUlids;
+    use Auditable, BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * @return array<int, string>

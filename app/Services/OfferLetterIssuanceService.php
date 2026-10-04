@@ -11,6 +11,7 @@ use App\Models\OfferLetterConversion;
 use App\Models\OfferLetterTemplate;
 use App\Models\OfferLetterTemplateVersion;
 use App\Models\OfferRevision;
+use App\Services\Tenancy\TenantStorage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -67,7 +68,7 @@ class OfferLetterIssuanceService
         }
 
         $pdf = $this->renderer->pdf($offer);
-        $path = OfferLetter::DIRECTORY."/{$offer->id}/".($revision?->revision ?? 1).'-'.Str::uuid().'.pdf';
+        $path = TenantStorage::path(OfferLetter::DIRECTORY)."/{$offer->id}/".($revision?->revision ?? 1).'-'.Str::uuid().'.pdf';
 
         Storage::disk('local')->put($path, $pdf);
 
@@ -110,7 +111,7 @@ class OfferLetterIssuanceService
     private function queueConversion(Offer $offer, ?OfferRevision $revision, int $templateId, ?int $versionId, ?int $issuedBy, OfferLetterTemplate $template): OfferLetterConversion
     {
         $filled = $this->renderer->fillWordTemplate($template, $offer);
-        $path = OfferLetter::DIRECTORY."/{$offer->id}/".($revision?->revision ?? 1).'-'.Str::uuid().'.docx';
+        $path = TenantStorage::path(OfferLetter::DIRECTORY)."/{$offer->id}/".($revision?->revision ?? 1).'-'.Str::uuid().'.docx';
 
         try {
             Storage::disk('local')->put($path, (string) file_get_contents($filled));

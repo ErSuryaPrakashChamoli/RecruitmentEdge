@@ -5,6 +5,7 @@ namespace App\Services\Identity;
 use App\Models\AuditLog;
 use App\Models\User;
 use DomainException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -38,13 +39,29 @@ class MfaService
      */
     public function isRequiredFor(User $user): bool
     {
-        $roleKeys = $user->roles->pluck('key')->filter()->all();
+        // SaaS-1: MFA belongs to the identity, so it is required when any tenant the person holds
+        // a role in requires it. Read across tenants on purpose: tenant-less pages (profile, MFA
+        // set-up) have no team scope, and a team-scoped read there would waive MFA.
+        $assignments = DB::table('model_has_roles')
+            ->where('model_has_roles.model_type', $user->getMorphClass())
+            ->where('model_has_roles.model_id', $user->getKey());
+
+        $roleKeys = (clone $assignments)->join('roles', 'roles.id', '=', 'model_has_roles.role_id')->pluck('roles.key')->filter()->all();
 
         if (array_intersect($roleKeys, (array) config('identity.mfa.required_roles', [])) !== []) {
             return true;
         }
 
-        $permissions = $user->getAllPermissions()->pluck('name')->all();
+        $permissions = (clone $assignments)
+            ->join('role_has_permissions', 'role_has_permissions.role_id', '=', 'model_has_roles.role_id')
+            ->join('permissions', 'permissions.id', '=', 'role_has_permissions.permission_id')
+            ->pluck('permissions.name')
+            ->merge(DB::table('model_has_permissions')
+                ->join('permissions', 'permissions.id', '=', 'model_has_permissions.permission_id')
+                ->where('model_has_permissions.model_type', $user->getMorphClass())
+                ->where('model_has_permissions.model_id', $user->getKey())
+                ->pluck('permissions.name'))
+            ->all();
 
         return array_intersect($permissions, (array) config('identity.mfa.privileged_permissions', [])) !== [];
     }

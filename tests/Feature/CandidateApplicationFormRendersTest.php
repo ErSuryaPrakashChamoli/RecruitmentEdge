@@ -22,7 +22,7 @@ test('the candidate application create page renders successfully', function (): 
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');
 
-    actingAs($user)->get('/admin/candidate-applications/create')->assertSuccessful();
+    actingAs($user)->get('/admin/acme/candidate-applications/create')->assertSuccessful();
 });
 
 test('the candidate application edit page renders successfully', function (): void {
@@ -32,5 +32,5 @@ test('the candidate application edit page renders successfully', function (): vo
 
     $application = CandidateApplication::factory()->create();
 
-    actingAs($user)->get("/admin/candidate-applications/{$application->id}/edit")->assertSuccessful();
+    actingAs($user)->get("/admin/acme/candidate-applications/{$application->id}/edit")->assertSuccessful();
 });

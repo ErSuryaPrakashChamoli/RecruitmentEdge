@@ -29,7 +29,7 @@ test('the interview workspace renders with real interviews and a summary', funct
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/interview-workspace')
+        ->get('/admin/acme/interview-workspace')
         ->assertSuccessful()
         ->assertSee('Interviews Today')
         ->assertSee('Feedback Pending');

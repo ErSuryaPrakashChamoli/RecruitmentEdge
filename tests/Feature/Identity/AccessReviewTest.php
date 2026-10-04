@@ -28,10 +28,10 @@ beforeEach(function (): void {
 
 test('the access review needs access.review', function (): void {
     actingAs($this->teamMember);
-    get('/admin/access-review')->assertForbidden();
+    get('/admin/acme/access-review')->assertForbidden();
 
     actingAs($this->vp);
-    get('/admin/access-review')->assertOk();
+    get('/admin/acme/access-review')->assertOk();
 });
 
 test('the access review is limited to the reviewer\'s hierarchy — no global bypass', function (): void {

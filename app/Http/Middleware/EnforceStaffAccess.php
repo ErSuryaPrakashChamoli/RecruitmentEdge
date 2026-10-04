@@ -35,7 +35,7 @@ class EnforceStaffAccess
 
             // A separation that took effect but was not applied yet is applied now (idempotent),
             // so employment and access catch up the moment the person tries to use the system.
-            $this->lifecycle->applyDueSeparationFor($user);
+            $user->withinEmployingTenant(fn () => $this->lifecycle->applyDueSeparationFor($user));
 
             Filament::auth()->logout();
             $request->session()->invalidate();

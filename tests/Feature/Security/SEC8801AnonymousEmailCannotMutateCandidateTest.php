@@ -4,6 +4,7 @@ use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
 use App\Services\CandidateIdentityNormalizer;
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
@@ -68,7 +69,7 @@ test('a weak name-only resemblance still creates a new candidate for HR duplicat
 
 test('a second submission of the same details while the first is still being saved creates nothing and answers neutrally (Phase 8.9, P89-DQ-011)', function (): void {
     Sleep::fake(syncWithCarbon: true);
-    $inFlight = Cache::lock('career-apply:'.sha1(CandidateIdentityNormalizer::email('someone.else@example.net').'|'.CandidateIdentityNormalizer::mobile('9900000001')), 60);
+    $inFlight = Cache::lock(TenantCache::key('career-apply:').sha1(CandidateIdentityNormalizer::email('someone.else@example.net').'|'.CandidateIdentityNormalizer::mobile('9900000001')), 60);
     $inFlight->get();
 
     sec88Apply($this->posting)->assertRedirect(route('careers.applied', $this->posting->public_slug));

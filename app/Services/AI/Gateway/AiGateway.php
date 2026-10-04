@@ -17,6 +17,7 @@ use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Privacy\AiEgressGuard;
 use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Tools\ToolExecutionContext;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -189,6 +190,15 @@ class AiGateway
      */
     private function logUsage(?User $user, ?int $conversationId, AiUsageRequestType $type, ?string $provider, string $model, array $usage, float $start, string $status): void
     {
+        // SaaS-1: usage is metered per tenant (ai_usage_logs is tenant-owned). A call made with no
+        // tenant (the ai:test-provider diagnostic) is platform usage: logged, never charged to a
+        // tenant.
+        if (! TenantContext::current()->hasTenant()) {
+            Log::info('ai.platform_usage', ['provider' => (string) $provider, 'model' => $model, 'request_type' => $type->value, 'status' => $status, 'input_tokens' => $usage['input_tokens'] ?? null, 'output_tokens' => $usage['output_tokens'] ?? null]);
+
+            return;
+        }
+
         AiUsageLog::query()->create([
             'user_id' => $user?->id,
             'conversation_id' => $conversationId ?? $this->toolContext->conversationId(),

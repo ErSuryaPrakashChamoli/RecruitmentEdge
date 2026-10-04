@@ -19,7 +19,7 @@ class DepartmentForm
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true)
+                    ->scopedUnique(ignoreRecord: true)
                     ->disabledOn('edit'),
                 // Status changes after creation are the Deactivate/Activate/Archive actions (with a reason).
                 Toggle::make('is_active')

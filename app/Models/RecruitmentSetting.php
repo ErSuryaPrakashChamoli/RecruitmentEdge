@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
@@ -10,7 +12,7 @@ use Illuminate\Support\Facades\Cache;
 #[Fillable(['key', 'value', 'type', 'group', 'description'])]
 class RecruitmentSetting extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToTenant;
 
     /**
      * v2 (Phase 8.6): entries are ['value' => …] / ['missing' => true]; the prefix changed so a
@@ -74,7 +76,7 @@ class RecruitmentSetting extends Model
     public static function get(string $key, mixed $default = null): mixed
     {
         $cached = Cache::rememberForever(
-            self::CACHE_PREFIX.$key,
+            TenantCache::key(self::CACHE_PREFIX.$key),
             function () use ($key): array {
                 $setting = self::query()->where('key', $key)->first();
 
@@ -99,8 +101,9 @@ class RecruitmentSetting extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (self $setting) => Cache::forget(self::CACHE_PREFIX.$setting->key));
-        static::deleted(fn (self $setting) => Cache::forget(self::CACHE_PREFIX.$setting->key));
+        // SaaS-1: settings are per tenant, and so is their cache entry.
+        static::saved(fn (self $setting) => Cache::forget(TenantCache::key(self::CACHE_PREFIX.$setting->key, (int) $setting->tenant_id)));
+        static::deleted(fn (self $setting) => Cache::forget(TenantCache::key(self::CACHE_PREFIX.$setting->key, (int) $setting->tenant_id)));
     }
 
     protected function castValue(): mixed

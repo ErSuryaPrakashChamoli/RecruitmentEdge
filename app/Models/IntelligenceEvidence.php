@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\EvidenceType;
 use App\Enums\VerificationStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -36,6 +37,8 @@ use LogicException;
 ])]
 class IntelligenceEvidence extends Model
 {
+    use BelongsToTenant;
+
     protected $table = 'intelligence_evidence';
 
     /**

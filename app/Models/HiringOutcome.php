@@ -8,6 +8,7 @@ use App\Enums\OutcomeConfidence;
 use App\Enums\OutcomeResult;
 use App\Enums\OutcomeState;
 use App\Enums\OutcomeType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\HiringOutcomeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -33,7 +34,7 @@ use LogicException;
 class HiringOutcome extends Model
 {
     /** @use HasFactory<HiringOutcomeFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     public const array MUTABLE = ['is_current', 'updated_at'];
 

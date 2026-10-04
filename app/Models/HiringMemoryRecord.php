@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\IntelligenceAiStatus;
 use App\Enums\MemoryType;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -37,6 +38,8 @@ use LogicException;
 ])]
 class HiringMemoryRecord extends Model
 {
+    use BelongsToTenant;
+
     /**
      * @var array<int, string>
      */

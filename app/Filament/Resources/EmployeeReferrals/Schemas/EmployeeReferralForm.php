@@ -6,6 +6,7 @@ use App\Enums\ReferralRelationship;
 use App\Enums\RequisitionStatus;
 use App\Filament\Resources\EmployeeReferrals\Pages\CreateEmployeeReferral;
 use App\Models\RecruitmentRequisition;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
@@ -46,7 +47,7 @@ class EmployeeReferralForm
                             ->label('Resume')
                             ->disk('local')
                             ->visibility('private')
-                            ->directory('resumes')
+                            ->directory(fn (): string => TenantStorage::path('resumes'))
                             ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
                             ->maxSize(5120),
                     ]),

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['interview_id', 'calendar_connection_id', 'provider', 'external_event_id', 'status', 'last_error', 'synced_at'])]
 class InterviewCalendarEvent extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return ['synced_at' => 'datetime'];

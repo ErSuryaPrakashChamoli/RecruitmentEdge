@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['dedupe_key', 'user_id', 'employee_id', 'trigger', 'assignee_employee_id', 'status', 'summary', 'resolved_by', 'resolved_at'])]
 class OwnershipHandoff extends Model
 {
+    use BelongsToTenant;
+
     public const string OPEN = 'open';
 
     public const string COMPLETED = 'completed';

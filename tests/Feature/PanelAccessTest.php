@@ -10,12 +10,12 @@ beforeEach(function (): void {
 test('a user with no role cannot access the admin panel', function (): void {
     $user = User::factory()->create();
 
-    $this->actingAs($user)->get('/admin')->assertForbidden();
+    $this->actingAs($user)->get('/admin/acme')->assertForbidden();
 });
 
 test('a user with a recruitment role can access the admin panel', function (): void {
     $user = User::factory()->create();
     $user->assignRole('recruiter');
 
-    $this->actingAs($user)->get('/admin')->assertSuccessful();
+    $this->actingAs($user)->get('/admin/acme')->assertSuccessful();
 });

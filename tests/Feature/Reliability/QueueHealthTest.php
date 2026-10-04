@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\SchedulerHeartbeat;
+use App\Services\Tenancy\TenantContext;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +33,7 @@ function failedJobRow(array $attributes = []): string
         'uuid' => $uuid,
         'connection' => 'database',
         'queue' => 'communications',
-        'payload' => json_encode(['uuid' => $uuid, 'displayName' => SendCommunicationJob::class, 'job' => 'Illuminate\\Queue\\CallQueuedHandler@call', 'maxTries' => 5, 'data' => ['commandName' => SendCommunicationJob::class, 'command' => serialize(new SendCommunicationJob(987654))], 'note' => 'recipient priya@example.com']),
+        'payload' => json_encode(['uuid' => $uuid, 'tenant_id' => TenantContext::current()->id(), 'displayName' => SendCommunicationJob::class, 'job' => 'Illuminate\\Queue\\CallQueuedHandler@call', 'maxTries' => 5, 'data' => ['commandName' => SendCommunicationJob::class, 'command' => serialize(new SendCommunicationJob(987654))], 'note' => 'recipient priya@example.com']),
         'exception' => "RuntimeException: Temporary provider failure\n#0 trace",
         'failed_at' => now(),
         ...$attributes,
@@ -77,25 +78,29 @@ test('retrying a failed job puts it back on its queue and audits who did it and 
         ->and($audit->user_id)->toBe($this->admin->id);
 });
 
-test('the health endpoint needs an administrator or the monitoring token, and answers 503 while something is wrong', function (): void {
+test('the health endpoint needs the monitoring token, and answers 503 while something is wrong', function (): void {
     config(['queue.health_token' => 'monitor-secret-token']);
 
     $this->getJson(route('health.queue'))->assertUnauthorized();
     $this->getJson(route('health.queue'), ['Authorization' => 'Bearer wrong'])->assertForbidden();
-    actingAs($this->recruiter)->getJson(route('health.queue'))->assertForbidden();
+    actingAs($this->recruiter)->getJson(route('health.queue'))->assertUnauthorized();
 
     auth()->logout();
     $this->getJson(route('health.queue'), ['Authorization' => 'Bearer monitor-secret-token'])->assertOk()->assertJsonPath('status', 'ok');
 
     failedJobRow();
-    $response = actingAs($this->admin)->getJson(route('health.queue'))->assertStatus(503)->assertJsonPath('status', 'attention');
+    $response = $this->getJson(route('health.queue'), ['Authorization' => 'Bearer monitor-secret-token'])->assertStatus(503)->assertJsonPath('status', 'attention');
 
     expect($response->getContent())->not->toContain('priya@example.com');
+
+    // SaaS-1: the endpoint reports every tenant's queues, so a tenant administrator's session does
+    // not open it (their own tenant's view is the Queue health page).
+    actingAs($this->admin)->getJson(route('health.queue'))->assertUnauthorized();
 });
 
 test('the health check alerts administrators once per problem per hour and reports failure until it is fixed', function (): void {
     failedJobRow();
-    DB::table('jobs')->insert(['queue' => 'automation', 'payload' => '{}', 'attempts' => 0, 'reserved_at' => null, 'available_at' => now()->subMinutes(40)->getTimestamp(), 'created_at' => now()->subMinutes(40)->getTimestamp()]);
+    DB::table('jobs')->insert(['queue' => 'automation', 'payload' => json_encode(['tenant_id' => $this->tenant->id]), 'attempts' => 0, 'reserved_at' => null, 'available_at' => now()->subMinutes(40)->getTimestamp(), 'created_at' => now()->subMinutes(40)->getTimestamp()]);
     Cache::forever(SchedulerHeartbeat::LAST_TICK_KEY, now()->subMinutes(20)->toIso8601String());
 
     $this->artisan('queue:health-check')->assertFailed();
@@ -103,8 +108,11 @@ test('the health check alerts administrators once per problem per hour and repor
 
     $titles = $this->admin->notifications()->pluck('data')->map(fn ($data) => $data['body'] ?? '')->all();
 
-    expect($this->admin->notifications()->count())->toBe(3)
-        ->and(implode(' | ', $titles))->toContain('failed in the last hour', 'automation queue has waited 40 minutes', 'scheduler has not run')
+    // SaaS-1: the tenant's administrators hear about the tenant's own failed jobs and backlog; a
+    // silent scheduler is a platform problem (logged as platform.alert), and still fails the check.
+    expect($this->admin->notifications()->count())->toBe(2)
+        ->and(implode(' | ', $titles))->toContain('failed in the last hour', 'automation queue has waited 40 minutes')
+        ->and(implode(' | ', $titles))->not->toContain('scheduler has not run')
         ->and($this->recruiter->notifications()->count())->toBe(0);
 
     DB::table('failed_jobs')->delete();

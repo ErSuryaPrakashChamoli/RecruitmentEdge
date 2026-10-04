@@ -48,7 +48,7 @@ class InterviewerResource extends Resource
                         ->get()
                         ->mapWithKeys(fn (Employee $employee): array => [$employee->id => Interviewer::optionLabel($employee)])
                         ->all())
-                    ->unique(ignoreRecord: true)
+                    ->scopedUnique(ignoreRecord: true)
                     ->validationMessages(['unique' => 'This employee is already on the interviewer list.'])
                     ->searchable()
                     ->required(),

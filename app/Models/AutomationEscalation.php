@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EscalationStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,6 +29,8 @@ use LogicException;
 ])]
 class AutomationEscalation extends Model
 {
+    use BelongsToTenant;
+
     /**
      * Phase 8.6 (D8.6-021): the record of what automation did is never deleted one by one (the
      * scheduled cleanup prunes only skipped runs, in bulk).

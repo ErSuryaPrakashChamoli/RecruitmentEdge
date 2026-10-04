@@ -9,6 +9,9 @@ use App\Models\AiToolCall;
 use App\Models\AutomationExecution;
 use App\Models\CandidateCommunication;
 use App\Services\Communication\ProviderCircuitBreaker;
+use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +20,11 @@ use Illuminate\Support\Facades\DB;
  * right now — the Queue health page, the /health/queue endpoint and queue:health-check all read
  * this. Counts, ages, job class names and redacted exception text only: never a payload, a
  * message body, a recipient or a candidate's name.
+ *
+ * SaaS-1: two scopes. Inside a tenant (the Queue health page, per-tenant alerts) only jobs whose
+ * payload declares that tenant are counted or listed, and only its stuck work. With no tenant
+ * (the /health/queue endpoint, the platform pass of queue:health-check) it reports the platform:
+ * counts across every tenant, never any tenant's records.
  */
 class QueueHealthService
 {
@@ -46,7 +54,7 @@ class QueueHealthService
      */
     public function queues(): array
     {
-        $rows = DB::table('jobs')
+        $rows = $this->jobRows('jobs')
             ->selectRaw('queue, count(*) as depth, min(available_at) as oldest')
             ->groupBy('queue')
             ->get()
@@ -73,7 +81,7 @@ class QueueHealthService
     {
         $now = now()->getTimestamp();
 
-        $rows = DB::table('jobs')
+        $rows = $this->jobRows('jobs')
             ->selectRaw(
                 'queue,'
                 .' sum(case when reserved_at is null and available_at <= ? then 1 else 0 end) as ready_jobs,'
@@ -128,9 +136,9 @@ class QueueHealthService
     public function failedJobs(int $limit = 20): array
     {
         return [
-            'last_hour' => DB::table('failed_jobs')->where('failed_at', '>=', now()->subHour())->count(),
-            'total' => DB::table('failed_jobs')->count(),
-            'recent' => DB::table('failed_jobs')->orderByDesc('failed_at')->limit($limit)->get(['id', 'uuid', 'queue', 'payload', 'exception', 'failed_at'])
+            'last_hour' => $this->jobRows('failed_jobs')->where('failed_at', '>=', now()->subHour())->count(),
+            'total' => $this->jobRows('failed_jobs')->count(),
+            'recent' => $this->jobRows('failed_jobs')->orderByDesc('failed_at')->limit($limit)->get(['id', 'uuid', 'queue', 'payload', 'exception', 'failed_at'])
                 ->map(fn (object $row): array => [
                     'id' => (int) $row->id,
                     'uuid' => (string) $row->uuid,
@@ -153,17 +161,39 @@ class QueueHealthService
     {
         $threshold = now()->subMinutes(self::STUCK_ALERT_MINUTES);
 
+        // SaaS-1: the platform scope counts across tenants (numbers only); a tenant sees its own.
+        $count = fn (EloquentBuilder $query): int => TenantContext::current()->hasTenant() ? $query->count() : $query->withoutTenancy()->count();
+
         return [
-            'messages_queued' => CandidateCommunication::query()->where('status', CommunicationStatus::Queued)->where('queued_at', '<', $threshold)->count(),
-            'messages_sending' => CandidateCommunication::query()->where('status', CommunicationStatus::Sending)->where('updated_at', '<', $threshold)->count(),
-            'automation_running' => AutomationExecution::query()->where('status', AutomationExecutionStatus::Running)->where('started_at', '<', $threshold)->count(),
-            'ai_actions_approved' => AiToolCall::query()->where('status', AiToolCallStatus::Approved)->where('approved_at', '<', $threshold)->count(),
+            'messages_queued' => $count(CandidateCommunication::query()->where('status', CommunicationStatus::Queued)->where('queued_at', '<', $threshold)),
+            'messages_sending' => $count(CandidateCommunication::query()->where('status', CommunicationStatus::Sending)->where('updated_at', '<', $threshold)),
+            'automation_running' => $count(AutomationExecution::query()->where('status', AutomationExecutionStatus::Running)->where('started_at', '<', $threshold)),
+            'ai_actions_approved' => $count(AiToolCall::query()->where('status', AiToolCallStatus::Approved)->where('approved_at', '<', $threshold)),
         ];
     }
 
     /**
      * @return array<int, string>
      */
+    /**
+     * A failed job of the current scope by uuid (the Queue health page's Retry), or null.
+     */
+    public function failedJob(string $uuid): ?object
+    {
+        return $this->jobRows('failed_jobs')->where('uuid', $uuid)->first(['id', 'uuid', 'queue', 'payload']);
+    }
+
+    /**
+     * SaaS-1: queue rows in scope — a tenant's own jobs (their payload's top-level tenant_id,
+     * written by TenantQueueGuard), or every job for the platform.
+     */
+    private function jobRows(string $table): Builder
+    {
+        $tenantId = TenantContext::current()->id();
+
+        return DB::table($table)->when($tenantId !== null, fn (Builder $query) => $query->where('payload->tenant_id', $tenantId));
+    }
+
     public function pausedProviders(): array
     {
         return collect(config('communications.providers', []))
@@ -227,6 +257,22 @@ class QueueHealthService
         }
 
         return $problems;
+    }
+
+    /**
+     * SaaS-1: the problems a tenant's own administrators can act on — its failed jobs, its queued
+     * work waiting too long, its stuck work. Platform signals (workers, scheduler, providers,
+     * configuration) are reported by the platform pass instead.
+     *
+     * @return array<string, string>
+     */
+    public function tenantProblems(): array
+    {
+        return array_filter(
+            $this->problems(),
+            fn (string $key): bool => $key === 'failed-jobs' || $key === 'stuck-work' || str_starts_with($key, 'queue-backlog:'),
+            ARRAY_FILTER_USE_KEY,
+        );
     }
 
     /**

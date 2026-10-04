@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\StaffDatabaseNotification;
 use App\Services\Automation\RecipientResolver;
 use App\Services\Identity\StaffAccessService;
+use App\Services\Tenancy\TenantCache;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
@@ -50,7 +51,7 @@ class NotificationDispatchService
 
         // Phase 8.7 (P83-BACKLOG-010): the database row is written by a queued job, so two alerts
         // dispatched together would both pass the table check — claim the key atomically first.
-        if ($dedupeKey !== null && ($this->alreadySent($recipient, $dedupeKey) || ! Cache::add('alert-dedupe:'.$recipient->getKey().':'.sha1($dedupeKey), true, now()->addDay()))) {
+        if ($dedupeKey !== null && ($this->alreadySent($recipient, $dedupeKey) || ! Cache::add(TenantCache::key('alert-dedupe:'.$recipient->getKey().':'.sha1($dedupeKey)), true, now()->addDay()))) {
             return;
         }
 

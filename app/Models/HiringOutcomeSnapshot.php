@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OutcomeCaptureMode;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\HiringOutcomeSnapshotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -26,7 +27,7 @@ use LogicException;
 class HiringOutcomeSnapshot extends Model
 {
     /** @use HasFactory<HiringOutcomeSnapshotFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     /**
      * hiring-snapshot/2 (Phase 8.5 D2): time to hire ends only at the actual joining date.

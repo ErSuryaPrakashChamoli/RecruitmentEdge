@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Services\HierarchyService;
 use Database\Factories\RecruitmentDailyTargetFactory;
@@ -36,7 +37,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentDailyTarget extends Model
 {
     /** @use HasFactory<RecruitmentDailyTargetFactory> */
-    use Auditable, HasFactory, ReferencesActiveMasterData;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData;
 
     protected function casts(): array
     {

@@ -22,21 +22,25 @@ Artisan::command('inspire', function () {
 |
 */
 
-Schedule::command('incentives:release-matured')->daily()->withoutOverlapping(60)->onOneServer();
-Schedule::command('notifications:dispatch-alerts')->hourly()->withoutOverlapping(55)->onOneServer();
-Schedule::command('performance:snapshot')->dailyAt('00:30')->withoutOverlapping(180)->onOneServer()->runInBackground();
-Schedule::command('offers:expire-lapsed')->dailyAt('00:15')->withoutOverlapping(60)->onOneServer();
-Schedule::command('interview-slots:expire')->hourly()->withoutOverlapping(55)->onOneServer();
-Schedule::command('jobs:sync-distributions')->dailyAt('01:00')->withoutOverlapping(60)->onOneServer();
-Schedule::command('communications:send-reminders')->hourly()->withoutOverlapping(55)->onOneServer();
-Schedule::command('recruitment:automation:dispatch')->everyFifteenMinutes()->withoutOverlapping(14)->onOneServer();
-Schedule::command('recruitment:automation:process')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
-Schedule::command('recruitment:automation:cleanup')->dailyAt('02:00')->withoutOverlapping(60)->onOneServer();
-Schedule::command('intelligence:refresh')->hourly()->withoutOverlapping(120)->onOneServer()->runInBackground();
-Schedule::command('outcomes:evaluate')->dailyAt('03:00')->withoutOverlapping(180)->onOneServer()->runInBackground();
+// SaaS-1: tasks that work on tenant data run per tenant (App\Services\Tenancy\TenantTasks). The
+// scheduler only enumerates the active tenants: tenants:dispatch queues one job per tenant, which
+// restores that tenant before running the task; the three long tasks run per tenant in a separate
+// background process (tenants:run --all). Nothing scans tenant data across tenants.
+Schedule::command('tenants:dispatch incentives:release-matured')->daily()->withoutOverlapping(60)->onOneServer();
+Schedule::command('tenants:dispatch notifications:dispatch-alerts')->hourly()->withoutOverlapping(55)->onOneServer();
+Schedule::command('tenants:run performance:snapshot --all')->dailyAt('00:30')->withoutOverlapping(180)->onOneServer()->runInBackground();
+Schedule::command('tenants:dispatch offers:expire-lapsed')->dailyAt('00:15')->withoutOverlapping(60)->onOneServer();
+Schedule::command('tenants:dispatch interview-slots:expire')->hourly()->withoutOverlapping(55)->onOneServer();
+Schedule::command('tenants:dispatch jobs:sync-distributions')->dailyAt('01:00')->withoutOverlapping(60)->onOneServer();
+Schedule::command('tenants:dispatch communications:send-reminders')->hourly()->withoutOverlapping(55)->onOneServer();
+Schedule::command('tenants:dispatch recruitment:automation:dispatch')->everyFifteenMinutes()->withoutOverlapping(14)->onOneServer();
+Schedule::command('tenants:dispatch recruitment:automation:process')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
+Schedule::command('tenants:dispatch recruitment:automation:cleanup')->dailyAt('02:00')->withoutOverlapping(60)->onOneServer();
+Schedule::command('tenants:run intelligence:refresh --all')->hourly()->withoutOverlapping(120)->onOneServer()->runInBackground();
+Schedule::command('tenants:run outcomes:evaluate --all')->dailyAt('03:00')->withoutOverlapping(180)->onOneServer()->runInBackground();
+Schedule::command('tenants:dispatch ai:expire-pending-actions')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 // Phase 8.4: separations whose last working day has passed (identity.scheduled_enforcement).
-Schedule::command('ai:expire-pending-actions')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
-Schedule::command('identity:enforce-separations')->hourly()->withoutOverlapping(55)->onOneServer()->when(fn (): bool => (bool) config('identity.scheduled_enforcement'));
+Schedule::command('tenants:dispatch identity:enforce-separations')->hourly()->withoutOverlapping(55)->onOneServer()->when(fn (): bool => (bool) config('identity.scheduled_enforcement'));
 // Phase 8.7 (D8.7-012): failed jobs (payload and redacted exception) are kept for the retention
 // window only — the queue health page shows them until then.
 Schedule::command('queue:prune-failed', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:30')->withoutOverlapping(30)->onOneServer();
@@ -46,6 +50,6 @@ Schedule::command('cache:prune-expired')->dailyAt('02:40')->withoutOverlapping(3
 Schedule::command('auth:clear-resets')->dailyAt('02:45')->withoutOverlapping(15)->onOneServer();
 Schedule::command('queue:prune-batches', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:50')->withoutOverlapping(15)->onOneServer();
 // Phase 8.7 (D8.7-013): re-queue lost messages; fail work a crashed worker or request left stuck.
-Schedule::command('reliability:sweep')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
+Schedule::command('tenants:dispatch reliability:sweep')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 // Phase 8.7 (D8.7-028): raise failed jobs, backlogs, stuck work and a silent scheduler.
 Schedule::command('queue:health-check')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();

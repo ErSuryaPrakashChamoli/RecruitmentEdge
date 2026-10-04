@@ -69,7 +69,9 @@ class CandidateDuplicateDetector
         return $candidates
             ->map(fn (Candidate $candidate) => $this->evaluate($candidate, $mobile, $email, $mobileKey, $alternateKey, $emailKey, $nameKey))
             ->filter()
-            ->sortByDesc(fn (DuplicateCandidateMatch $match) => $match->confidence)
+            // Strongest first; equal confidence ranks more matching fields first, then the oldest
+            // record — a defined order, independent of the database's row order.
+            ->sort(fn (DuplicateCandidateMatch $a, DuplicateCandidateMatch $b): int => [$b->confidence, count($b->matchingFields), $a->candidate->id] <=> [$a->confidence, count($a->matchingFields), $b->candidate->id])
             ->values();
     }
 

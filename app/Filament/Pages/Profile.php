@@ -3,8 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Enums\AppTheme;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Identity\CredentialService;
+use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Actions\Action;
 use Filament\Auth\Pages\EditProfile;
 use Filament\Forms\Components\FileUpload;
@@ -33,6 +36,21 @@ use Illuminate\Support\Arr;
  */
 class Profile extends EditProfile
 {
+    /**
+     * SaaS-1: the profile is Filament's tenant-less page, but it shows and edits the person's own
+     * employee record, which lives in the tenant that employs them. Every request of this page
+     * (Livewire updates included) runs in that tenant — only while the person may act there.
+     */
+    public function boot(): void
+    {
+        $user = $this->getUser();
+        $tenant = $user instanceof User ? Tenant::query()->find($user->employingTenantId()) : null;
+
+        if ($tenant instanceof Tenant && $user->canAccessTenant($tenant)) {
+            TenantContext::current()->setTenant($tenant);
+        }
+    }
+
     /**
      * Phase 8.4: sign out of every other browser and device (this session stays signed in).
      *
@@ -174,7 +192,7 @@ class Profile extends EditProfile
                     // The public disk is served from the app origin, so an SVG opened directly would run script.
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                     ->disk('public')
-                    ->directory('employee-photos'),
+                    ->directory(fn (): string => TenantStorage::path('employee-photos')),
             ])
             ->visible(fn (): bool => $this->getUser()->employee !== null);
     }

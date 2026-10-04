@@ -7,6 +7,7 @@ use App\Enums\OutcomeConfidence;
 use App\Enums\OutcomeInsightKind;
 use App\Enums\OutcomeInsightStatus;
 use App\Enums\OutcomeSampleBand;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\OutcomeInsightFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -29,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OutcomeInsight extends Model
 {
     /** @use HasFactory<OutcomeInsightFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

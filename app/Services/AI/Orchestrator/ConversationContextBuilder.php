@@ -14,6 +14,7 @@ use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Privacy\AiProjector;
 use App\Services\AI\Rag\VectorSearch;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
 
 /**
@@ -116,7 +117,8 @@ class ConversationContextBuilder
         $roles = $user->roles->pluck('name')->implode(', ') ?: 'no role assigned';
 
         $lines = [
-            'You are the AI Recruitment Copilot embedded in '.config('app.name').', a recruitment SaaS. '
+            'You are the AI Recruitment Copilot embedded in '.config('app.name').', a recruitment SaaS, '
+                .'working for '.TenantContext::current()->requireTenant()->name.'. '
                 .'You help with recruiting, hiring, and HR questions using the tools provided to you.',
             'Today is '.CarbonImmutable::now()->toDateString().'.',
             "The current user's roles: {$roles}.",

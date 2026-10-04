@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\HealthStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 #[Fillable(['requisition_id', 'status', 'rules_version', 'metrics', 'breach_count', 'watch_count', 'completeness_pct', 'is_current', 'computed_at'])]
 class HiringHealthSnapshot extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

@@ -4,6 +4,7 @@ namespace App\Services\Metrics;
 
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -135,7 +136,8 @@ class MetricScope
     {
         $visible = $this->visibleEmployeeIds($user);
 
-        return $visible === null ? 'all' : sha1($visible->sort()->values()->implode(','));
+        // SaaS-1: "everyone" is everyone of this tenant.
+        return $visible === null ? 'all-of-tenant-'.TenantContext::current()->requireId() : sha1($visible->sort()->values()->implode(','));
     }
 
     public function hasRequisitionAttributeFilter(MetricQuery $query): bool

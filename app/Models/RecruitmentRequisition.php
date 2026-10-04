@@ -7,6 +7,7 @@ use App\Enums\EmploymentType;
 use App\Enums\JoiningStatus;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Services\HierarchyService;
@@ -54,7 +55,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class RecruitmentRequisition extends Model
 {
     /** @use HasFactory<RecruitmentRequisitionFactory> */
-    use GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+    use BelongsToTenant, GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * @return array<int, string>
@@ -167,6 +168,7 @@ class RecruitmentRequisition extends Model
     public function recruiters(): BelongsToMany
     {
         return $this->belongsToMany(Employee::class, 'recruitment_requisition_recruiters', 'requisition_id', 'employee_id')
+            ->using(TenantPivot::class)
             ->withPivot('assigned_at');
     }
 

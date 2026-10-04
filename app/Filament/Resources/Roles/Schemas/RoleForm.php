@@ -6,6 +6,7 @@ use App\Models\Role;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Models\Permission;
 
 /**
@@ -22,7 +23,7 @@ class RoleForm
                 TextInput::make('name')
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->scopedUnique(ignoreRecord: true, modifyQueryUsing: fn (Builder $query) => $query->forCurrentTenant()),
                 TextInput::make('key')
                     ->label('Key')
                     ->disabled()

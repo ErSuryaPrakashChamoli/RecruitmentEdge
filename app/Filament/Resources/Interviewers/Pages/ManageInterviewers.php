@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Interviewers\Pages;
 use App\Filament\Resources\Interviewers\InterviewerResource;
 use App\Jobs\ImportInterviewersJob;
 use App\Services\InterviewerImportService;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\FileUpload;
@@ -38,7 +39,7 @@ class ManageInterviewers extends ManageRecords
                     FileUpload::make('file')
                         ->label('Excel file (.xlsx, .xls or .csv)')
                         ->disk('local')
-                        ->directory('interviewer-imports')
+                        ->directory(fn (): string => TenantStorage::path('interviewer-imports'))
                         ->visibility('private')
                         ->rules(['extensions:xlsx,xls,csv'])
                         ->maxSize(5120)

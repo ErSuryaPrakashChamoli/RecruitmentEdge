@@ -178,7 +178,7 @@ test('repeated failures lock the account whatever the IP, even with the right pa
 });
 
 test('signing out is audited and audit rows carry the request correlation id', function (): void {
-    $this->actingAs($this->member)->get('/admin')->assertOk();
+    $this->actingAs($this->member)->get('/admin/acme')->assertOk();
     $this->post('/admin/logout', [], ['X-Request-Id' => 'req-identity-0001']);
 
     $logout = AuditLog::query()->where('action', 'logout')->sole();

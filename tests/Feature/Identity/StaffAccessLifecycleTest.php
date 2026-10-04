@@ -155,20 +155,20 @@ test('suspending or revoking ends every stored session and the remember-me token
 });
 
 test('a session from before the revocation is signed out on its next panel request', function (): void {
-    $this->actingAs($this->recruiter)->get('/admin')->assertOk();
+    $this->actingAs($this->recruiter)->get('/admin/acme')->assertOk();
 
     $this->access->revoke($this->recruiter, $this->vp, 'Left the company');
 
-    $this->get('/admin')->assertRedirect(Filament::getLoginUrl());
+    $this->get('/admin/acme')->assertRedirect(Filament::getLoginUrl());
     expect(auth()->check())->toBeFalse();
 });
 
 test('a session stamped before a sign-out-everywhere is rejected even for a still active login', function (): void {
-    $this->actingAs($this->recruiter)->get('/admin')->assertOk();
+    $this->actingAs($this->recruiter)->get('/admin/acme')->assertOk();
 
     app(SessionRevocationService::class)->revokeAll($this->recruiter, reason: 'sign_out_everywhere');
 
-    $this->get('/admin')->assertRedirect(Filament::getLoginUrl());
+    $this->get('/admin/acme')->assertRedirect(Filament::getLoginUrl());
 });
 
 test('a suspended login is refused at sign-in', function (): void {

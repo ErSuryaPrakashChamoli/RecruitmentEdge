@@ -8,6 +8,7 @@ use App\Enums\IncentiveSlabUpgradeMode;
 use App\Enums\IncentiveTriggerEvent;
 use App\Enums\TargetMetric;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\RecruitmentIncentiveRuleFactory;
 use DomainException;
@@ -47,7 +48,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruitmentIncentiveRule extends Model
 {
     /** @use HasFactory<RecruitmentIncentiveRuleFactory> */
-    use Auditable, HasFactory, ReferencesActiveMasterData;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData;
 
     /**
      * Phase 8.6 (D8.6-015): what a rule pays, for what and to whom. Once the rule has priced any

@@ -182,13 +182,13 @@ describe('OAuth connect flow', function (): void {
     test('connecting redirects to Google with a state stored in the session', function (): void {
         $response = $this->get(route('integrations.calendar.connect', 'google_calendar'));
 
-        $state = session('calendar_oauth_state.google_calendar');
+        $state = session('calendar_oauth_state.google_calendar')['state'] ?? null;
         expect($state)->not->toBeNull();
         $response->assertRedirectContains('accounts.google.com')->assertRedirectContains('state='.$state);
     });
 
     test('a callback with a forged state is refused', function (): void {
-        $this->withSession(['calendar_oauth_state.google_calendar' => 'expected'])
+        $this->withSession(['calendar_oauth_state.google_calendar' => ['state' => 'expected', 'tenant_id' => $this->tenant->id]])
             ->get(route('integrations.calendar.callback', 'google_calendar').'?state=forged&code=abc')
             ->assertForbidden();
     });
@@ -199,7 +199,7 @@ describe('OAuth connect flow', function (): void {
             'openidconnect.googleapis.com/*' => Http::response(['email' => 'rita@example.com']),
         ]);
 
-        $this->withSession(['calendar_oauth_state.google_calendar' => 'expected'])
+        $this->withSession(['calendar_oauth_state.google_calendar' => ['state' => 'expected', 'tenant_id' => $this->tenant->id]])
             ->get(route('integrations.calendar.callback', 'google_calendar').'?state=expected&code=abc')
             ->assertRedirect();
 

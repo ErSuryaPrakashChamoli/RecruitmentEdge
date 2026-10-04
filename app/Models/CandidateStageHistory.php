@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CandidateStage;
 use App\Enums\StageHistoryEvent;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Contracts\Database\Query\Builder as BuilderContract;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -21,6 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['candidate_application_id', 'previous_stage', 'new_stage', 'event', 'previous_pipeline_stage_id', 'new_pipeline_stage_id', 'changed_by', 'remarks', 'is_override'])]
 class CandidateStageHistory extends Model
 {
+    use BelongsToTenant;
+
     public const ?string UPDATED_AT = null;
 
     protected function casts(): array

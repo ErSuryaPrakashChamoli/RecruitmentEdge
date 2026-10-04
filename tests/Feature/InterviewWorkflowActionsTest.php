@@ -104,7 +104,7 @@ test('the edit interview page and its feedback ratings render', function (): voi
     $interview = Interview::factory()->create();
     InterviewFeedback::factory()->create(['interview_id' => $interview->id, 'ratings' => ['technical' => 5]]);
 
-    $this->get("/admin/interviews/{$interview->id}/edit")
+    $this->get("/admin/acme/interviews/{$interview->id}/edit")
         ->assertSuccessful()
         ->assertSee('Meeting Link');
 

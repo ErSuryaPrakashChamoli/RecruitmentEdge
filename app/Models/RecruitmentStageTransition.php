@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['from_stage_id', 'to_stage_id', 'requires_remarks'])]
 class RecruitmentStageTransition extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

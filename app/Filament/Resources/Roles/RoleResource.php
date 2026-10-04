@@ -19,6 +19,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class RoleResource extends Resource
@@ -30,6 +31,24 @@ class RoleResource extends Resource
     protected static string|UnitEnum|null $navigationGroup = 'Administration';
 
     protected static ?string $recordTitleAttribute = 'name';
+
+    /**
+     * SaaS-1: not scoped by Filament's tenancy. Filament would add a global scope to the Role model,
+     * which would also limit the roles spatie loads when it rebuilds its permission cache — one
+     * cache for every tenant. The tenant boundary is getEloquentQuery() and RolePolicy instead.
+     */
+    protected static bool $isScopedToTenant = false;
+
+    /**
+     * SaaS-1: the current tenant's roles only (Filament's tenancy adds the same condition; the
+     * explicit one keeps the boundary when the query is used outside a panel request).
+     *
+     * @return Builder<Role>
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->forCurrentTenant();
+    }
 
     public static function form(Schema $schema): Schema
     {

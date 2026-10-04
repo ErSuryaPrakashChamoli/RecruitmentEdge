@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentPipelineTemplateVersionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +18,7 @@ use LogicException;
 class RecruitmentPipelineTemplateVersion extends Model
 {
     /** @use HasFactory<RecruitmentPipelineTemplateVersionFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     public const ?string UPDATED_AT = null;
 

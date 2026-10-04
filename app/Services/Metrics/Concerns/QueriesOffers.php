@@ -5,6 +5,7 @@ namespace App\Services\Metrics\Concerns;
 use App\Enums\OfferStatus;
 use App\Models\Offer;
 use App\Services\Metrics\MetricQuery;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -24,6 +25,7 @@ trait QueriesOffers
         $period = $query->requirePeriod();
 
         $firstReleased = DB::table('offer_status_histories')
+            ->where('tenant_id', TenantContext::current()->requireId())
             ->where('to_status', OfferStatus::Released->value)
             ->groupBy('offer_id')
             ->havingRaw('min(created_at) >= ? and min(created_at) < ?', [$period->startInstant()->format('Y-m-d H:i:s'), $period->endInstant()->format('Y-m-d H:i:s')])

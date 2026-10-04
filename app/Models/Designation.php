@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GovernedMasterData;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\DesignationFactory;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Designation extends Model
 {
     /** @use HasFactory<DesignationFactory> */
-    use Auditable, GovernedMasterData, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+    use Auditable, BelongsToTenant, GovernedMasterData, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     protected function casts(): array
     {

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AiConversationStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiConversationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -22,7 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AiConversation extends Model
 {
     /** @use HasFactory<AiConversationFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     /**
      * The AI privacy boundary new conversations are created under (Phase 8.1). Conversations

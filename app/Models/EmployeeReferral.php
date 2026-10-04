@@ -6,6 +6,7 @@ use App\Enums\ReferralIncentiveStatus;
 use App\Enums\ReferralRelationship;
 use App\Enums\ReferralStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Services\HierarchyService;
 use Database\Factories\EmployeeReferralFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -35,7 +36,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class EmployeeReferral extends Model
 {
     /** @use HasFactory<EmployeeReferralFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

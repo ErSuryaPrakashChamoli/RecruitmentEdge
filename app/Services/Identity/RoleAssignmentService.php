@@ -50,7 +50,8 @@ class RoleAssignmentService
             throw new DomainException('This login is revoked. Restore access first; it then starts with the base role.');
         }
 
-        $wanted = Role::query()->whereKey(array_map('intval', $roleIds))->get();
+        // SaaS-1: only this tenant's roles can be assigned; another tenant's role id is ignored.
+        $wanted = Role::query()->forCurrentTenant()->whereKey(array_map('intval', $roleIds))->get();
         $current = $target->roles()->get();
         $added = $wanted->diff($current);
         $removed = $current->diff($wanted);
@@ -218,7 +219,7 @@ class RoleAssignmentService
      */
     public function grantableRoles(User $actor): Collection
     {
-        return Role::query()->with('permissions')->orderBy('name')->get()->filter(fn (Role $role) => $this->canGrant($actor, $role))->values();
+        return Role::query()->forCurrentTenant()->with('permissions')->orderBy('name')->get()->filter(fn (Role $role) => $this->canGrant($actor, $role))->values();
     }
 
     public function canGrant(User $actor, Role $role): bool

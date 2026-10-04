@@ -11,14 +11,14 @@ use function Pest\Laravel\get;
  * Pre-Phase-8 freeze: who can open each Automation (Phase 6) and EDGE Intelligence (Phase 7) page.
  */
 const PHASE_SEVEN_PAGES = [
-    'intelligence' => '/admin/intelligence-overview',
-    'risks' => '/admin/hiring-risks',
-    'memory' => '/admin/hiring-memory-records',
-    'rules' => '/admin/automation-rules',
-    'executions' => '/admin/automation-executions',
-    'automation dashboard' => '/admin/automation-dashboard',
-    'action center' => '/admin/recruiter-actions',
-    'notification center' => '/admin/notification-center',
+    'intelligence' => '/admin/acme/intelligence-overview',
+    'risks' => '/admin/acme/hiring-risks',
+    'memory' => '/admin/acme/hiring-memory-records',
+    'rules' => '/admin/acme/automation-rules',
+    'executions' => '/admin/acme/automation-executions',
+    'automation dashboard' => '/admin/acme/automation-dashboard',
+    'action center' => '/admin/acme/recruiter-actions',
+    'notification center' => '/admin/acme/notification-center',
 ];
 
 test('guests are sent to login from every automation and intelligence page', function (string $path): void {

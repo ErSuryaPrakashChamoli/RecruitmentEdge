@@ -2,6 +2,9 @@
 
 namespace App\Services\Lifecycle;
 
+use App\Models\Concerns\BelongsToTenant;
+use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
 
@@ -34,7 +37,7 @@ final class RowLock
             throw new LogicException('RowLock::fresh() must run inside a database transaction.');
         }
 
-        $locked = $model->newQueryWithoutScopes()->whereKey($model->getKey())->lockForUpdate()->firstOrFail();
+        $locked = self::withinTenant($model->newQueryWithoutScopes(), $model)->whereKey($model->getKey())->lockForUpdate()->firstOrFail();
         $changedElsewhere = $locked->getAttributes() != $model->getRawOriginal();
         $dirty = $model->getDirty();
 
@@ -63,6 +66,24 @@ final class RowLock
             return;
         }
 
-        $modelClass::query()->withoutGlobalScopes()->whereKey($key)->lockForUpdate()->first();
+        self::withinTenant($modelClass::query()->withoutGlobalScopes(), new $modelClass)->whereKey($key)->lockForUpdate()->first();
+    }
+
+    /**
+     * SaaS-1: locking ignores the other global scopes (soft deletes) but never the tenant: a
+     * tenant-owned row is only ever locked inside the current tenant.
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    private static function withinTenant(Builder $query, Model $model): Builder
+    {
+        if (! in_array(BelongsToTenant::class, class_uses_recursive($model), true)) {
+            return $query;
+        }
+
+        return $query->where($model->qualifyColumn('tenant_id'), TenantContext::current()->requireId());
     }
 }

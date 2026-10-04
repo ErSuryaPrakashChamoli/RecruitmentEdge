@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\OfferLetterFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -22,7 +23,7 @@ use LogicException;
 class OfferLetter extends Model
 {
     /** @use HasFactory<OfferLetterFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     public const ?string UPDATED_AT = null;
 

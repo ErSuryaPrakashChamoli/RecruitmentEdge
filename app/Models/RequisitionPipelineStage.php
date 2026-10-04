@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\DescribesPipelineStage;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -48,7 +49,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class RequisitionPipelineStage extends Model
 {
-    use DescribesPipelineStage;
+    use BelongsToTenant, DescribesPipelineStage;
 
     protected static function booted(): void
     {

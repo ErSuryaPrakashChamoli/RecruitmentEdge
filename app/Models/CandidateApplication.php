@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Enums\Priority;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\PipelineTemplateService;
 use Database\Factories\CandidateApplicationFactory;
@@ -36,7 +37,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class CandidateApplication extends Model
 {
     /** @use HasFactory<CandidateApplicationFactory> */
-    use GuardsLifecycleAttributes, HasFactory, SoftDeletes;
+    use BelongsToTenant, GuardsLifecycleAttributes, HasFactory, SoftDeletes;
 
     /**
      * Phase 8.3: stage and status change only through StageTransitionService; the requisition,

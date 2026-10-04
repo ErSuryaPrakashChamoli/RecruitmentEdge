@@ -43,12 +43,12 @@ test('CHRO, VP HR and Manager, and privileged permission holders, must use MFA; 
 });
 
 test('a privileged user who has not enrolled is sent to enrolment before any panel page', function (): void {
-    $this->actingAs($this->manager)->get('/admin')->assertRedirect(Filament::getPanel('admin')->getSetUpRequiredMultiFactorAuthenticationUrl());
-    $this->actingAs($this->recruiter)->get('/admin')->assertOk();
+    $this->actingAs($this->manager)->get('/admin/acme')->assertRedirect(Filament::getPanel('admin')->getSetUpRequiredMultiFactorAuthenticationUrl());
+    $this->actingAs($this->recruiter)->get('/admin/acme')->assertOk();
 
     mfaEnrol($this->manager);
 
-    $this->actingAs($this->manager->fresh())->get('/admin')->assertOk();
+    $this->actingAs($this->manager->fresh())->get('/admin/acme')->assertOk();
 });
 
 test('the sign-in challenge is enforced once enrolled', function (): void {

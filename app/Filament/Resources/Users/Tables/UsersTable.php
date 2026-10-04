@@ -10,6 +10,7 @@ use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class UsersTable
 {
@@ -53,7 +54,7 @@ class UsersTable
             ])
             ->filters([
                 SelectFilter::make('roles')
-                    ->relationship('roles', 'name'),
+                    ->relationship('roles', 'name', fn (Builder $query) => $query->forCurrentTenant()),
                 SelectFilter::make('access_status')
                     ->label('Access')
                     ->options(collect(AccessState::cases())->mapWithKeys(fn (AccessState $state) => [$state->value => $state->label()])->all()),

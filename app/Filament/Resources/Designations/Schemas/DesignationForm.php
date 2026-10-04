@@ -21,7 +21,7 @@ class DesignationForm
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true)
+                    ->scopedUnique(ignoreRecord: true)
                     ->disabledOn('edit'),
                 Select::make('department_id')
                     ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))

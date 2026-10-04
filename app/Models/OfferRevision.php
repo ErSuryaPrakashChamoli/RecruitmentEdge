@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OfferRevisionStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\OfferRevisionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -22,7 +23,7 @@ use LogicException;
 class OfferRevision extends Model
 {
     /** @use HasFactory<OfferRevisionFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     /**
      * The offer terms a revision carries (copied onto the offer when it is released).

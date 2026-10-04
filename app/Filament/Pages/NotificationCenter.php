@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Enums\ActionPriority;
 use App\Models\AutomationRule;
+use App\Models\DatabaseNotification;
 use App\Models\User;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -21,7 +22,6 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Collection;
 use UnitEnum;
 

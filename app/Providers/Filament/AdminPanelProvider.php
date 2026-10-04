@@ -9,7 +9,9 @@ use App\Filament\Pages\Profile;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureStaffMfa;
+use App\Http\Middleware\SetTenantContextFromPanel;
 use App\Http\Middleware\UseCandidateSessionContext;
+use App\Models\Tenant;
 use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -44,6 +46,12 @@ class AdminPanelProvider extends PanelProvider
             ->font('Instrument Sans')
             ->defaultThemeMode(ThemeMode::Light)
             ->sidebarCollapsibleOnDesktop()
+            // SaaS-1: Filament's native tenancy — every panel page lives under /admin/{tenant slug}.
+            // IdentifyTenant checks User::canAccessTenant() (membership, usable tenant, a role);
+            // SetTenantContextFromPanel (persistent, so Livewire updates too) turns the selection
+            // into the TenantContext that models, roles, jobs and caches enforce on their own.
+            ->tenant(Tenant::class, slugAttribute: 'slug', ownershipRelationship: 'tenant')
+            ->tenantMiddleware([SetTenantContextFromPanel::class], isPersistent: true)
             // Phase 8.4: per-account lockout on top of Filament's per-IP throttle; staff password
             // reset (single-use, expiring broker tokens); email changes apply only once verified.
             // Phase 8.6 (D8.6-027): a Filament action without an explicit policy method throws in

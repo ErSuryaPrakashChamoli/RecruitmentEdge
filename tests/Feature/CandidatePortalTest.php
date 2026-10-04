@@ -89,7 +89,7 @@ describe('signing in', function (): void {
     test('a candidate session does not grant admin panel access', function (): void {
         actingAs(portalAccount(), 'candidate');
 
-        $this->get('/admin')->assertRedirect();
+        $this->get('/admin/acme')->assertRedirect();
     });
 
     test('a signed-in staff user is not a portal candidate', function (): void {
@@ -258,7 +258,7 @@ describe('profile and documents', function (): void {
         $document = CandidateDocument::query()->sole();
 
         expect($document->candidate_id)->toBe($account->candidate_id)
-            ->and($document->file_path)->toStartWith("candidate-documents/{$account->candidate_id}/")
+            ->and($document->file_path)->toStartWith("tenants/{$this->tenant->id}/candidate-documents/{$account->candidate_id}/")
             ->and(AuditLog::query()->where('action', 'portal_uploaded')->sole())
             ->user_id->toBeNull()
             ->actor_type->toBe($account->getMorphClass())

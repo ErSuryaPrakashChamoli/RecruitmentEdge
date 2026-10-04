@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\CandidateObserver;
 use App\Services\CandidateIdentityNormalizer;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Database\Factories\CandidateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -49,7 +51,7 @@ use Illuminate\Support\Facades\DB;
 class Candidate extends Model
 {
     /** @use HasFactory<CandidateFactory> */
-    use Auditable, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * Derived duplicate-detection keys: kept out of serialisation and (via getHidden()) out of
@@ -118,7 +120,7 @@ class Candidate extends Model
             ->toBase();
 
         if ($user->employee_id !== null) {
-            $visible->union(DB::table('candidates')->where('created_by', $user->employee_id)->select('id'));
+            $visible->union(DB::table('candidates')->where('tenant_id', TenantContext::current()->requireId())->where('created_by', $user->employee_id)->select('id'));
         }
 
         $query->whereIn($query->qualifyColumn('id'), fn ($ids) => $ids->select('visible_candidates.candidate_id')->fromSub($visible, 'visible_candidates'));
@@ -208,7 +210,7 @@ class Candidate extends Model
      */
     public function talentPools(): BelongsToMany
     {
-        return $this->belongsToMany(TalentPool::class, 'talent_pool_memberships')->wherePivotNull('removed_at');
+        return $this->belongsToMany(TalentPool::class, 'talent_pool_memberships')->using(TenantPivot::class)->wherePivotNull('removed_at');
     }
 
     /**

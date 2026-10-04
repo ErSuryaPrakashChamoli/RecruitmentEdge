@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OfferLetterTemplateFormat;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\OfferLetterTemplateFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -31,7 +32,7 @@ use Illuminate\Support\Str;
 class OfferLetterTemplate extends Model
 {
     /** @use HasFactory<OfferLetterTemplateFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     /**
      * Directory on the local (private) disk where Word template files are stored.

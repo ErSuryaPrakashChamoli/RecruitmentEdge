@@ -356,7 +356,7 @@ class PipelineTemplateService
 
         CandidateApplication::query()
             ->where('requisition_id', $requisition->id)
-            ->select(['id', 'requisition_id', 'current_stage', 'pipeline_stage_id'])
+            ->select(['id', 'tenant_id', 'requisition_id', 'current_stage', 'pipeline_stage_id'])
             ->chunkById(200, function (Collection $applications) use ($previousStages, $byCode, $snapshot, $actor, $reason, $record, &$moved): void {
                 $history = [];
 
@@ -372,6 +372,8 @@ class PipelineTemplateService
 
                     if ($record) {
                         $history[] = [
+                            // SaaS-1: a bulk insert skips model events — the row takes its application's tenant.
+                            'tenant_id' => $application->tenant_id,
                             'candidate_application_id' => $application->id,
                             'previous_stage' => $application->current_stage->value,
                             'new_stage' => $application->current_stage->value,

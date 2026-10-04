@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Candidates\Schemas;
 use App\Filament\Resources\Candidates\Pages\CreateCandidate;
 use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -81,7 +82,7 @@ class CandidateForm
                             ->label('Resume')
                             ->disk('local')
                             ->visibility('private')
-                            ->directory('resumes')
+                            ->directory(fn (): string => TenantStorage::path('resumes'))
                             ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
                             ->maxSize(5120)
                             ->columnSpanFull(),

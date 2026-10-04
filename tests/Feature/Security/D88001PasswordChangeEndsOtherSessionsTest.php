@@ -88,7 +88,7 @@ test('another candidate\'s session and staff sessions are unaffected', function 
     app(CandidatePortalService::class)->setPassword($changing, 'NewSecret#12345');
 
     $this->actingAs($other, 'candidate')->withSession($otherSession)->get(route('portal.dashboard'))->assertOk();
-    $this->actingAs($staff, 'web')->get('/admin')->assertOk();
+    $this->actingAs($staff, 'web')->get('/admin/acme')->assertOk();
 });
 
 test('a used reset link cannot be replayed, and an expired one fails', function (): void {

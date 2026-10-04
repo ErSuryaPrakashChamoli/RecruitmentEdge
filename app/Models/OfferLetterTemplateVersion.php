@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OfferLetterTemplateFormat;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\OfferLetterTemplateVersionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,7 +20,7 @@ use LogicException;
 class OfferLetterTemplateVersion extends Model
 {
     /** @use HasFactory<OfferLetterTemplateVersionFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     public const ?string UPDATED_AT = null;
 

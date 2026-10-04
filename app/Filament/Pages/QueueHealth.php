@@ -13,7 +13,6 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
 use UnitEnum;
 
 /**
@@ -59,7 +58,8 @@ class QueueHealth extends Page
             ->action(function (array $arguments, array $data): void {
                 abort_unless(static::canAccess(), 403);
 
-                $failed = DB::table('failed_jobs')->where('uuid', (string) ($arguments['uuid'] ?? ''))->first(['id', 'uuid', 'queue', 'payload']);
+                // SaaS-1: only a failed job of this tenant can be found (and retried) here.
+                $failed = app(QueueHealthService::class)->failedJob((string) ($arguments['uuid'] ?? ''));
 
                 if ($failed === null) {
                     Notification::make()->title('That failed job no longer exists')->warning()->send();

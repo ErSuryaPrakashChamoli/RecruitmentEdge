@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\AiDocuments\Schemas;
 
+use App\Services\Tenancy\TenantStorage;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
@@ -30,7 +31,7 @@ class AiDocumentForm
                 FileUpload::make('file_path')
                     ->label('Document')
                     ->disk('local')
-                    ->directory('ai-documents')
+                    ->directory(fn (): string => TenantStorage::path('ai-documents'))
                     ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown', 'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
                     ->storeFileNamesIn('original_file_name')
                     ->required()

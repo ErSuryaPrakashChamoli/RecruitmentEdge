@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AutomationExecutionStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AutomationExecutionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -38,7 +39,7 @@ use LogicException;
 class AutomationExecution extends Model
 {
     /** @use HasFactory<AutomationExecutionFactory> */
-    use HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * Phase 8.6 (D8.6-021): the record of what automation did is never deleted one by one (the

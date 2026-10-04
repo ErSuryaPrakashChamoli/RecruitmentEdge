@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ResolveTenantFromRoute;
 use App\Logging\SensitiveDataRedactor;
 use App\Mail\CandidateStepUpCode;
 use App\Models\AuditLog;
@@ -163,29 +164,29 @@ test('a verified step-up goes stale after its window', function (): void {
 
 describe('over HTTP', function (): void {
     beforeEach(function (): void {
-        Route::middleware(['web', 'auth:candidate', 'candidate.step-up:sensitive_action'])
-            ->get('portal/_step-up-probe', fn () => 'sensitive content')->name('portal.step-up-probe');
+        Route::middleware(['web', ResolveTenantFromRoute::class, 'auth:candidate', 'candidate.step-up:sensitive_action'])
+            ->get('portal/{tenant}/_step-up-probe', fn () => 'sensitive content')->name('portal.step-up-probe');
     });
 
     test('a route that requires step-up sends the candidate to verify, then back', function (): void {
         $this->actingAs($this->account, 'candidate');
 
-        $this->get('/portal/_step-up-probe')->assertRedirect(route('portal.step-up.show'));
+        $this->get('/portal/acme/_step-up-probe')->assertRedirect(route('portal.step-up.show'));
         $this->post(route('portal.step-up.send'))->assertSessionHasNoErrors();
         $sessionBefore = session()->getId();
 
-        $this->post(route('portal.step-up.verify'), ['code' => d88IssuedCode($this->account)])->assertRedirect(url('/portal/_step-up-probe'));
+        $this->post(route('portal.step-up.verify'), ['code' => d88IssuedCode($this->account)])->assertRedirect(url('/portal/acme/_step-up-probe'));
 
         expect(session()->getId())->not->toBe($sessionBefore);
-        $this->get('/portal/_step-up-probe')->assertOk()->assertSee('sensitive content');
+        $this->get('/portal/acme/_step-up-probe')->assertOk()->assertSee('sensitive content');
     });
 
     test('browser-supplied step-up flags are ignored; only the server-side session counts', function (): void {
         $this->actingAs($this->account, 'candidate');
 
-        $this->get('/portal/_step-up-probe?step_up=1&verified=1', ['X-Step-Up' => 'verified'])->assertRedirect(route('portal.step-up.show'));
+        $this->get('/portal/acme/_step-up-probe?step_up=1&verified=1', ['X-Step-Up' => 'verified'])->assertRedirect(route('portal.step-up.show'));
         $this->withSession([CandidateStepUpService::SESSION_KEY => ['account' => d88Account()->id, 'purpose' => 'sensitive_action', 'verified_at' => now()->getTimestamp()]])
-            ->get('/portal/_step-up-probe')->assertRedirect(route('portal.step-up.show'));
+            ->get('/portal/acme/_step-up-probe')->assertRedirect(route('portal.step-up.show'));
     });
 
     test('a wrong code gives the same generic error, and a malformed one is rejected', function (): void {

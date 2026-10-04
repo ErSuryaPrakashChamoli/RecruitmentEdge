@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['requisition_id', 'role_dna_version_id', 'run_by', 'status', 'rules_version', 'candidates_scanned', 'results_count', 'note'])]
 class RediscoveryRun extends Model
 {
+    use BelongsToTenant;
+
     /**
      * @return BelongsTo<RecruitmentRequisition, $this>
      */

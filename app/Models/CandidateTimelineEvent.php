@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\TimelineEventType;
 use App\Enums\TimelineSource;
 use App\Enums\TimelineVisibility;
+use App\Models\Concerns\BelongsToTenant;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -38,6 +39,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 ])]
 class CandidateTimelineEvent extends Model
 {
+    use BelongsToTenant;
+
     public const ?string UPDATED_AT = null;
 
     protected static function booted(): void

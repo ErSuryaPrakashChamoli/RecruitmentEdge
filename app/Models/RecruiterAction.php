@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ActionPriority;
 use App\Enums\RecruiterActionStatus;
 use App\Enums\RecruiterActionType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruiterActionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -40,7 +41,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class RecruiterAction extends Model
 {
     /** @use HasFactory<RecruiterActionFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

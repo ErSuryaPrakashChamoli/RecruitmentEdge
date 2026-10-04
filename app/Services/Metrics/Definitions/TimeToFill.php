@@ -13,6 +13,7 @@ use App\Services\Metrics\MetricDefinition;
 use App\Services\Metrics\MetricQuery;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricSpec;
+use App\Services\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -58,6 +59,7 @@ class TimeToFill extends MetricDefinition
         $period = $query->requirePeriod();
 
         $firstHires = DB::table('candidate_joinings')
+            ->where('candidate_joinings.tenant_id', TenantContext::current()->requireId())
             ->join('candidate_applications', 'candidate_applications.id', '=', 'candidate_joinings.candidate_application_id')
             ->whereNull('candidate_applications.deleted_at')
             ->where('candidate_joinings.status', JoiningStatus::Joined->value)

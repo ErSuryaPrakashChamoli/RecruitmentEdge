@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GovernedMasterData;
 use Database\Factories\CandidateSourceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class CandidateSource extends Model
 {
     /** @use HasFactory<CandidateSourceFactory> */
-    use Auditable, GovernedMasterData, HasFactory, SoftDeletes;
+    use Auditable, BelongsToTenant, GovernedMasterData, HasFactory, SoftDeletes;
 
     /**
      * Phase 8.6 (D8.6-007): the application finds its own sources by code, never by name, so a

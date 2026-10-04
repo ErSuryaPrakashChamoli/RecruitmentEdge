@@ -16,7 +16,7 @@ class RecruitmentSettingForm
                 TextInput::make('key')
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true),
+                    ->scopedUnique(ignoreRecord: true),
                 TextInput::make('value')
                     ->required(),
                 Select::make('type')

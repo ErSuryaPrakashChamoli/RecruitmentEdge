@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AiDocumentStatus;
 use App\Jobs\AI\IndexAiDocumentJob;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiDocumentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -27,7 +28,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AiDocument extends Model
 {
     /** @use HasFactory<AiDocumentFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

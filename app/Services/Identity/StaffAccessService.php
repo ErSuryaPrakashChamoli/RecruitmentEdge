@@ -10,6 +10,7 @@ use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Tenancy\TenantContext;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -77,7 +78,9 @@ class StaffAccessService
             return $cached[1];
         }
 
-        $permitted = ! $this->employmentBlocks($user);
+        // SaaS-1: employment facts live in the employing tenant, and this runs before a request's
+        // tenant is identified (sign-in, EnforceStaffAccess).
+        $permitted = ! $user->withinEmployingTenant(fn (): bool => $this->employmentBlocks($user));
         $this->memo[$user] = [$stamp, $permitted];
 
         return $permitted;
@@ -155,7 +158,9 @@ class StaffAccessService
                 }
 
                 $base = Role::byKeyOrFail((string) config('identity.base_role'));
-                $user->roles()->sync([$base->getKey()]);
+                // SaaS-1: role assignments are keyed by tenant (spatie teams); sync() only sees and
+                // replaces this tenant's assignments, and the new one is stamped with it.
+                $user->roles()->sync([$base->getKey() => ['tenant_id' => TenantContext::current()->requireId()]]);
                 AuditLog::record($user, 'roles_assigned', ['roles' => []], ['roles' => [$base->name], 'reason' => 'access_restored_base_role']);
             },
         );

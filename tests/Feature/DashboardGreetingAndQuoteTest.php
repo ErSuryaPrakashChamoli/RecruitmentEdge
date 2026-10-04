@@ -24,7 +24,7 @@ test('the dashboard greeting reflects IST, not the app\'s UTC timezone', functio
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSee('Good Morning, Asha Rao')
         ->assertDontSee('Good Evening, Asha Rao');
@@ -38,7 +38,7 @@ test('the dashboard shows the admin-configured quote of the day when one is set'
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSee('Great hires start with great follow-through.');
 });
@@ -48,7 +48,7 @@ test('the dashboard shows no quote line at all when the admin has not set one', 
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSee('Recruitment Command Center')
         ->assertDontSee('Great hires start with great follow-through.');
@@ -76,6 +76,6 @@ test('a user without settings.manage cannot reach the dashboard quote settings p
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin/dashboard-quote-settings')
+        ->get('/admin/acme/dashboard-quote-settings')
         ->assertForbidden();
 });

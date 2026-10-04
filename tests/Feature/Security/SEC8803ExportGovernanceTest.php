@@ -6,10 +6,10 @@ use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateSource;
 use App\Models\Employee;
+use App\Models\Export;
 use App\Models\User;
 use App\Services\Identity\StaffAccessService;
 use Database\Seeders\RolePermissionSeeder;
-use Filament\Actions\Exports\Models\Export;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Bus;
@@ -80,6 +80,7 @@ test('an export of more than 10,000 rows is refused, nothing is queued, and the 
 
     foreach (array_chunk(range(1, 10_001), 1_000) as $chunk) {
         DB::table('candidates')->insert(array_map(fn (int $i): array => [
+            'tenant_id' => $this->tenant->id,
             'candidate_code' => 'CAP-'.$i,
             'full_name' => 'Bulk Candidate '.$i,
             'mobile' => '90000'.str_pad((string) $i, 5, '0', STR_PAD_LEFT),
@@ -139,7 +140,9 @@ test('a suspended owner cannot download their export', function (): void {
 
     $response = $this->actingAs($recruiter->fresh(), 'web')->get(sec8803DownloadUrl($export));
 
-    expect($response->status())->toBeIn([401, 403])
+    // SaaS-1: a suspended login cannot act in any tenant, so the download's tenant check answers
+    // first, with a 404 that does not reveal the export.
+    expect($response->status())->toBeIn([401, 403, 404])
         ->and(AuditLog::query()->where('action', 'export_downloaded')->count())->toBe(0);
 });
 

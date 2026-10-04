@@ -151,6 +151,6 @@ test('the interviewer import is queued on the documents queue with only ids in i
     Livewire::test(ManageInterviewers::class)
         ->callAction('importInterviewers', data: ['file' => interviewerSpreadsheetUpload([['Emp ID'], ['EMP1']])]);
 
-    Queue::assertPushedOn('documents', ImportInterviewersJob::class, fn (ImportInterviewersJob $job): bool => $job->userId === $this->admin->id && str_starts_with($job->storedPath, 'interviewer-imports/'));
+    Queue::assertPushedOn('documents', ImportInterviewersJob::class, fn (ImportInterviewersJob $job): bool => $job->userId === $this->admin->id && str_starts_with($job->storedPath, "tenants/{$this->tenant->id}/interviewer-imports/"));
     expect(Interviewer::query()->count())->toBe(0);
 });

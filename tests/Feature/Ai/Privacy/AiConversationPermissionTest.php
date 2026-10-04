@@ -23,15 +23,15 @@ beforeEach(function (): void {
 test('reviewing conversations needs ai.conversations.view and is limited to the reviewer\'s hierarchy', function (): void {
     actingAs($this->vp);
 
-    get('/admin/ai-conversations')->assertOk()->assertSee('Team conversation')->assertDontSee('Outside conversation');
-    get("/admin/ai-conversations/{$this->teamConversation->id}")->assertOk();
-    get("/admin/ai-conversations/{$this->outsideConversation->id}")->assertNotFound();
+    get('/admin/acme/ai-conversations')->assertOk()->assertSee('Team conversation')->assertDontSee('Outside conversation');
+    get("/admin/acme/ai-conversations/{$this->teamConversation->id}")->assertOk();
+    get("/admin/acme/ai-conversations/{$this->outsideConversation->id}")->assertNotFound();
 });
 
 test('view-all reviewers see every conversation', function (): void {
     actingAs(User::factory()->create()->assignRole('chro'));
 
-    get('/admin/ai-conversations')->assertOk()->assertSee('Team conversation')->assertSee('Outside conversation');
+    get('/admin/acme/ai-conversations')->assertOk()->assertSee('Team conversation')->assertSee('Outside conversation');
 });
 
 test('ai.manage and audit.view alone grant no access to anyone\'s conversations', function (string $permission): void {
@@ -42,9 +42,9 @@ test('ai.manage and audit.view alone grant no access to anyone\'s conversations'
     $user = User::factory()->create(['employee_id' => $manager->id])->assignRole($role);
     actingAs($user);
 
-    get('/admin/ai-conversations')->assertForbidden();
-    get("/admin/ai-conversations/{$this->teamConversation->id}")->assertNotFound();
-    get('/admin/ai-action-logs')->assertForbidden();
+    get('/admin/acme/ai-conversations')->assertForbidden();
+    get("/admin/acme/ai-conversations/{$this->teamConversation->id}")->assertNotFound();
+    get('/admin/acme/ai-action-logs')->assertForbidden();
     expect($user->can('view', $this->teamConversation))->toBeFalse();
 })->with(['ai.manage', 'audit.view']);
 
@@ -59,7 +59,7 @@ test('AI action logs follow the same hierarchy rule', function (): void {
     $outsideLog = AiActionLog::query()->create(['user_id' => $this->outsider->id, 'tool_name' => 'outside_tool_marker', 'risk_level' => 'read', 'status' => 'executed']);
     actingAs($this->vp);
 
-    get('/admin/ai-action-logs')->assertOk()->assertSee('team_tool_marker')->assertDontSee('outside_tool_marker');
+    get('/admin/acme/ai-action-logs')->assertOk()->assertSee('team_tool_marker')->assertDontSee('outside_tool_marker');
 
     expect($this->vp->can('view', $teamLog))->toBeTrue()
         ->and($this->vp->can('view', $outsideLog))->toBeFalse();

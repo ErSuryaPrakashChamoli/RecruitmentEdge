@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\EmployeeStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\EmployeeObserver;
@@ -41,7 +42,7 @@ use Illuminate\Support\Facades\Storage;
 class Employee extends Model
 {
     /** @use HasFactory<EmployeeFactory> */
-    use Auditable, GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
 
     /**
      * Phase 8.4: employment state changes only through EmployeeLifecycleService, and the reporting

@@ -11,11 +11,11 @@ test('a user with ai.query can open the AI Copilot page', function (): void {
     $user = User::factory()->create();
     $user->assignRole('recruiter');
 
-    $this->actingAs($user)->get('/admin/ai-copilot')->assertSuccessful();
+    $this->actingAs($user)->get('/admin/acme/ai-copilot')->assertSuccessful();
 });
 
 test('a user without any role cannot open the AI Copilot page', function (): void {
     $user = User::factory()->create();
 
-    $this->actingAs($user)->get('/admin/ai-copilot')->assertForbidden();
+    $this->actingAs($user)->get('/admin/acme/ai-copilot')->assertForbidden();
 });

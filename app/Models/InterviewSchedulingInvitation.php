@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\InterviewSchedulingInvitationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class InterviewSchedulingInvitation extends Model
 {
     /** @use HasFactory<InterviewSchedulingInvitationFactory> */
-    use HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * @return array<int, string>

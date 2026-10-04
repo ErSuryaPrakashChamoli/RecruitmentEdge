@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\DescribesPipelineStage;
 use Database\Factories\RecruitmentStageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -54,7 +55,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RecruitmentStage extends Model
 {
     /** @use HasFactory<RecruitmentStageFactory> */
-    use Auditable, DescribesPipelineStage, HasFactory;
+    use Auditable, BelongsToTenant, DescribesPipelineStage, HasFactory;
 
     protected function casts(): array
     {
@@ -73,6 +74,7 @@ class RecruitmentStage extends Model
     public function allowedNextStages(): BelongsToMany
     {
         return $this->belongsToMany(self::class, 'recruitment_stage_transitions', 'from_stage_id', 'to_stage_id')
+            ->using(TenantPivot::class)
             ->withPivot('requires_remarks')
             ->withTimestamps();
     }

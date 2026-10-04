@@ -25,7 +25,7 @@ test('dashboard sections other than the KPI row render collapsed by default with
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');
 
-    $response = actingAs($user)->get('/admin');
+    $response = actingAs($user)->get('/admin/acme');
 
     $response->assertSuccessful();
 
@@ -54,7 +54,7 @@ test('the two chart widgets also start collapsed, not just wrapped with the togg
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');
 
-    $html = actingAs($user)->get('/admin')->getContent();
+    $html = actingAs($user)->get('/admin/acme')->getContent();
 
     foreach (['Line-up vs Turn-up Trend', 'Source Performance'] as $heading) {
         $headingPosition = strpos($html, $heading);
@@ -74,7 +74,7 @@ test('the top KPI row is not wrapped in a collapsible section', function (): voi
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('chro');
 
-    $html = actingAs($user)->get('/admin')->getContent();
+    $html = actingAs($user)->get('/admin/acme')->getContent();
 
     // RecruitmentOverviewStats renders its own kpi-stat grid directly, with no
     // x-filament::section wrapper at all, so it can never end up collapsible by accident.

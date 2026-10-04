@@ -23,7 +23,7 @@ test('a manager sees their own subtree, scoped to their hierarchy', function ():
     $user->assignRole('manager');
 
     actingAs($user)
-        ->get('/admin/organization-hierarchy')
+        ->get('/admin/acme/organization-hierarchy')
         ->assertSuccessful()
         ->assertSee('Root Manager')
         ->assertSee('Team Recruiter')
@@ -38,7 +38,7 @@ test('a CHRO with hierarchy.view-all sees every root in the org', function (): v
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/organization-hierarchy')
+        ->get('/admin/acme/organization-hierarchy')
         ->assertSuccessful()
         ->assertSee('First Root')
         ->assertSee('Second Root');

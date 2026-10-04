@@ -21,7 +21,7 @@ class RecruitmentRejectionReasonForm
                 TextInput::make('code')
                     ->required()
                     ->maxLength(50)
-                    ->unique(ignoreRecord: true)
+                    ->scopedUnique(ignoreRecord: true)
                     ->disabledOn('edit'),
                 Select::make('category')
                     ->options(collect(RejectionCategory::cases())->mapWithKeys(fn (RejectionCategory $c) => [$c->value => $c->label()]))

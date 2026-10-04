@@ -136,7 +136,7 @@ test('the candidate edit page renders with the documents tab', function (): void
     CandidateDocument::factory()->forCandidate($candidate)->create(['document_type' => DocumentType::Resume]);
 
     actingAs($user)
-        ->get("/admin/candidates/{$candidate->id}/edit")
+        ->get("/admin/acme/candidates/{$candidate->id}/edit")
         ->assertSuccessful()
         ->assertSee('Documents');
 });

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewSlotStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Carbon\CarbonInterface;
 use Database\Factories\InterviewAvailabilitySlotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -39,7 +40,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class InterviewAvailabilitySlot extends Model
 {
     /** @use HasFactory<InterviewAvailabilitySlotFactory> */
-    use Auditable, HasFactory, HasUlids;
+    use Auditable, BelongsToTenant, HasFactory, HasUlids;
 
     /**
      * @return array<int, string>

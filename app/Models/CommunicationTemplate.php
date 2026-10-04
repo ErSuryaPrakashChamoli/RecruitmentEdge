@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CommunicationChannel;
 use App\Enums\TemplateStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\CommunicationTemplateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class CommunicationTemplate extends Model
 {
     /** @use HasFactory<CommunicationTemplateFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     /**
      * @var array<string, mixed>

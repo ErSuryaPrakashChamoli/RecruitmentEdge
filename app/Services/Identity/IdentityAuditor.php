@@ -12,6 +12,7 @@ use App\Models\OwnershipHandoff;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Automation\AutomationRuleService;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -100,7 +101,7 @@ class IdentityAuditor
             }
         }
 
-        $unkeyed = Role::query()->whereNull('key')->count();
+        $unkeyed = Role::query()->forCurrentTenant()->whereNull('key')->count();
 
         if ($unkeyed > 0) {
             $this->add(self::INFO, 'roles_without_key', '—', "{$unkeyed} custom role(s) have no key (normal for roles created in the UI).");
@@ -115,12 +116,12 @@ class IdentityAuditor
             ->limit($limit)->pluck('id')
             ->each(fn (int $id) => $this->add(self::WARNING, 'reports_to_non_current_manager', "EMP-{$id}", 'Reports to a manager who is inactive, separated or deleted. Reassign on the org chart.'));
 
-        DB::table('employees')->whereNotNull('reports_to_id')
+        DB::table('employees')->where('employees.tenant_id', TenantContext::current()->requireId())->whereNotNull('reports_to_id')
             ->whereNotExists(fn ($query) => $query->from('employee_hierarchy')->whereColumn('employee_hierarchy.descendant_id', 'employees.id')->whereColumn('employee_hierarchy.ancestor_id', 'employees.reports_to_id')->where('depth', 1))
             ->limit($limit)->pluck('id')
             ->each(fn (int $id) => $this->add(self::ERROR, 'closure_out_of_sync', "EMP-{$id}", 'The hierarchy table has no direct link for this reporting line.'));
 
-        DB::table('employee_hierarchy')->where('depth', 1)
+        DB::table('employee_hierarchy')->where('employee_hierarchy.tenant_id', TenantContext::current()->requireId())->where('depth', 1)
             ->whereNotExists(fn ($query) => $query->from('employees')->whereColumn('employees.id', 'employee_hierarchy.descendant_id')->whereColumn('employees.reports_to_id', 'employee_hierarchy.ancestor_id'))
             ->limit($limit)->pluck('descendant_id')
             ->each(fn (int $id) => $this->add(self::ERROR, 'stale_closure_link', "EMP-{$id}", 'The hierarchy table keeps a direct link that the reporting line no longer has.'));

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\HiringRiskStatus;
 use App\Enums\HiringRiskType;
 use App\Enums\RiskSeverity;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\HiringRiskFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
@@ -40,7 +41,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 class HiringRisk extends Model
 {
     /** @use HasFactory<HiringRiskFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

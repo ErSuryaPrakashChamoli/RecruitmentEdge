@@ -4,6 +4,7 @@ namespace App\Services\AI\Actions;
 
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 
 /**
  * Phase 8.4: a fingerprint of a person's authority — their roles, their employee record, whether
@@ -21,6 +22,8 @@ class ApprovalAuthority
     public function fingerprint(User $user): string
     {
         return hash('sha256', (string) json_encode([
+            // SaaS-1: an approval is bound to the tenant it was proposed in.
+            'tenant' => TenantContext::current()->requireId(),
             'user' => (int) $user->getKey(),
             'roles' => $user->roles()->pluck('roles.id')->map(fn ($id) => (int) $id)->sort()->values()->all(),
             'employee' => $user->employee_id !== null ? (int) $user->employee_id : null,

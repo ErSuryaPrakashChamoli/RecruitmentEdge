@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,8 @@ use LogicException;
 #[Fillable(['automation_rule_id', 'version', 'snapshot', 'change_summary', 'created_by'])]
 class AutomationRuleVersion extends Model
 {
+    use BelongsToTenant;
+
     public const UPDATED_AT = null;
 
     protected static function booted(): void

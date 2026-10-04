@@ -58,7 +58,7 @@ class UserForm
                     ->searchable()
                     ->helperText('Only current employees in your hierarchy without another login are listed.'),
                 CheckboxList::make('roles')
-                    ->options(fn (): array => Role::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->options(fn (): array => Role::query()->forCurrentTenant()->orderBy('name')->pluck('name', 'id')->all())
                     ->disableOptionWhen(fn (string $value): bool => ! self::canGrant((int) $value))
                     ->helperText('You can only grant roles whose permissions you hold; protected roles only by their holders.')
                     ->columns(2)
@@ -69,7 +69,7 @@ class UserForm
     private static function canGrant(int $roleId): bool
     {
         $actor = auth()->user();
-        $role = Role::query()->with('permissions')->find($roleId);
+        $role = Role::query()->forCurrentTenant()->with('permissions')->find($roleId);
 
         return $actor instanceof User && $role !== null && app(RoleAssignmentService::class)->canGrant($actor, $role);
     }

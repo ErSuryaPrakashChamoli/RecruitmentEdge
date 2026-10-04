@@ -8,6 +8,7 @@ use App\Models\AutomationActionExecution;
 use App\Models\AutomationEscalation;
 use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -51,7 +52,8 @@ class AutomationHealthService
             ->count();
 
         $queuedJobs = config('queue.default') === 'database'
-            ? DB::table(config('queue.connections.database.table', 'jobs'))->where('queue', config('automation.queue', 'automation'))->count()
+            // SaaS-1: this tenant's queued automation jobs only (their payload declares the tenant).
+            ? DB::table(config('queue.connections.database.table', 'jobs'))->where('queue', config('automation.queue', 'automation'))->where('payload->tenant_id', TenantContext::current()->requireId())->count()
             : null;
 
         $signals = $ruleHealth->flatMap(fn (array $row) => $row['signals'])->values()->all();

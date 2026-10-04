@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\DistributionStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['job_posting_id', 'channel'])]
 class JobDistribution extends Model
 {
+    use BelongsToTenant;
+
     protected function casts(): array
     {
         return [

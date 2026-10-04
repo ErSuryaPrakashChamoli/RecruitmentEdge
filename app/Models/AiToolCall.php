@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AiRiskLevel;
 use App\Enums\AiToolCallStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiToolCallFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -30,7 +31,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class AiToolCall extends Model
 {
     /** @use HasFactory<AiToolCallFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

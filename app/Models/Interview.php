@@ -7,6 +7,7 @@ use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
 use App\Enums\MeetingProvider;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\InterviewFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -34,7 +35,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class Interview extends Model
 {
-    use Auditable, GuardsLifecycleAttributes;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes;
 
     /** @use HasFactory<InterviewFactory> */
     use HasFactory;

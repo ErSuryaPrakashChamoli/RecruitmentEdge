@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToTenant;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['communication_template_id', 'version', 'subject', 'body', 'provider_template', 'created_by'])]
 class CommunicationTemplateVersion extends Model
 {
+    use BelongsToTenant;
+
     public const ?string UPDATED_AT = null;
 
     protected static function booted(): void

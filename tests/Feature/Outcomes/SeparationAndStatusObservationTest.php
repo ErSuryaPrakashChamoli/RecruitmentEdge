@@ -160,13 +160,13 @@ test('separation access follows permissions and the hierarchy', function (): voi
     $recruiter = User::factory()->create(['employee_id' => Employee::factory()->reportingTo($manager)->create()->id])->assignRole('recruiter');
 
     actingAs($recruiter);
-    get('/admin/employee-separations')->assertForbidden();
+    get('/admin/acme/employee-separations')->assertForbidden();
 
     actingAs($managerUser);
-    get('/admin/employee-separations')->assertOk();
-    get("/admin/employee-separations/{$otherSeparation->id}/edit")->assertNotFound();
-    get("/admin/employee-separations/{$teamSeparation->id}/edit")->assertForbidden();
-    get('/admin/employee-separations/create')->assertForbidden();
+    get('/admin/acme/employee-separations')->assertOk();
+    get("/admin/acme/employee-separations/{$otherSeparation->id}/edit")->assertNotFound();
+    get("/admin/acme/employee-separations/{$teamSeparation->id}/edit")->assertForbidden();
+    get('/admin/acme/employee-separations/create')->assertForbidden();
 });
 
 test('a tampered employee id outside the hierarchy cannot be given a separation', function (): void {
@@ -188,7 +188,7 @@ test('the separation view page shows the record, including its notes, read-only'
     $separation = EmployeeSeparation::factory()->create(['notes' => 'Handover complete']);
     actingAs(User::factory()->create(['employee_id' => Employee::factory()->create()->id])->assignRole('chro'));
 
-    get("/admin/employee-separations/{$separation->id}")->assertOk()->assertSee('Handover complete');
+    get("/admin/acme/employee-separations/{$separation->id}")->assertOk()->assertSee('Handover complete');
 });
 
 test('the daily pass re-checks only recently changed separations', function (): void {

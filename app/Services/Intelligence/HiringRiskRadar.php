@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\Automation\AutomationHealthService;
 use App\Services\Intelligence\Data\EvidenceItem;
 use App\Services\RecruiterActionService;
+use App\Services\Tenancy\TenantCache;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
@@ -85,7 +86,7 @@ class HiringRiskRadar
             return $this->runScan($only);
         }
 
-        $lock = Cache::lock('hiring-risk-radar:full-scan', 3600);
+        $lock = Cache::lock(TenantCache::key('hiring-risk-radar:full-scan'), 3600);
 
         if (! $lock->get()) {
             return ['opened' => 0, 'refreshed' => 0, 'resolved' => 0, 'skipped' => true];

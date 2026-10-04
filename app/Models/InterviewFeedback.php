@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\FeedbackRecommendation;
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\InterviewFeedbackFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class InterviewFeedback extends Model
 {
     /** @use HasFactory<InterviewFeedbackFactory> */
-    use GuardsLifecycleAttributes, HasFactory;
+    use BelongsToTenant, GuardsLifecycleAttributes, HasFactory;
 
     /**
      * Phase 8.3: feedback is written only by InterviewFeedbackService — submitted by the assigned

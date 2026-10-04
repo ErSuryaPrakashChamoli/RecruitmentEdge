@@ -7,6 +7,7 @@ use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -32,7 +33,8 @@ test('a role permission changed elsewhere applies from the worker\'s next job', 
 
     expect($user->fresh()->can('settings.manage'))->toBeFalse();
 
-    $job = new SyncJob(app(), json_encode(['job' => 'x', 'data' => []]), 'sync', 'default');
+    // A real payload: queued inside the tenant, it carries the tenant and its Context (SaaS-1).
+    $job = new SyncJob(app(), json_encode(['job' => 'x', 'data' => [], 'tenant_id' => $this->tenant->id, 'illuminate:log:context' => Context::dehydrate()]), 'sync', 'default');
     event(new JobProcessing('sync', $job));
 
     expect($user->fresh()->can('settings.manage'))->toBeTrue()

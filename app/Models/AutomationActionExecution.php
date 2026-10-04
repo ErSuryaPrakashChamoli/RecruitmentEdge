@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AutomationActionStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 #[Fillable(['automation_execution_id', 'position', 'action_type', 'status', 'summary', 'error', 'attempts', 'target_type', 'target_id', 'completed_at'])]
 class AutomationActionExecution extends Model
 {
+    use BelongsToTenant;
+
     /**
      * @var array<string, mixed>
      */

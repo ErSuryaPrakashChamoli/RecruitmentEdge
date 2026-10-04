@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CommunicationChannel;
 use App\Enums\PreferenceStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 #[Fillable(['candidate_id', 'channel', 'status', 'source', 'consented_at', 'opted_out_at', 'reason', 'updated_by_type', 'updated_by_id'])]
 class CandidateCommunicationPreference extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToTenant;
 
     protected function casts(): array
     {
