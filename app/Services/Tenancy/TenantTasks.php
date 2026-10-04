@@ -33,6 +33,8 @@ final class TenantTasks
         'recruitment:automation:cleanup' => 'automation',
         'ai:expire-pending-actions' => 'intelligence',
         'identity:enforce-separations' => 'security',
+        // SaaS-2: invitation expiry (audited per invitation).
+        'invitations:expire' => 'security',
         'reliability:sweep' => 'communications',
     ];
 

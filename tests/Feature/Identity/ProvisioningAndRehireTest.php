@@ -2,11 +2,12 @@
 
 use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
+use App\Enums\InvitationStatus;
 use App\Enums\JoiningStatus;
 use App\Enums\OutcomeResult;
 use App\Enums\OutcomeState;
 use App\Events\UserProvisioned;
-use App\Mail\StaffAccessInvitation;
+use App\Mail\TenantInvitationMail;
 use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateApplication;
@@ -18,11 +19,13 @@ use App\Models\HiringOutcome;
 use App\Models\HiringOutcomeSnapshot;
 use App\Models\RecruitmentRequisition;
 use App\Models\Role;
+use App\Models\TenantInvitation;
 use App\Models\User;
 use App\Services\EmployeeConversionService;
 use App\Services\HierarchyService;
 use App\Services\Identity\EmployeeLifecycleService;
 use App\Services\Identity\RoleAssignmentService;
+use App\Services\Identity\TenantInvitationService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
@@ -40,6 +43,17 @@ beforeEach(function (): void {
     $this->conversion = app(EmployeeConversionService::class);
 });
 
+/**
+ * SaaS-2: conversion invites the new employee; the person accepts (here: creating their identity)
+ * and only then does the login exist.
+ */
+function provisioningAcceptInvitation(Employee $employee): User
+{
+    $invitation = TenantInvitation::query()->where('employee_id', $employee->id)->where('status', InvitationStatus::Pending->value)->sole();
+
+    return app(TenantInvitationService::class)->acceptAsNewIdentity($invitation, $employee->fullName(), 'Tr1cky-Ledger-Horse');
+}
+
 function provisioningJoining(Candidate $candidate, Employee $recruiter, ?Employee $manager = null): CandidateJoining
 {
     $requisition = RecruitmentRequisition::factory()->create(['reporting_manager_id' => $manager?->id]);
@@ -48,22 +62,32 @@ function provisioningJoining(Candidate $candidate, Employee $recruiter, ?Employe
     return CandidateJoining::factory()->create(['candidate_application_id' => $application->id, 'status' => JoiningStatus::Joined, 'actual_doj' => now()->subDays(30)]);
 }
 
-test('conversion provisions employee, login, base role, manager and access in one step', function (): void {
+// SaaS-2: sign-in access is an invitation (base role, linked to the employee record); the login
+// exists once the person accepts — the same whether or not their address already has an identity.
+test('conversion provisions employee, manager and an invitation; accepting it gives the login, base role and access', function (): void {
     Event::fake([UserProvisioned::class]);
 
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->linkedToEmployee($employee->id)->sole();
+    $invitation = TenantInvitation::query()->where('employee_id', $employee->id)->sole();
 
     expect($employee->reports_to_id)->toBe($this->managerEmployee->id)
         ->and($employee->status)->toBe(EmployeeStatus::Active)
-        ->and($user->email)->toBe('asha.verma@example.com')
+        ->and($invitation->email)->toBe('asha.verma@example.com')
+        ->and($invitation->source)->toBe('conversion')
+        ->and($invitation->role_ids)->toBe([Role::byKeyOrFail('employee')->id])
+        ->and(User::query()->where('email', 'asha.verma@example.com')->exists())->toBeFalse()
+        ->and(AuditLog::query()->where('action', 'employee_converted')->sole()->getAttribute('changes'))->toMatchArray(['user_id' => null, 'invitation_id' => $invitation->id, 'rehire' => false]);
+
+    Mail::assertSent(TenantInvitationMail::class, fn (TenantInvitationMail $mail) => $mail->hasTo('asha.verma@example.com'));
+
+    $user = provisioningAcceptInvitation($employee);
+
+    expect(User::query()->linkedToEmployee($employee->id)->sole()->is($user))->toBeTrue()
         ->and($user->fresh()->access_status)->toBe(AccessState::Active)
-        ->and($user->getRoleNames()->all())->toBe(['employee'])
-        ->and(AuditLog::query()->where('action', 'user_provisioned')->where('auditable_id', $user->id)->exists())->toBeTrue()
-        ->and(AuditLog::query()->where('action', 'employee_converted')->sole()->getAttribute('changes'))->toMatchArray(['user_id' => $user->id, 'rehire' => false]);
+        ->and($user->fresh()->getRoleNames()->all())->toBe(['employee'])
+        ->and(AuditLog::query()->where('action', 'membership_created')->where('auditable_id', $user->id)->exists())->toBeTrue();
 
     Event::assertDispatched(UserProvisioned::class, fn (UserProvisioned $event) => $event->userId === $user->id && $event->source === 'conversion');
-    Mail::assertSent(StaffAccessInvitation::class, fn (StaffAccessInvitation $mail) => $mail->hasTo('asha.verma@example.com'));
 });
 
 test('the new employee is placed in the hierarchy under their manager', function (): void {
@@ -89,7 +113,7 @@ test('a manager must be chosen, inside the converter\'s hierarchy', function ():
         ->and(Employee::query()->where('candidate_id', $this->candidate->id)->exists())->toBeFalse();
 });
 
-test('an email already used by another login stops the conversion before anything is written', function (): void {
+test('an email already used by a member of this organisation stops the conversion before anything is written', function (): void {
     User::factory()->create(['email' => 'asha.verma@example.com']);
 
     expect(fn () => $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp))->toThrow(DomainException::class, 'already uses this email')
@@ -111,12 +135,12 @@ test('duplicate conversion is refused', function (): void {
     $this->conversion->convert($joining, $this->vp);
 
     expect(fn () => $this->conversion->convert($joining->fresh(), $this->vp))->toThrow(DomainException::class, 'already been converted')
-        ->and(User::query()->where('email', 'asha.verma@example.com')->count())->toBe(1);
+        ->and(TenantInvitation::query()->where('email', 'asha.verma@example.com')->count())->toBe(1);
 });
 
 test('a separated employee is rehired: the same record and login come back, history kept, no old authority', function (): void {
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->linkedToEmployee($employee->id)->sole();
+    $user = provisioningAcceptInvitation($employee);
     app(RoleAssignmentService::class)->syncUserRoles($user, [Role::byKeyOrFail('recruiter')->id], $this->chro);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(3)->toDateString(), 'separation_reason' => 'resignation']);
 
@@ -149,6 +173,7 @@ test('a candidate whose earlier employee record was deleted is rehired, never hi
 
 test('cancelling a separation needs the permission and a reason, and before it takes effect changes nothing else', function (): void {
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
+    provisioningAcceptInvitation($employee);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->addWeek()->toDateString(), 'separation_reason' => 'resignation']);
     $manager = User::factory()->create(['employee_id' => $this->managerEmployee->id])->assignRole('manager');
 
@@ -170,7 +195,7 @@ test('cancelling a separation needs the permission and a reason, and before it t
 
 test('cancelling an effective separation restores employment but never silently restores access or old roles', function (): void {
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->linkedToEmployee($employee->id)->sole();
+    $user = provisioningAcceptInvitation($employee);
     app(RoleAssignmentService::class)->syncUserRoles($user, [Role::byKeyOrFail('manager')->id], $this->chro);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(2)->toDateString(), 'separation_reason' => 'resignation']);
 

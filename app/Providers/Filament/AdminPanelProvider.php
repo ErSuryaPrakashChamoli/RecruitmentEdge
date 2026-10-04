@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Auth\StaffAppAuthentication;
+use App\Filament\Pages\Auth\ChooseTenant;
 use App\Filament\Pages\Auth\StaffLogin;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
@@ -12,7 +13,9 @@ use App\Http\Middleware\EnsureStaffMfa;
 use App\Http\Middleware\SetTenantContextFromPanel;
 use App\Http\Middleware\UseCandidateSessionContext;
 use App\Models\Tenant;
+use Filament\Actions\Action;
 use Filament\Enums\ThemeMode;
+use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -28,6 +31,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -52,6 +56,18 @@ class AdminPanelProvider extends PanelProvider
             // into the TenantContext that models, roles, jobs and caches enforce on their own.
             ->tenant(Tenant::class, slugAttribute: 'slug', ownershipRelationship: 'tenant')
             ->tenantMiddleware([SetTenantContextFromPanel::class], isPersistent: true)
+            // SaaS-2: the switcher lists only tenants the person may enter (User::getTenants); the
+            // chooser also sets the default. Tenant-less, but signed in (and MFA-checked).
+            ->tenantMenuItems([
+                Action::make('chooseOrganisation')
+                    ->label('All organisations')
+                    ->icon('heroicon-o-building-office-2')
+                    ->url(fn (): string => ChooseTenant::getUrl())
+                    ->visible(fn (): bool => (Filament::auth()->user()?->accessibleTenants()->count() ?? 0) > 1),
+            ])
+            ->authenticatedRoutes(function (): void {
+                Route::get('/organisations', ChooseTenant::class)->middleware(EnsureStaffMfa::class)->name('choose-tenant');
+            })
             // Phase 8.4: per-account lockout on top of Filament's per-IP throttle; staff password
             // reset (single-use, expiring broker tokens); email changes apply only once verified.
             // Phase 8.6 (D8.6-027): a Filament action without an explicit policy method throws in

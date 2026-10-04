@@ -4,10 +4,10 @@ namespace App\Services\Identity;
 
 use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
-use App\Events\UserProvisioned;
 use App\Mail\StaffAccessInvitation;
 use App\Models\AuditLog;
 use App\Models\Employee;
+use App\Models\TenantInvitation;
 use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\HierarchyService;
@@ -19,13 +19,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Str;
 
 /**
- * Phase 8.4: the only way a staff login is created or linked to an employee record (User.employee_id
- * is guarded — the link decides whose team a login sees). A login is linked only to a current
- * (active, not deleted) employee inside the administrator's hierarchy who has no other login, and
- * never by the person to themselves. Roles always go through RoleAssignmentService.
+ * Phase 8.4: the only way a staff login is linked to an employee record (the link decides whose
+ * team a login sees). A login is linked only to a current (active, not deleted) employee inside the
+ * administrator's hierarchy who has no other login, and never by the person to themselves. Roles
+ * always go through RoleAssignmentService.
+ *
+ * SaaS-2: the link is the tenant membership's (TenantMembership.employee_id, guarded). New logins
+ * are never created here: a person joins a tenant by accepting an invitation
+ * (TenantInvitationService), which creates the identity only if the address has none.
  */
 class IdentityProvisioningService
 {
@@ -36,86 +39,29 @@ class IdentityProvisioningService
     ) {}
 
     /**
-     * Creates a staff login from the Users resource.
-     *
-     * @param  array{name: string, email: string, password: string, employee_id?: int|string|null, roles?: array<int, int|string>}  $data
+     * SaaS-2: candidate conversion invites the new employee — the base role only, linked to their
+     * employee record. The login exists once the person accepts: by signing in with the identity
+     * that already uses the address, or by creating it. The outcome (and everything an
+     * administrator sees) is the same either way, so a conversion never reveals whether the address
+     * is known on the platform (S1-01). Needs employees.convert (checked by the conversion), never
+     * users.manage.
      */
-    public function createStaffUser(array $data, User $actor): User
+    public function inviteNewEmployee(Employee $employee, User $actor, string $source): TenantInvitation
     {
-        if (! $actor->can('users.manage')) {
-            throw new DomainException('Creating logins needs the users.manage permission.');
-        }
-
-        CredentialService::assertAcceptablePassword((string) $data['password']);
-        $employee = filled($data['employee_id'] ?? null) ? $this->linkableEmployee((int) $data['employee_id'], $actor, null) : null;
-
-        if ($employee === null && $this->hierarchy->visibleEmployeeIdsFor($actor) !== null) {
-            throw new DomainException('A login without an employee record can only be created by someone with organisation-wide visibility.');
-        }
-
-        return DB::transaction(function () use ($data, $employee, $actor): User {
-            $user = User::query()->create([
-                'name' => $data['name'],
-                'email' => $data['email'],
-                'password' => $data['password'],
-            ]);
-            $this->joinCurrentTenant($user, $employee);
-
-            $this->roles->syncUserRoles($user, $data['roles'] ?? [], $actor, newUser: true);
-
-            AuditLog::record($user, 'user_provisioned', null, ['employee_id' => $employee?->id, 'source' => 'administrator', 'by_user_id' => $actor->id]);
-            Log::info('identity.user_provisioned', ['user_id' => $user->id, 'employee_id' => $employee?->id, 'source' => 'administrator', 'actor_id' => $actor->id]);
-            UserProvisioned::dispatch($user->id, $employee?->id, 'administrator', $actor->id);
-
-            return $user;
-        });
+        return app(TenantInvitationService::class)->inviteEmployee($employee, $actor, $source);
     }
 
     /**
-     * Candidate conversion: the new employee's login — linked to the employee, the base role only,
-     * access Active, and a random password nobody knows; the person sets their own through the
-     * invitation link (sent after commit). Needs employees.convert (checked by the conversion),
-     * never users.manage.
+     * Rehire: the person's existing login in this tenant comes back — through StaffAccessService,
+     * so from Revoked it gets the base role only (earlier roles are never restored blindly) — or the
+     * person is invited if this employee record never had a login.
      */
-    public function provisionLogin(Employee $employee, User $actor, string $source): User
-    {
-        if (blank($employee->email)) {
-            throw new DomainException('A login needs an email address. Add the candidate\'s email before converting.');
-        }
-
-        if (User::query()->where('email', $employee->email)->exists()) {
-            throw new DomainException('Another login already uses this email address. Resolve it under Administration → Users first.');
-        }
-
-        $user = User::query()->create([
-            'name' => $employee->fullName(),
-            'email' => $employee->email,
-            'password' => Str::password(40),
-        ]);
-        $this->joinCurrentTenant($user, $employee);
-
-        $this->roles->grantBaseRole($user, $source, $actor);
-
-        AuditLog::record($user, 'user_provisioned', null, ['employee_id' => $employee->id, 'source' => $source, 'by_user_id' => $actor->id]);
-        Log::info('identity.user_provisioned', ['user_id' => $user->id, 'employee_id' => $employee->id, 'source' => $source, 'actor_id' => $actor->id]);
-        UserProvisioned::dispatch($user->id, $employee->id, $source, $actor->id);
-
-        $this->sendInvitationAfterCommit($user);
-
-        return $user;
-    }
-
-    /**
-     * Rehire: the person's existing login comes back — through StaffAccessService, so from Revoked
-     * it gets the base role only (earlier roles are never restored blindly) — or a new login is
-     * provisioned if there was none.
-     */
-    public function reactivateForRehire(Employee $employee, User $actor): User
+    public function reactivateForRehire(Employee $employee, User $actor): User|TenantInvitation
     {
         $user = User::query()->linkedToEmployee($employee->id)->first();
 
         if ($user === null) {
-            return $this->provisionLogin($employee, $actor, 'rehire');
+            return $this->inviteNewEmployee($employee, $actor, 'rehire');
         }
 
         app(StaffAccessService::class)->restore($user, null, 'Rehired', 'rehire');
@@ -125,7 +71,11 @@ class IdentityProvisioningService
             $this->roles->grantBaseRole($user, 'rehire', $actor);
         }
 
-        $this->sendInvitationAfterCommit($user);
+        // A password link only for an identity this tenant alone holds; a person who belongs to
+        // another organisation keeps the password they already use.
+        if ($user->belongsOnlyToCurrentTenant()) {
+            $this->sendInvitationAfterCommit($user);
+        }
 
         return $user;
     }

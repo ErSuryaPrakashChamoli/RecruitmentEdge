@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Filament\Tenancy\StaffFilamentManager;
+use App\Filament\Tenancy\StaffRedirectToTenantController;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Export;
 use App\Models\FailedImportRow;
@@ -14,6 +16,7 @@ use Filament\Actions\Exports\Models\Export as FilamentExport;
 use Filament\Actions\Imports\Models\FailedImportRow as FilamentFailedImportRow;
 use Filament\Actions\Imports\Models\Import as FilamentImport;
 use Filament\Events\TenantSet;
+use Filament\Http\Controllers\RedirectToTenantController;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Event;
@@ -36,6 +39,11 @@ class TenancyServiceProvider extends ServiceProvider
         $this->app->bind(FilamentExport::class, Export::class);
         $this->app->bind(FilamentImport::class, Import::class);
         $this->app->bind(FilamentFailedImportRow::class, FailedImportRow::class);
+
+        // SaaS-2: a person's default tenant is never "the first tenant in the list"; with no
+        // default, /admin asks them to choose (docs/saas-2-identity-access.md §5).
+        $this->app->scoped('filament', fn (): StaffFilamentManager => new StaffFilamentManager);
+        $this->app->bind(RedirectToTenantController::class, StaffRedirectToTenantController::class);
     }
 
     public function boot(): void

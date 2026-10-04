@@ -253,6 +253,8 @@ class AppServiceProvider extends ServiceProvider
         // Phase 8.9 (P89-SEC-010): per signed-in staff user — the private-file links and the calendar
         // OAuth flow need a valid session and signature, so these bound load, not access.
         RateLimiter::for('private-files', fn (Request $request) => Limit::perMinute(300)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
+        // SaaS-2: invitation links and their forms (the tokens themselves are 64 random characters).
+        RateLimiter::for('invitations', fn (Request $request) => Limit::perMinute(30)->by('invitations:'.$request->ip()));
         RateLimiter::for('calendar-oauth', fn (Request $request) => Limit::perMinute(20)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
     }
 

@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\Users\Pages;
 
+use App\Filament\Resources\Users\Actions\InviteMemberAction;
 use App\Filament\Resources\Users\UserResource;
-use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
 class ListUsers extends ListRecords
@@ -13,7 +13,8 @@ class ListUsers extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make(),
+            // SaaS-2: people join by invitation; logins are never created here.
+            InviteMemberAction::make(),
         ];
     }
 }

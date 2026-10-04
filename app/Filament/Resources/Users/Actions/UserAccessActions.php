@@ -18,6 +18,10 @@ use Filament\Support\Exceptions\Halt;
  * Phase 8.4: the confirmed, audited access actions for a login (Users screens and the Access
  * Review). Each is offered only to someone who may take it (users.access.manage, in scope, never
  * on themselves); the services enforce the same rules — the UI is not the security boundary.
+ *
+ * SaaS-2: suspend / restore / revoke change this tenant's membership only. Signing someone out
+ * everywhere and resetting MFA act on the identity in every tenant, so they are offered only for an
+ * identity that belongs to this tenant alone.
  */
 class UserAccessActions
 {
@@ -64,7 +68,7 @@ class UserAccessActions
             ->color('gray')
             ->requiresConfirmation()
             ->modalDescription('Every browser and device signed in as this person is signed out.')
-            ->visible(fn (User $record): bool => self::canManage($record))
+            ->visible(fn (User $record): bool => self::canManage($record) && app(AuthorityGuard::class)->managesCredentialsOf($record))
             ->action(fn (User $record) => self::perform(fn (User $actor) => app(CredentialService::class)->signOutEverywhere($record, $actor), 'Signed out everywhere'));
     }
 
@@ -76,7 +80,7 @@ class UserAccessActions
             ->color('gray')
             ->requiresConfirmation()
             ->modalDescription('Removes this person\'s authenticator app and recovery codes (a lost device). They are signed out and set MFA up again at their next sign-in.')
-            ->visible(fn (User $record): bool => filled($record->getAppAuthenticationSecret()) && self::canManage($record))
+            ->visible(fn (User $record): bool => filled($record->getAppAuthenticationSecret()) && self::canManage($record) && app(AuthorityGuard::class)->managesCredentialsOf($record))
             ->action(fn (User $record) => self::perform(fn (User $actor) => app(MfaService::class)->resetFor($record, $actor), 'MFA reset'));
     }
 

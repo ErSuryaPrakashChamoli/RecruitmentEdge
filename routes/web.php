@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Careers\CareerSiteController;
+use App\Http\Controllers\Identity\TenantInvitationController;
 use App\Http\Controllers\Integrations\CalendarOAuthController;
 use App\Http\Controllers\PrivateFileController;
 use App\Http\Controllers\QueueHealthController;
@@ -36,6 +37,15 @@ Route::middleware(['auth', 'throttle:calendar-oauth'])->prefix('integrations/cal
 Route::get('files/private', PrivateFileController::class)
     ->middleware(['signed:relative', EnforceStaffAccess::class, 'auth:web', EnsureStaffMfa::class, 'throttle:private-files'])
     ->name('files.private');
+
+// SaaS-2: tenant invitations (staff session). The tenant is the invitation's own, found from the
+// token's hash — never from the URL; the token leaves the URL at the first request.
+Route::prefix('invitations')->middleware('throttle:invitations')->name('invitations.')->group(function (): void {
+    Route::get('/', [TenantInvitationController::class, 'show'])->name('show');
+    Route::post('accept', [TenantInvitationController::class, 'accept'])->name('accept');
+    Route::post('register', [TenantInvitationController::class, 'register'])->name('register');
+    Route::get('{token}', [TenantInvitationController::class, 'open'])->where('token', '[A-Za-z0-9]{64}')->name('open');
+});
 
 // Phase 5 public career site (applications flow into the existing candidate pipeline).
 // Phase 8.7 (D8.7-021): queue health for external monitoring (administrators or a bearer token).

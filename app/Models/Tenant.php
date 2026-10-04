@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AccessState;
 use App\Enums\TenantStatus;
+use App\Services\Identity\StaffAccessService;
 use Database\Factories\TenantFactory;
 use Filament\Models\Contracts\HasName;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -25,6 +26,16 @@ class Tenant extends Model implements HasName
 {
     /** @use HasFactory<TenantFactory> */
     use HasFactory, HasUlids;
+
+    /**
+     * SaaS-2: a tenant's state decides who may enter it; a change never leaves a memoised access
+     * decision behind (StaffAccessService).
+     */
+    protected static function booted(): void
+    {
+        static::saved(fn () => StaffAccessService::invalidateDecisions());
+        static::deleted(fn () => StaffAccessService::invalidateDecisions());
+    }
 
     /**
      * @return list<string>

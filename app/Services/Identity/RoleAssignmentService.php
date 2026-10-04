@@ -6,6 +6,7 @@ use App\Enums\AccessState;
 use App\Events\UserRoleChanged;
 use App\Models\AuditLog;
 use App\Models\Role;
+use App\Models\TenantInvitation;
 use App\Models\User;
 use DomainException;
 use Illuminate\Support\Collection;
@@ -106,6 +107,23 @@ class RoleAssignmentService
         AuditLog::record($user, 'roles_changed', ['roles' => $before], ['roles' => [$base->name], 'source' => $source, 'by_user_id' => $actor?->id]);
         StaffAccessService::invalidateDecisions();
         UserRoleChanged::dispatch($user->id, $actor?->id);
+    }
+
+    /**
+     * SaaS-2: the roles an accepted invitation starts the membership with — chosen by an inviter who
+     * could grant them (checked again by TenantInvitationService at acceptance), in the
+     * invitation's tenant only (spatie teams).
+     *
+     * @param  Collection<int, Role>  $roles
+     */
+    public function grantInvitedRoles(User $user, Collection $roles, TenantInvitation $invitation): void
+    {
+        $before = $user->roles()->pluck('name')->sort()->values()->all();
+        $user->syncRoles($roles);
+
+        AuditLog::record($user, 'roles_changed', ['roles' => $before], ['roles' => $roles->pluck('name')->sort()->values()->all(), 'source' => 'invitation', 'invitation_id' => $invitation->getKey(), 'by_user_id' => $invitation->invited_by]);
+        StaffAccessService::invalidateDecisions();
+        UserRoleChanged::dispatch($user->id, $invitation->invited_by);
     }
 
     /**
@@ -233,7 +251,7 @@ class RoleAssignmentService
         return $role->permissions->pluck('name')->diff($held)->isEmpty();
     }
 
-    private function assertCanGrant(User $actor, Role $role): void
+    public function assertCanGrant(User $actor, Role $role): void
     {
         if ($role->is_protected && ! $actor->hasRole($role)) {
             $this->refuseProtected($role, $actor, 'grant');

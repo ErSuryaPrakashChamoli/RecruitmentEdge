@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AccessState;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Services\Identity\StaffAccessService;
 use Database\Factories\TenantMembershipFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -43,6 +44,13 @@ class TenantMembership extends Model
     public function lifecycleOwner(): string
     {
         return 'StaffAccessService / IdentityProvisioningService / TenantInvitationService';
+    }
+
+    protected static function booted(): void
+    {
+        // Any membership write ends every memoised access decision in this process.
+        static::saved(fn () => StaffAccessService::invalidateDecisions());
+        static::deleted(fn () => StaffAccessService::invalidateDecisions());
     }
 
     protected function casts(): array

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Users\Pages;
 use App\Filament\Resources\Users\Actions\UserAccessActions;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
+use App\Services\Identity\AuthorityGuard;
 use App\Services\Identity\CredentialService;
 use App\Services\Identity\IdentityProvisioningService;
 use App\Services\Identity\RoleAssignmentService;
@@ -60,7 +61,12 @@ class EditUser extends EditRecord
             DB::transaction(function () use ($record, $data, $roles, $employeeId, $password, $email, $actor): void {
                 app(IdentityProvisioningService::class)->linkEmployee($record, filled($employeeId) ? (int) $employeeId : null, $actor);
                 app(RoleAssignmentService::class)->syncUserRoles($record, $roles, $actor);
-                $record->update(Arr::only($data, ['name']));
+
+                // SaaS-2: the name is the identity's own, shown in every tenant it belongs to — changed
+                // here only for an identity this tenant alone holds (the field is read-only otherwise).
+                if (app(AuthorityGuard::class)->managesCredentialsOf($record)) {
+                    $record->update(Arr::only($data, ['name']));
+                }
 
                 if (filled($password)) {
                     app(CredentialService::class)->setPasswordByAdministrator($record, $password, $actor);

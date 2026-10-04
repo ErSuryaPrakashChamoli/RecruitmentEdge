@@ -2,7 +2,6 @@
 
 use App\Filament\Pages\Auth\StaffLogin;
 use App\Filament\Pages\Profile;
-use App\Filament\Resources\Users\Pages\CreateUser;
 use App\Filament\Resources\Users\Pages\EditUser;
 use App\Models\AuditLog;
 use App\Models\Employee;
@@ -31,15 +30,18 @@ beforeEach(function (): void {
     $this->member = User::factory()->create(['employee_id' => Employee::factory()->reportingTo($this->chroEmployee)->create()->id])->assignRole('recruiter');
 });
 
+// SaaS-2: administrators no longer create logins with a password (people join by invitation and
+// choose their own); the policy still guards every password an administrator sets.
 test('an administrator-set password must meet the staff policy', function (string $weak): void {
     actingAs($this->chro);
+    $before = $this->member->fresh()->password;
 
-    Livewire::test(CreateUser::class)
-        ->fillForm(['name' => 'New Person', 'email' => 'new.person@example.com', 'password' => $weak, 'password_confirmation' => $weak, 'roles' => []])
-        ->call('create')
+    Livewire::test(EditUser::class, ['record' => $this->member->getRouteKey()])
+        ->fillForm(['password' => $weak, 'password_confirmation' => $weak])
+        ->call('save')
         ->assertHasFormErrors(['password']);
 
-    expect(User::query()->where('email', 'new.person@example.com')->exists())->toBeFalse();
+    expect($this->member->fresh()->password)->toBe($before);
 })->with(['too short' => 'Ab1!short', 'no symbol' => 'Abcdefgh1234', 'no capital' => 'abcdefgh12!!', 'common word' => 'Welcome@2026!', 'common word decorated' => 'P@ssword12345!']);
 
 test('the password policy is also enforced by the service, not only the form', function (): void {

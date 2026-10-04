@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateJoining;
 use App\Models\Employee;
+use App\Models\TenantInvitation;
 use App\Models\User;
 use App\Services\Identity\EmployeeLifecycleService;
 use App\Services\Identity\HierarchyIntegrityService;
@@ -23,8 +24,10 @@ use Illuminate\Support\Facades\DB;
  * employees.convert within the actor's hierarchy, is idempotent and audited.
  *
  * Phase 8.4: conversion provisions the whole identity in one transaction — employee, manager
- * (hierarchy), login with the base role and Active access, and retirement of the candidate portal
- * login — all audited, events after commit, and the person gets a set-password link. A candidate
+ * (hierarchy), sign-in access with the base role, and retirement of the candidate portal login —
+ * all audited, events after commit. SaaS-2: sign-in access is an invitation (base role, linked to
+ * the new employee record): the person accepts it with the identity that already uses their
+ * address, or creates one — the conversion never reveals which. A candidate
  * whose earlier employment ended in a separation is rehired: the same employee record comes back
  * (history kept), never a duplicate. Needs employees.convert — users.manage is not a substitute.
  */
@@ -92,7 +95,7 @@ class EmployeeConversionService
                 $employee = $this->lifecycle->rehire($previous, $actor, "Rehired through joining {$joining->id}");
                 $employee->update($placement);
                 $this->hierarchy->placeUnder($employee, (int) $managerId, $actor);
-                $user = $this->provisioning->reactivateForRehire($employee, $actor);
+                $access = $this->provisioning->reactivateForRehire($employee, $actor);
             } else {
                 [$firstName, $lastName] = $this->splitName($candidate->full_name);
 
@@ -108,10 +111,17 @@ class EmployeeConversionService
                     ...$placement,
                 ]);
 
-                $user = $this->provisioning->provisionLogin($employee, $actor, 'conversion');
+                $access = $this->provisioning->inviteNewEmployee($employee, $actor, 'conversion');
             }
 
-            AuditLog::record($joining, 'employee_converted', null, ['employee_id' => $employee->id, 'candidate_id' => $candidate->id, 'user_id' => $user->id, 'rehire' => $previous !== null, 'by_user_id' => $actor->id]);
+            AuditLog::record($joining, 'employee_converted', null, [
+                'employee_id' => $employee->id,
+                'candidate_id' => $candidate->id,
+                'user_id' => $access instanceof User ? $access->id : null,
+                'invitation_id' => $access instanceof TenantInvitation ? $access->id : null,
+                'rehire' => $previous !== null,
+                'by_user_id' => $actor->id,
+            ]);
 
             // The candidate is now staff: their candidate portal login is retired (history kept).
             if (($account = $candidate->portalAccount) !== null && $account->is_active) {

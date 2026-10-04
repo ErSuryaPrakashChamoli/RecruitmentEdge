@@ -183,6 +183,8 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
         'files/private' => 'the signed tenant (PrivateFileController)', 'webhooks/' => 'the provider message\'s tenant (DeliveryStatusService)',
         'integrations/calendar/{provider}/callback' => 'the tenant kept with the OAuth state', 'health/queue' => 'platform health (token)',
         'livewire-' => 'the component page\'s own (persistent) middleware', '_boost/' => 'development tool (not in the production image)',
+        'invitations' => 'the invitation\'s own tenant, found by its token hash (SaaS-2)',
+        'admin/organisations' => 'the signed-in identity\'s own accessible tenants (SaaS-2 chooser)',
     ];
     $offending = [];
 

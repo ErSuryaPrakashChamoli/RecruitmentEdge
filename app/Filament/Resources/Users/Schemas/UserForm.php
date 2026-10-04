@@ -7,6 +7,7 @@ use App\Models\Employee;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Identity\AuthorityGuard;
 use App\Services\Identity\RoleAssignmentService;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
@@ -28,13 +29,18 @@ class UserForm
             ->components([
                 TextInput::make('name')
                     ->required()
-                    ->maxLength(255),
+                    ->maxLength(255)
+                    ->disabled(fn (?User $record): bool => ! self::managesCredentialsOf($record)),
+                // SaaS-2 (S1-01): no uniqueness check here — it would answer "already taken" for any
+                // address on the platform. CredentialService handles a taken address silently.
                 TextInput::make('email')
                     ->email()
                     ->required()
                     ->maxLength(255)
-                    ->unique(ignoreRecord: true)
-                    ->helperText(fn (string $operation): ?string => $operation === 'edit' ? 'A new address is sent a verification link; it applies once the person confirms it.' : null),
+                    ->disabled(fn (?User $record): bool => ! self::managesCredentialsOf($record))
+                    ->helperText(fn (?User $record): string => self::managesCredentialsOf($record)
+                        ? 'A new address is sent a verification link; it applies once the person confirms it.'
+                        : self::SHARED_IDENTITY_HINT),
                 // Phase 8.4: the staff password policy; the value is hashed by the model and an
                 // administrator's change signs the person out everywhere (CredentialService).
                 TextInput::make('password')
@@ -42,15 +48,14 @@ class UserForm
                     ->revealable()
                     ->rule(Password::defaults())
                     ->confirmed()
-                    ->required(fn (string $operation): bool => $operation === 'create')
                     ->dehydrated(fn (?string $state): bool => filled($state))
-                    ->helperText(fn (string $operation): string => $operation === 'edit'
-                        ? 'Leave blank to keep the current password. Setting one signs the person out everywhere.'
-                        : 'At least 12 characters with upper and lower case letters, a number and a symbol.'),
+                    ->visible(fn (?User $record): bool => self::managesCredentialsOf($record))
+                    ->helperText('Leave blank to keep the current password. Setting one signs the person out everywhere.'),
                 TextInput::make('password_confirmation')
                     ->password()
                     ->revealable()
                     ->requiredWith('password')
+                    ->visible(fn (?User $record): bool => self::managesCredentialsOf($record))
                     ->dehydrated(false),
                 Select::make('employee_id')
                     ->label('Linked Employee')
@@ -66,7 +71,18 @@ class UserForm
             ]);
     }
 
-    private static function canGrant(int $roleId): bool
+    public const string SHARED_IDENTITY_HINT = 'This person also belongs to another organisation, so only they can change their name, email address and password ("Forgot password" on the sign-in page).';
+
+    /**
+     * SaaS-2: whether this tenant manages the person's global identity details — name, email,
+     * password (they belong to this tenant alone). The services enforce it; the form only follows.
+     */
+    public static function managesCredentialsOf(?User $record): bool
+    {
+        return $record !== null && app(AuthorityGuard::class)->managesCredentialsOf($record);
+    }
+
+    public static function canGrant(int $roleId): bool
     {
         $actor = auth()->user();
         $role = Role::query()->forCurrentTenant()->with('permissions')->find($roleId);
@@ -77,7 +93,7 @@ class UserForm
     /**
      * @return array<int, string>
      */
-    private static function employeeOptions(?User $record): array
+    public static function employeeOptions(?User $record): array
     {
         $actor = auth()->user();
         $visible = $actor instanceof User ? app(HierarchyService::class)->visibleEmployeeIdsFor($actor) : collect();

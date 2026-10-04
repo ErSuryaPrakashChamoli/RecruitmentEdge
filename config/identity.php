@@ -32,6 +32,12 @@ return [
     // exists: the first permitted user holding this permission.
     'handoff_fallback_permission' => 'employees.separation.manage',
 
+    // SaaS-2: how long an emailed invitation link stays valid. A resend issues a new link and a new
+    // expiry; an expired invitation is never re-opened (send a new one).
+    'invitations' => [
+        'ttl_hours' => (int) env('IDENTITY_INVITATION_TTL_HOURS', 72),
+    ],
+
     'mfa' => [
         // Enforce MFA enrolment for privileged users. The test suite turns this off (phpunit.xml)
         // except in the MFA tests; production must keep it on.
