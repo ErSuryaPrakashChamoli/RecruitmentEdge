@@ -10,8 +10,10 @@
 - Open findings (§4) are availability, enumeration, branding and operations issues. None is a cross-tenant read or write.
 
 **Evidence:**
-- `tests/Feature/Tenancy/*`: 102 tests, plus `tests/Concurrency/TenantIntegrityRaceTest.php` on MySQL.
-- Full suite: 2,238 / 2,238 on SQLite. The MySQL results are in the SaaS-1 final report.
+- `tests/Feature/Tenancy/*`: 105 tests, plus `tests/Concurrency/TenantIntegrityRaceTest.php` (3 races) on MySQL.
+- Full suite on SQLite: 2,241 / 2,241.
+- Full suite on MySQL 8.4: 2,234 / 2,241. The 7 failures are the pre-existing MySQL-only set from the release candidate (P810-RC-01 automation key order; P810-RC-02 JSON key-order assertions), unchanged and unrelated to tenancy.
+- Concurrency suite (MySQL): 14 / 14 on a fresh database. One run hit the pre-existing random fixture-code collision (P810-RC-03); the rerun passed.
 - Two migration rehearsals with `tenancy:verify` (`saas-1-migration-plan.md` §5).
 
 Fixtures: `TenantWorld` builds two complete tenants, ALPHA and BRAVO, with:
