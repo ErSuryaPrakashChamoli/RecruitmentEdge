@@ -149,7 +149,7 @@ test('memory summaries are AI-labelled, keep the model, and exclude identifiers'
         ->ai_summary->toContain('not progressed')
         ->ai_model->not->toBeNull()
         ->and(json_encode($fake->prompts))->not->toContain($this->application->application_code)
-        ->and($record->fresh()->facts)->toBe($record->facts);
+        ->and($record->fresh()->facts)->toBeJsonEquivalent($record->facts);
 });
 
 test('deterministic intelligence works with no AI at all', function (): void {

@@ -82,8 +82,9 @@
 | P810-OP-12 | Command-palette exact routing |
 | P810-OP-15, OP-16, OP-19 | Health-check and grace-period details; slow-query and deprecation logging; scheduled `storage:audit` |
 | P810-OP-20 | `tries` / `backoff` on queued security mails. A candidate can re-request a lost link or code today. |
-| CI (H3) | MySQL job for the main suite, plus `tests/Concurrency`. First make the 7 MySQL-sensitive assertions order-independent (P810-RC-02) and the concurrency fixture codes deterministic (P810-RC-03). |
-| P810-RC-01 | Automation rule change detection is key-order sensitive on MySQL: a rename asks for a reason and writes a version |
+| CI (H3) | MySQL job for the main suite, plus `tests/Concurrency`. The MySQL-sensitive assertions are now order-independent (P810-RC-02, fixed); the concurrency fixture codes still need to be deterministic (P810-RC-03). |
+| P810-RC-01 | **FIXED** on `feature/saas-1-tenant-foundation` (not on the release-candidate branch). See §8. |
+| P810-RC-02 | **FIXED** on `feature/saas-1-tenant-foundation` (not on the release-candidate branch). See §8. |
 | P810-RC-04 | Outcome dashboard default end date is the UTC date, while periods are IST: 00:00–05:30 IST hides that night's new outcomes from the default view |
 | H1, H2 | Browser smokes in the repository; static analysis (dependency approval) |
 | H5 | Dead code (P87-BACKLOG-007), Pint finding, `PruneExpiredCache` |
@@ -98,3 +99,15 @@ Also: advanced analytics and dashboards, SSO expansion, passkeys, marketplace, g
 ## 7. Documentation
 
 DOC-01 (`.ai/rules` accuracy), DOC-02, DOC-04, DOC-05, DOC-06 (README, `composer.json` name), DOC-07 remainder; the proposed backlog edits in `phase-8-10-backlog-reconciliation.md` §5.
+
+## 8. Fixed after the release candidate (SaaS-1A)
+
+Both are fixed on `feature/saas-1-tenant-foundation`. The release-candidate branch (`226bc7d`) is unchanged.
+
+**Root cause (both):** MySQL's `JSON` column type stores an object in its binary format, which keeps object keys in its own order (shorter keys first, then by byte). A JSON object read back from MySQL can list its keys in a different order than it was written. SQLite stores the text as written. PHP's strict array comparison (`===`, `!==`, Pest `toBe`) also compares key order.
+
+| ID | Production change | Tests | MySQL verification |
+|---|---|---|---|
+| P810-RC-01 (Low) | `AutomationRuleService::update()` compared the stored configuration (re-read from the database, keys in MySQL's order) with the edited model (keys as written) using `!==`. A description-only edit therefore looked like a configuration change: it asked for a reason and wrote a version. It now compares with `AutomationRuleService::sameConfiguration()`: object keys are compared in a stable order at every level; lists keep their order (the order of actions and escalation steps is part of a rule); values are compared strictly. Nothing else in automation changed. | `AutomationRuleServiceTest`: the stored JSON is rewritten with every object's keys reversed, and a description-only edit keeps version 1, while a nested value change or a reordered action list still needs a reason and creates a version (database path, same result on SQLite and MySQL). A comparison matrix covers same and reordered keys, nested keys, changed values, added and removed keys, list order, and strict types (1 / "1", null / false, true / 1, 0 / ""). Mutation-checked: restoring `!==` fails them on SQLite too. | the previously failing test and the new ones pass on MySQL 8.4 |
+| P810-RC-02 (Info) | None. Key order is not part of these contracts: feedback ratings are shown and scored in `InterviewFeedback::RATING_CRITERIA` order and read by key; automation conditions, audit `changes`, hiring-memory `facts` and interviewer-import counts are read by key. | The six assertions (feedback ratings ×2, interviewer import counts, automation conditions, archive audit, hiring-memory facts) use `toBeJsonEquivalent()` (`tests/Pest.php`): object keys in any order, lists in order, scalars strict. `JsonEquivalenceExpectationTest` proves it still fails on every other difference. The seventh test of the original set (tie order in duplicate detection) was fixed in SaaS-1 by a deterministic order. | full MySQL suite passes |
+

@@ -100,7 +100,7 @@ test('archiving audits the pending runs it cancels', function (): void {
 
     $audit = AuditLog::query()->where('auditable_id', $rule->id)->where('action', 'automation_rule_pending_cancelled')->sole();
 
-    expect($audit->changes)->toBe(['pending_runs_cancelled' => 2, 'escalations_cancelled' => 0])
+    expect($audit->changes)->toBeJsonEquivalent(['pending_runs_cancelled' => 2, 'escalations_cancelled' => 0])
         ->and($audit->reason)->toBe('Replaced by a new rule');
 });
 

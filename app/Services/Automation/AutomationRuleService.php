@@ -84,14 +84,14 @@ class AutomationRuleService
         }
 
         // Phase 8.6 (D8.6-021): a change to what the rule does needs a reason; it becomes the version's summary.
-        if ($rule->configuration() !== $before) {
+        if (! self::sameConfiguration($rule->configuration(), $before)) {
             $reason = $this->requireReason($reason, 'changing');
         }
 
         return DB::transaction(function () use ($rule, $actor, $before, $reason, $keepPendingRuns): AutomationRule {
             AuditLog::withReason($reason, fn () => $rule->save());
 
-            if ($rule->configuration() !== $before) {
+            if (! self::sameConfiguration($rule->configuration(), $before)) {
                 $this->snapshot($rule, $actor, (string) $reason);
                 $this->settlePendingRuns($rule, $keepPendingRuns, (string) $reason);
             }
@@ -375,6 +375,36 @@ class AutomationRuleService
         return $author !== null && (int) $author === (int) $actor->id
             ? 'You made the latest change to this rule, so someone else with automation.activate must review and activate it.'
             : null;
+    }
+
+    /**
+     * P810-RC-01: two configurations are the same when they hold the same values, whatever order a
+     * database returned a JSON object's keys in — MySQL's JSON type keeps object keys in its own
+     * order, SQLite keeps the text as written. Object keys are compared in a stable order at every
+     * level; lists keep their order (the order of actions and escalation steps is part of what a
+     * rule does); values are compared strictly, so 1, "1", true and null stay different.
+     *
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     */
+    public static function sameConfiguration(array $a, array $b): bool
+    {
+        return self::canonical($a) === self::canonical($b);
+    }
+
+    private static function canonical(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $value = array_map(self::canonical(...), $value);
+
+        if (! array_is_list($value)) {
+            ksort($value, SORT_STRING);
+        }
+
+        return $value;
     }
 
     private function requireReason(?string $reason, string $doing): string

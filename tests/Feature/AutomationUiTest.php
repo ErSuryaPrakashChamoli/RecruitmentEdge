@@ -95,7 +95,7 @@ test('the visual builder creates a versioned draft rule', function (): void {
 
     expect($rule->status)->toBe(AutomationRuleStatus::Draft)
         ->and($rule->version)->toBe(1)
-        ->and($rule->conditions['rules'][0])->toBe(['field' => 'offer.status', 'operator' => 'equals', 'value' => 'released'])
+        ->and($rule->conditions['rules'][0])->toBeJsonEquivalent(['field' => 'offer.status', 'operator' => 'equals', 'value' => 'released'])
         ->and($rule->actions[0]['type'])->toBe('create_action')
         ->and($rule->escalation['stop_conditions']['rules'][0]['value'])->toBe(['accepted', 'rejected']);
 });

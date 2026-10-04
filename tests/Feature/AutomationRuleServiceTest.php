@@ -19,6 +19,7 @@ use App\Services\Automation\AutomationTemplateCatalog;
 use App\Services\Communication\CommunicationTemplateService;
 use App\Services\InterviewService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
@@ -64,6 +65,73 @@ test('editing the configuration creates a new version; editing only the name doe
     expect($rule->fresh()->version)->toBe(2)
         ->and($rule->versions()->orderBy('version')->pluck('snapshot')->map(fn ($s) => $s['cooldown_minutes'])->all())->toBe([null, 60]);
 });
+
+/**
+ * The same value with every JSON object's keys in reverse order (lists keep their order) — what a
+ * database that stores JSON in its own key order (MySQL) hands back.
+ */
+function rc01ReversedKeys(mixed $value): mixed
+{
+    if (! is_array($value)) {
+        return $value;
+    }
+
+    $value = array_map(rc01ReversedKeys(...), $value);
+
+    return array_is_list($value) ? $value : array_reverse($value, preserve_keys: true);
+}
+
+test('a configuration stored with its JSON keys in another order is the same configuration (P810-RC-01)', function (): void {
+    $rule = $this->rules->create(ruleData([
+        'actions' => [
+            ['type' => 'create_action', 'action_type' => 'confirm_interview', 'owner' => 'recruiter', 'priority' => 'high', 'title' => 'Confirm'],
+            ['type' => 'create_action', 'action_type' => 'confirm_interview', 'owner' => 'recruiter', 'priority' => 'low', 'title' => 'Remind'],
+        ],
+    ]), $this->admin);
+    $stored = AutomationRule::query()->find($rule->id);
+
+    $rewritten = DB::table('automation_rules')->where('id', $rule->id)->update(collect(['conditions', 'actions', 'timing'])
+        ->mapWithKeys(fn (string $column) => [$column => json_encode(rc01ReversedKeys($stored->{$column}))])
+        ->put('updated_at', now()->addMinute())->all());
+
+    // One row was rewritten (MySQL counts changed rows and normalises the JSON itself, so the
+    // timestamp makes the count meaningful on both databases).
+    expect($rewritten)->toBe(1);
+
+    // The in-memory model still holds the keys in the order they were written.
+    $this->rules->update($rule, ['description' => 'Just words'], $this->admin);
+
+    expect($rule->fresh()->version)->toBe(1)
+        ->and($rule->versions()->count())->toBe(1);
+
+    // A real change inside a nested object, or a different order of actions, is still a change.
+    expect(fn () => $this->rules->update($rule->fresh(), ['actions' => [...array_slice($stored->actions, 0, 1), [...$stored->actions[1], 'priority' => 'high']]], $this->admin))
+        ->toThrow(DomainException::class, 'A reason is required')
+        ->and(fn () => $this->rules->update($rule->fresh(), ['actions' => array_reverse($stored->actions)], $this->admin))
+        ->toThrow(DomainException::class, 'A reason is required');
+
+    $this->rules->update($rule->fresh(), ['actions' => array_reverse($stored->actions)], $this->admin, 'Remind first');
+
+    expect($rule->fresh()->version)->toBe(2)
+        ->and($rule->versions()->orderByDesc('version')->first()->snapshot['actions'][0]['title'])->toBe('Remind');
+});
+
+test('configurations compare by value: object key order never matters, list order and value types do (P810-RC-01)', function (array $a, array $b, bool $same): void {
+    expect(AutomationRuleService::sameConfiguration($a, $b))->toBe($same)
+        ->and(AutomationRuleService::sameConfiguration($b, $a))->toBe($same);
+})->with([
+    'same JSON, same order' => [['a' => 1, 'b' => ['c' => 2]], ['a' => 1, 'b' => ['c' => 2]], true],
+    'same JSON, object keys reordered' => [['a' => 1, 'b' => 2], ['b' => 2, 'a' => 1], true],
+    'nested object keys reordered' => [['x' => ['rules' => [['field' => 'f', 'operator' => 'equals', 'value' => '0']]]], ['x' => ['rules' => [['value' => '0', 'field' => 'f', 'operator' => 'equals']]]], true],
+    'a different value' => [['a' => 1, 'b' => ['c' => 2]], ['a' => 1, 'b' => ['c' => 3]], false],
+    'an added key' => [['a' => 1], ['a' => 1, 'b' => null], false],
+    'a removed nested key' => [['a' => ['b' => 1, 'c' => 2]], ['a' => ['b' => 1]], false],
+    'a list in another order' => [['steps' => [['n' => 1], ['n' => 2]]], ['steps' => [['n' => 2], ['n' => 1]]], false],
+    'integer and string' => [['a' => 1], ['a' => '1'], false],
+    'null and false' => [['a' => null], ['a' => false], false],
+    'true and 1' => [['a' => true], ['a' => 1], false],
+    'zero and empty string' => [['a' => 0], ['a' => ''], false],
+]);
 
 test('invalid configurations are rejected with readable reasons', function (array $overrides, string $message): void {
     expect(fn () => $this->rules->create(ruleData($overrides), $this->admin))->toThrow(DomainException::class, $message);

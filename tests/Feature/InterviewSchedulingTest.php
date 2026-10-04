@@ -156,7 +156,7 @@ test('feedback score defaults to the criteria ratings average scaled to 10', fun
     ]);
 
     expect($feedback->refresh()->score)->toBe('8.0')
-        ->and($feedback->ratings)->toBe(['technical' => 5, 'communication' => 4, 'problem_solving' => 3, 'culture_fit' => 4]);
+        ->and($feedback->ratings)->toBeJsonEquivalent(['technical' => 5, 'communication' => 4, 'problem_solving' => 3, 'culture_fit' => 4]);
 });
 
 test('an explicitly entered feedback score is kept', function (): void {

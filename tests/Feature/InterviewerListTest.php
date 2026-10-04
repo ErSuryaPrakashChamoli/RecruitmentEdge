@@ -100,7 +100,7 @@ test('an administrator imports interviewers from an excel sheet by emp id, witho
         ->and($inactive->refresh()->is_active)->toBeFalse()
         ->and(Interviewer::query()->count())->toBe(3)
         ->and(AuditLog::query()->where('action', 'interviewers_imported')->sole()->changes)
-        ->toBe(['added' => 1, 'already_listed' => 1, 'inactive_not_reactivated' => 1, 'skipped' => 1]);
+        ->toBeJsonEquivalent(['added' => 1, 'already_listed' => 1, 'inactive_not_reactivated' => 1, 'skipped' => 1]);
 });
 
 test('a sheet without an emp id column is rejected', function (): void {

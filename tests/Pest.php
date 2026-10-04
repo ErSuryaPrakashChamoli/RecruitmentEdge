@@ -60,6 +60,17 @@ expect()->extend('toBeOne', function () {
 });
 
 /*
+ * P810-RC-02: JSON compared by meaning — object keys in any order (MySQL's JSON type returns them
+ * in its own order, and no contract that uses this depends on it), lists in their own order,
+ * scalars compared strictly. Use it only where key order is not part of the behaviour under test.
+ */
+expect()->extend('toBeJsonEquivalent', function (mixed $expected) {
+    expect(rc02CanonicalJson($this->value))->toBe(rc02CanonicalJson($expected));
+
+    return $this;
+});
+
+/*
 |--------------------------------------------------------------------------
 | Functions
 |--------------------------------------------------------------------------
@@ -73,6 +84,24 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * P810-RC-02: object keys sorted at every level; lists keep their order.
+ */
+function rc02CanonicalJson(mixed $value): mixed
+{
+    if (! is_array($value)) {
+        return $value;
+    }
+
+    $value = array_map(rc02CanonicalJson(...), $value);
+
+    if (! array_is_list($value)) {
+        ksort($value, SORT_STRING);
+    }
+
+    return $value;
 }
 
 /**

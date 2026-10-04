@@ -12,7 +12,7 @@
 **Evidence:**
 - `tests/Feature/Tenancy/*`: 105 tests, plus `tests/Concurrency/TenantIntegrityRaceTest.php` (3 races) on MySQL.
 - Full suite on SQLite: 2,241 / 2,241.
-- Full suite on MySQL 8.4: 2,234 / 2,241. The 7 failures are the pre-existing MySQL-only set from the release candidate (P810-RC-01 automation key order; P810-RC-02 JSON key-order assertions), unchanged and unrelated to tenancy.
+- Full suite on MySQL 8.4: 2,234 / 2,241 at SaaS-1 (`4c5207f`). The 7 failures were the pre-existing MySQL-only set from the release candidate (P810-RC-01, P810-RC-02), unrelated to tenancy. They are fixed in SaaS-1A (`post-rms-backlog.md` §8); the full MySQL suite then passes.
 - Concurrency suite (MySQL): 14 / 14 on a fresh database. One run hit the pre-existing random fixture-code collision (P810-RC-03); the rerun passed.
 - Two migration rehearsals with `tenancy:verify` (`saas-1-migration-plan.md` §5).
 
