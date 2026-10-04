@@ -100,7 +100,7 @@ None is Critical or High. None lets one tenant read or change another's data.
 
 | ID | Severity | Area | Evidence | Impact | Next phase |
 |---|---|---|---|---|---|
-| S1-01 | Medium | Identity enumeration | `users.email` is global (identity). Creating a login, or converting a candidate, whose email belongs to another tenant's staff fails with "already used" (`IdentityProvisioningService`, `UserForm` uniqueness). | Reveals that an email address has a login somewhere on the platform. | SaaS-2: invite an existing identity instead of creating one; neutral message |
+| S1-01 | Medium | Identity enumeration | `users.email` is global (identity). Creating a login, or converting a candidate, whose email belongs to another tenant's staff fails with "already used" (`IdentityProvisioningService`, `UserForm` uniqueness). | Reveals that an email address has a login somewhere on the platform. | **Fixed in SaaS-2** (S2-03, `saas-2-security-review.md`): invitations only, neutral answers |
 | S1-02 | Medium | Availability (shared providers) | `ProviderCircuitBreaker` and provider credentials are platform-wide (`config/services.php`). | One tenant's failing sends can pause a provider for all tenants. | SaaS-6: per-tenant provider accounts and breakers |
 | S1-03 | Medium | Fair use | No per-tenant concurrency caps on workers; tenant jobs share queues. | A tenant with heavy automation or AI can delay others. | SaaS-7 |
 | S1-04 | Medium | Upgrade: old links | URLs gained the tenant slug (`saas-1-tenant-foundation.md` §10). | Previously emailed portal and scheduling links and stored notification URLs 404 after the upgrade. | Release planning (owner decision, migration plan §2.4) |
