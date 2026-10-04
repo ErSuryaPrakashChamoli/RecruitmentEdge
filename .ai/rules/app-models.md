@@ -4,6 +4,7 @@ paths:
   - app/Models/CandidateStageHistory.php
   - 'app/Models/**'
   - app/Models/User.php
+  - app/Models/Tenant.php
 ---
 
 # App Models
@@ -22,3 +23,6 @@ SaaS-1: every table in TenantSchema::TENANT_TABLES has tenant_id NOT NULL and it
 
 ## SaaS-2: tenant-dependent relations are dropped when the tenant changes
 User::relationLoaded()/setRelation() discard loaded roles, permissions and employee when the TenantContext differs from the one they were loaded in (spatie team relations would otherwise answer for the wrong tenant on the same object). Access memos (StaffAccessService) are invalidated by every identity change and every Tenant/TenantMembership save; raw query-builder writes in tests need ->fresh() or StaffAccessService::invalidateDecisions(). Default tenant: never Filament's "first tenant" fallback (StaffFilamentManager); no default ⇒ /admin/organisations chooser.
+
+## Use effectiveStatus()/isUsable(), never the stored status, for access
+An ended trial is Suspended from the second trial_ends_at passes (Tenant::effectiveStatus()), before the hourly sweep records it. Decide access, entitlements and background work with isUsable()/allowsBackgroundWork(), not `status`. Only TenantLifecycleService writes status, trial_ends_at or entitlement_version (architecture test). MySQL JSON columns reorder object keys — compare decoded JSON arrays without key order.

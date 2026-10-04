@@ -145,6 +145,31 @@ test('a suspension committed while an operation waits refuses that operation', f
         ->and(commercialRaceActive())->toBe(0);
 });
 
+test('a trial that ends while a request waits for the tenant lock refuses that request', function (): void {
+    $endsAt = now()->addSeconds(4);
+    Tenant::query()->whereKey($this->tenant->id)->update(['status' => TenantStatus::Trial->value, 'trial_started_at' => now()->subDays(14), 'trial_ends_at' => $endsAt]);
+
+    // The request passes its permission check during the trial, then waits on the tenant lock held
+    // by a commercial operation; meanwhile the trial ends and the sweep records it.
+    $race = Race::run(
+        holder: fn () => Tenant::query()->whereKey($this->tenant->id)->lockForUpdate()->first(),
+        contender: fn () => commercialRaceCreate($this->admin),
+        whileBlocked: function () use ($endsAt): array {
+            while (now()->lte($endsAt)) {
+                usleep(100_000);
+            }
+
+            return app(TenantLifecycleService::class)->sweep();
+        },
+    );
+
+    expect($race['blocked'])->toBeTrue()
+        ->and($race['observed']['expired'])->toBeGreaterThanOrEqual(1)
+        ->and($race['exception'])->toBe(EntitlementDenied::class)
+        ->and($this->tenant->fresh()->status_reason)->toBe('trial_expired')
+        ->and(commercialRaceActive())->toBe(0);
+});
+
 test('the trial sweep and a trial extension: whichever commits first, the extension stands', function (): void {
     Tenant::query()->whereKey($this->tenant->id)->update(['status' => TenantStatus::Trial->value, 'trial_started_at' => now()->subDays(14), 'trial_ends_at' => now()->subMinute()]);
 

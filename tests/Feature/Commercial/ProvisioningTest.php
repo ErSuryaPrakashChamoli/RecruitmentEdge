@@ -171,6 +171,22 @@ test('a failed step rolls everything back, keeps the tenant unusable with the re
         ->and(provisioningAudit($finished, 'tenant_provisioned'))->toBe(1);
 });
 
+test('resuming a reserved tenant whose owner invitation already exists sends no second invitation', function (): void {
+    $request = provisioningRequest();
+    $reserved = Tenant::query()->create(['slug' => 'nova-hiring', 'name' => 'Nova Hiring', 'status' => TenantStatus::Provisioning, 'timezone' => 'Asia/Kolkata', 'locale' => 'en', 'currency' => 'INR', 'country' => 'IN']);
+    $reserved->forceFill(['provisioning_state' => ['request' => $request->fingerprint()]])->save();
+    TenantContext::current()->run($reserved, function (): void {
+        (new RolePermissionSeeder)->run();
+        app(TenantInvitationService::class)->inviteOwner('owner@nova.test', 'Nova Owner');
+    });
+
+    $tenant = app(TenantProvisioningService::class)->provision($request);
+
+    expect($tenant->id)->toBe($reserved->id)
+        ->and($tenant->status)->toBe(TenantStatus::Trial)
+        ->and(TenantContext::current()->run($tenant, fn () => TenantInvitation::query()->where('grants_ownership', true)->count()))->toBe(1);
+});
+
 test('the owner accepts once: owner, CHRO, one seat — a new identity is created only if none exists', function (): void {
     $tenant = app(TenantProvisioningService::class)->provision(provisioningRequest());
 

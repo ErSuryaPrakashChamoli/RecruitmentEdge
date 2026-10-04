@@ -45,6 +45,6 @@
 | D-S1-O1 | Release order: Phase 8.11 first and SaaS-1 later (recommended), or one combined upgrade? | Release owner | RMS first; a combined upgrade needs a rehearsal from a production copy. |
 | D-S1-O2 | Tenant #1 slug and names (`TENANT_ONE_*`) | Product + Ops | — |
 | D-S1-O3 | Old links after the upgrade: accept the 404s, or a reviewed transition redirect for Tenant #1? | Product + Security | — |
-| D-S1-O4 | Pause semantics for suspended tenants' queued work (S1-05) | Product + Ops | SaaS-3 lifecycle. |
+| D-S1-O4 | Pause semantics for suspended tenants' queued work (S1-05) | Product + Ops | **Decided in SaaS-3** (D-S3-15): waiting work resumes on reactivation; never for cancelled or deleted tenants. |
 | D-S1-O5 | Who are platform operators (alerts, health, support)? | Ops | SaaS-2 / 5 platform plane. |
 | D-S1-O6 | Provider accounts per tenant (S1-02) | Product + Finance | SaaS-6. |

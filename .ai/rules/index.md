@@ -9,7 +9,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
-| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php | .ai/rules/app-models.md |
+| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php, app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php | .ai/rules/app-services-services.md |
@@ -20,6 +20,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/Candidate.php,app/Services/CandidateSearchTerm.php,app/Filament/Resources/Candidates/** | .ai/rules/candidates.md |
 | docker-compose.yml,docker/**,app/Console/Commands/HeartbeatCheck.php,app/Services/WorkerHeartbeat.php,config/logging.php | .ai/rules/commands-services.md |
 | routes/console.php,app/Console/Commands/** | .ai/rules/commands.md |
+| app/Services/Platform/Commercial/** | .ai/rules/commercial.md |
 | app/Services/Communication/** | .ai/rules/communication.md |
 | resources/css/filament/admin/theme.css,resources/views/filament/components/theme-*.blade.php,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/components-providers-filament.md |
 | app/Models/Concerns/Auditable.php,app/Models/*.php | .ai/rules/concerns-models.md |
@@ -30,8 +31,10 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Console/Commands/SweepStuckWork.php,config/communications.php | .ai/rules/console-commands.md |
 | app/Http/Controllers/**,app/Providers/AppServiceProvider.php,config/filesystems.php | .ai/rules/controllers-providers.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
+| database/factories/TenantFactory.php | .ai/rules/database-factories.md |
 | app/Models/RecruitmentSetting.php,app/Services/RecruitmentSettingService.php,app/Filament/Resources/RecruitmentSettings/**,app/Services/Metrics/Definitions/SlaLegCompliance.php | .ai/rules/definitions.md |
 | app/Services/Distribution/** | .ai/rules/distribution.md |
+| app/Services/Entitlements/** | .ai/rules/entitlements.md |
 | app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php, app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Enums/StageHistoryEvent.php | .ai/rules/enums.md |
 | app/Filament/**,app/Services/Export/**,app/Policies/ExportPolicy.php | .ai/rules/export-policies.md |
 | database/seeders/**,database/factories/** | .ai/rules/factories.md |

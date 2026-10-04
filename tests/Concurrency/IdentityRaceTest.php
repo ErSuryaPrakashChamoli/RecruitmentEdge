@@ -36,6 +36,8 @@ beforeEach(function (): void {
     $this->other = Tenant::query()->firstOrCreate(['slug' => 'concurrency-identity'], [
         'name' => 'Concurrency Identity', 'status' => TenantStatus::Active, 'timezone' => 'Asia/Kolkata', 'locale' => 'en', 'currency' => 'INR', 'country' => 'IN',
     ]);
+    // SaaS-3: like the home tenant, every capability without limits (the legacy plan).
+    Race::pinPlan($this->other, 'legacy');
 
     foreach ([$this->home, $this->other] as $tenant) {
         TenantContext::current()->run($tenant, function (): void {

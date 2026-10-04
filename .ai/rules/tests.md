@@ -28,3 +28,6 @@ SaaS-1: TestCase (RefreshDatabase tests) creates tenant slug "acme" and calls ac
 
 ## SaaS-2 test fixtures: IdentityWorld; Livewire replays flush state
 Multi-tenant identity fixtures: Tests\Feature\IdentityAccess\IdentityWorld::build($this->tenant) (acme + beta, persons A–E of the authorisation matrix, adminA/adminB). User::factory()->create(['employee_id' => …]) still works: the factory moves the link onto the membership of the current tenant. When replaying a raw Livewire update more than once in one test, call Livewire::flushState() before each (Livewire skips persistent middleware already applied in the "same request"). Concurrency emails must be lowercase (invitations are normalised).
+
+## Dispatch inside TenantContext::run() with a statement, not an arrow fn
+`run($tenant, fn () => SomeJob::dispatch())` returns the PendingDispatch, which dispatches when destroyed — after run() has restored the previous tenant, so the payload names the wrong tenant. Use `function (): void { SomeJob::dispatch(); }` so it is dispatched inside the tenant.

@@ -3,9 +3,11 @@
 use App\Enums\DistributionStatus;
 use App\Enums\Entitlement;
 use App\Enums\RequisitionStatus;
+use App\Enums\TenantStatus;
 use App\Filament\Pages\PlanAndUsage;
 use App\Filament\Pages\RecruitmentReports;
 use App\Jobs\PublishJobDistributionJob;
+use App\Jobs\RunTenantScheduledTask;
 use App\Models\JobDistribution;
 use App\Models\JobPosting;
 use App\Models\RecruitmentRequisition;
@@ -20,7 +22,10 @@ use App\Services\Entitlements\EntitlementService;
 use App\Services\Platform\Commercial\EntitlementOverrideService;
 use App\Services\Platform\Commercial\PlanCatalog;
 use App\Services\Tenancy\TenantCache;
+use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantDirectory;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
@@ -138,6 +143,23 @@ test('a suspended tenant cannot have entitled work done, whoever asks', function
         ->and(fn () => $this->world->in('suspended', fn () => $service->consume(Entitlement::RequisitionsActiveMax, fn () => RecruitmentRequisition::factory()->create())))->toThrow(EntitlementDenied::class)
         ->and($this->world->in('suspended', fn () => RecruitmentRequisition::query()->count()))->toBe(0);
 });
+
+test('a closed tenant gets no entitled work, no limit consumption and no background work', function (TenantStatus $status): void {
+    $tenant = Tenant::factory()->status($status)->create(['slug' => 'closed-'.str_replace('_', '-', $status->value)]);
+    $service = app(EntitlementService::class);
+
+    expect($service->effective(Entitlement::ExportsData, $tenant)->source)->toBe('tenant_inactive')
+        ->and(fn () => TenantContext::current()->run($tenant, fn () => $service->consume(Entitlement::RequisitionsActiveMax, fn () => RecruitmentRequisition::factory()->create())))->toThrow(EntitlementDenied::class)
+        ->and(TenantContext::current()->run($tenant, fn () => RecruitmentRequisition::query()->count()))->toBe(0)
+        ->and(app(TenantDirectory::class)->forBackgroundWork()->pluck('id'))->not->toContain($tenant->id);
+
+    TenantContext::current()->run($tenant, function (): void {
+        RunTenantScheduledTask::dispatch('offers:expire-lapsed')->onConnection('database');
+    });
+    $this->artisan('queue:work', ['connection' => 'database', '--queue' => 'default', '--once' => true, '--tries' => 1])->run();
+
+    expect(DB::table('failed_jobs')->count())->toBe(1);
+})->with([TenantStatus::Cancelled, TenantStatus::DeletionPending, TenantStatus::Deleted]);
 
 test('an override cannot be invented: wrong type, a past end, or no reason are refused', function (): void {
     $growth = $this->world->tenant('growth');

@@ -21,6 +21,8 @@ beforeEach(function (): void {
     $this->other = Tenant::query()->firstOrCreate(['slug' => 'concurrency-other'], [
         'name' => 'Concurrency Other', 'status' => 'active', 'timezone' => 'Asia/Kolkata', 'locale' => 'en', 'currency' => 'INR', 'country' => 'IN',
     ]);
+    // SaaS-3: like the home tenant, every capability without limits (the legacy plan).
+    Race::pinPlan($this->other, 'legacy');
 
     // Each tenant's sequence exists already (steady state): a race is about its row lock.
     foreach ([$this->home, $this->other] as $tenant) {
