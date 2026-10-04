@@ -40,8 +40,20 @@ class MfaService
     public function isRequiredFor(User $user): bool
     {
         // SaaS-1: MFA belongs to the identity, so it is required when any tenant the person holds
-        // a role in requires it. Read across tenants on purpose: tenant-less pages (profile, MFA
-        // set-up) have no team scope, and a team-scoped read there would waive MFA.
+        // a role in requires it. A member of the current tenant only: that tenant's (eager-loadable)
+        // roles are the whole answer.
+        if ($user->belongsOnlyToCurrentTenant()) {
+            $roleKeys = $user->roles->pluck('key')->filter()->all();
+
+            if (array_intersect($roleKeys, (array) config('identity.mfa.required_roles', [])) !== []) {
+                return true;
+            }
+
+            return array_intersect($user->getAllPermissions()->pluck('name')->all(), (array) config('identity.mfa.privileged_permissions', [])) !== [];
+        }
+
+        // Otherwise read across tenants on purpose: tenant-less pages (profile, MFA set-up) have no
+        // team scope, and a team-scoped read there would waive MFA.
         $assignments = DB::table('model_has_roles')
             ->where('model_has_roles.model_type', $user->getMorphClass())
             ->where('model_has_roles.model_id', $user->getKey());

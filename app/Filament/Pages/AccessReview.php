@@ -157,6 +157,7 @@ class AccessReview extends Page implements HasTable
                 'employee' => fn ($query) => $query->withTrashed()->with(['reportsTo', 'separations']),
                 'roles.permissions',
                 'permissions',
+                'memberships',
             ])
             ->when($visible !== null, fn (Builder $query) => $query->whereIn('users.employee_id', $visible));
     }

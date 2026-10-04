@@ -71,7 +71,7 @@ Found by the cross-tenant suite, the rehearsals or review. All are fixed and cov
 | S1-F01 | High | `tenants:dispatch` queued each job only after `TenantContext::run()` had restored the previous tenant (`PendingDispatch` queues on destruct). Every scheduled tenant task would have carried the wrong tenant, or none. | `Bus::dispatch` inside the tenant; a payload test plus an architecture guard. Mutation-checked. |
 | S1-F02 | High | `HierarchyService::canView()` let a view-all user "see" any tenant's employee (null = unrestricted). | Refuses another tenant's employee; plus `Gate::before` denying every ability on another tenant's record or role. |
 | S1-F03 | High | `AuthorityGuard::inScope()` (null = every login) would let one tenant's CHRO suspend or revoke another tenant's staff through the identity services. | Only members of the current tenant are in scope; only the employing tenant changes access state. |
-| S1-F04 | High | Pre-tenant MFA check: team-scoped roles are empty before a tenant is chosen, which would waive MFA on tenant-less pages. | The MFA requirement is evaluated across every tenant the person holds a role in. |
+| S1-F04 | High | Pre-tenant MFA check: team-scoped roles are empty before a tenant is chosen, which would waive MFA on tenant-less pages. | The MFA requirement is evaluated across every tenant the person holds a role in (the current tenant's loaded roles when the person belongs only to it); tested and mutation-checked (M9). |
 | S1-F12 | High | Access Review (`AccessReview::reviewQuery`) listed every login for a view-all reviewer — every tenant's staff (names, emails, roles, sessions); staff identities have no `tenant_id`, so the tenant scope does not apply to them. | `User::membersOfCurrentTenant()` on the review, the audit log's user filter, fallback owners, access reconciliation and the identity audit; tested and mutation-checked (M7). |
 | S1-F05 | Medium | Provisioned and rehired logins had no membership (could not reach their tenant). | Membership created with the login. |
 | S1-F06 | Medium | The export audit hook was registered on Filament's base `Export` class; the tenant-owned subclass did not fire it (`export_requested` audit lost). | Registered on `App\Models\Export`. |
@@ -125,6 +125,7 @@ Each protection was removed by hand, the tests were run, and the code was restor
 | M5 | tenant in the metric cache key and fingerprint | "governed metrics … never cached together" |
 | M6 | `Bus::dispatch` → returned `PendingDispatch` in `tenants:dispatch` | "the scheduler queues one run per active tenant, each declaring its own tenant" |
 | M7 | the members-only filter on the Access Review | "the access review and staff pickers list only the tenant's own staff" |
+| M9 | the identity-wide MFA requirement (tenant-scoped roles only) | "MFA follows the identity: required everywhere when any tenant the person belongs to requires it" |
 | M8 | the `(tenant_id, id)` index for `RowLock::key()` (the pre-fix code) | `TenantIntegrityRaceTest` "a row lock held in one tenant is never taken, waited on or read by another tenant" (MySQL) |
 
 ## 6. What this review does not cover

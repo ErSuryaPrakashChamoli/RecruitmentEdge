@@ -13,6 +13,7 @@ use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
 use App\Notifications\StaffDatabaseNotification;
+use App\Services\Identity\MfaService;
 use App\Services\Identity\RoleAssignmentService;
 use App\Services\Identity\StaffAccessService;
 use App\Services\Tenancy\TenantContext;
@@ -168,4 +169,17 @@ test('the access review and staff pickers list only the tenant\'s own staff, eve
         ->and($auditUserFilter)->not->toContain($this->bravo->chro->id, $this->bravo->recruiter->id);
 
     $this->get('/admin/alpha/access-review')->assertOk()->assertSee('ALPHA Recruiter')->assertDontSee('BRAVO');
+});
+
+test('MFA follows the identity: required everywhere when any tenant the person belongs to requires it', function (): void {
+    $mfa = app(MfaService::class);
+    $person = $this->alpha->recruiter;
+
+    expect($mfa->isRequiredFor($person->fresh()))->toBeFalse();
+
+    TenantMembership::query()->create(['tenant_id' => $this->bravo->tenant->id, 'user_id' => $person->id, 'status' => TenantMembershipStatus::Active]);
+    TenantContext::current()->run($this->bravo->tenant, fn () => $person->unsetRelation('roles')->assignRole('chro'));
+
+    expect($mfa->isRequiredFor($person->fresh()))->toBeTrue()
+        ->and(TenantContext::current()->runWithoutTenant(fn () => $mfa->isRequiredFor($person->fresh())))->toBeTrue();
 });

@@ -170,7 +170,31 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     {
         $tenantId = TenantContext::current()->id();
 
-        return $tenantId !== null && $this->memberships()->where('tenant_id', $tenantId)->exists();
+        return $tenantId !== null && $this->membershipTenantIds()->contains($tenantId);
+    }
+
+    /**
+     * SaaS-1: a member of the current tenant and of no other — then the identity-wide answer to
+     * "what can this person hold?" is the current tenant's (MfaService).
+     */
+    public function belongsOnlyToCurrentTenant(): bool
+    {
+        $tenantId = TenantContext::current()->id();
+        $tenantIds = $this->membershipTenantIds();
+
+        return $tenantId !== null && $tenantIds->isNotEmpty() && $tenantIds->every(fn (int $id): bool => $id === $tenantId);
+    }
+
+    /**
+     * Eager-loaded memberships when a list loaded them (no query per person), otherwise one query.
+     *
+     * @return Collection<int, int>
+     */
+    private function membershipTenantIds(): Collection
+    {
+        $tenantIds = $this->relationLoaded('memberships') ? $this->memberships->pluck('tenant_id') : $this->memberships()->pluck('tenant_id');
+
+        return $tenantIds->map(fn (mixed $id): int => (int) $id)->values();
     }
 
     /**
@@ -239,6 +263,11 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             return null;
         }
 
+        // A list that eager-loaded the employee (Access Review) needs no query per person.
+        if ($this->relationLoaded('employee') && $this->employee !== null) {
+            return (int) $this->employee->tenant_id;
+        }
+
         $tenantId = DB::table('employees')->where('id', $this->employee_id)->value('tenant_id');
 
         return $tenantId === null ? null : (int) $tenantId;
@@ -259,7 +288,7 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     {
         $tenantId = $this->employingTenantId();
 
-        return $tenantId === null ? $callback() : TenantContext::current()->run($tenantId, $callback);
+        return $tenantId === null || $tenantId === TenantContext::current()->id() ? $callback() : TenantContext::current()->run($tenantId, $callback);
     }
 
     /**

@@ -48,7 +48,7 @@ class UserResource extends Resource
 
         return parent::getEloquentQuery()
             ->whereHas('memberships', fn (Builder $query) => $query->where('tenant_id', TenantContext::current()->requireId()))
-            ->with(['employee' => fn ($query) => $query->withTrashed(), 'roles.permissions', 'permissions'])
+            ->with(['employee' => fn ($query) => $query->withTrashed(), 'roles.permissions', 'permissions', 'memberships'])
             ->when($visible !== null, fn (Builder $query) => $query->whereIn('employee_id', $visible));
     }
 
