@@ -94,6 +94,9 @@ class RolePermissionSeeder extends Seeder
         'access.review',
         'employees.separation.cancel',
         'compensation.view',
+        // SaaS-4: the organisation's billing (CHRO only by default; a tenant admin is not a billing admin).
+        'billing.view',
+        'billing.manage',
     ];
 
     /**

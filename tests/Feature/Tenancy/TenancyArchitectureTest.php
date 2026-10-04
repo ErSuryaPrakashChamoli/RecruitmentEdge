@@ -92,6 +92,8 @@ test('crossing tenants happens only in reviewed places', function (): void {
         'app/Http/Middleware/ResolveTenantForFilamentDownload.php' => 'reads an export\'s tenant by id before checking access to it',
         'app/Services/QueueHealthService.php' => 'platform health: counts only, with no tenant established',
         'app/Services/Identity/TenantInvitationService.php' => 'finds an invitation by its token hash, then works inside the invitation\'s own tenant',
+        'app/Console/Commands/BillingPayment.php' => 'platform console: an invoice by its globally unique number, a payment by its reference, then works inside its tenant (SaaS-4)',
+        'app/Services/Billing/BillingReferenceResolver.php' => 'finds a verified provider event\'s payment by the provider\'s own reference, then works inside its tenant (SaaS-4)',
     ];
 
     $found = collect(tenancyArchSources())
@@ -180,7 +182,7 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
         'admin/password-reset' => 'staff password reset (global identity)', 'admin/email-change-verification' => 'staff email (global identity)',
         'admin/multi-factor-authentication' => 'staff MFA (global identity)', 'admin/profile' => 'runs in the employing tenant (Profile::boot)',
         'filament/exports' => 'the export\'s own tenant (ResolveTenantForFilamentDownload)', 'filament/imports' => 'the import\'s own tenant (ResolveTenantForFilamentDownload)',
-        'files/private' => 'the signed tenant (PrivateFileController)', 'webhooks/' => 'the provider message\'s tenant (DeliveryStatusService)',
+        'files/private' => 'the signed tenant (PrivateFileController)', 'webhooks/' => 'the provider message\'s tenant (DeliveryStatusService); the provider payment\'s tenant (BillingReferenceResolver, SaaS-4)',
         'integrations/calendar/{provider}/callback' => 'the tenant kept with the OAuth state', 'health/queue' => 'platform health (token)',
         'livewire-' => 'the component page\'s own (persistent) middleware', '_boost/' => 'development tool (not in the production image)',
         'invitations' => 'the invitation\'s own tenant, found by its token hash (SaaS-2)',

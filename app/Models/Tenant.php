@@ -58,6 +58,7 @@ class Tenant extends Model implements HasName
             'trial_started_at' => 'datetime',
             'trial_ends_at' => 'datetime',
             'entitlement_version' => 'integer',
+            'access_ends_at' => 'datetime',
             'provisioned_at' => 'datetime',
             'provisioning_state' => 'array',
             'mfa_required' => 'boolean',
@@ -92,7 +93,8 @@ class Tenant extends Model implements HasName
     /**
      * SaaS-3: the state the tenant is in right now. A trial whose end has passed is Suspended
      * (reason trial_expired) from that moment — the stored status catches up when the sweep (or
-     * any lifecycle change) records it.
+     * any lifecycle change) records it. SaaS-4: likewise an Active or PastDue tenant whose access
+     * end has passed (a past-due grace period, or the paid period of a cancelled subscription).
      */
     public function effectiveStatus(): TenantStatus
     {
@@ -100,7 +102,19 @@ class Tenant extends Model implements HasName
             return TenantStatus::Suspended;
         }
 
+        if (in_array($this->status, [TenantStatus::Active, TenantStatus::PastDue], true) && $this->accessHasEnded()) {
+            return TenantStatus::Suspended;
+        }
+
         return $this->status;
+    }
+
+    /**
+     * SaaS-4: a scheduled end of access (set only by TenantLifecycleService for billing) has passed.
+     */
+    public function accessHasEnded(): bool
+    {
+        return $this->access_ends_at !== null && ! $this->access_ends_at->isFuture();
     }
 
     public function trialHasExpired(): bool

@@ -78,6 +78,11 @@ final class TenantTasks
         'queue:health-check',
         // SaaS-3: records ended trials and reports unfinished provisioning (reads tenants only).
         'tenants:lifecycle-sweep',
+        // SaaS-4: billing's clock and reconciliation visit each open tenant themselves, one at a time,
+        // inside that tenant; the prune touches provider event rows only.
+        'billing:sweep',
+        'billing:reconcile',
+        'billing:prune-events',
     ];
 
     public static function isTenantTask(string $task): bool

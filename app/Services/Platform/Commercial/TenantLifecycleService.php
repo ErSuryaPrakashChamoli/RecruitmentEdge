@@ -121,6 +121,36 @@ class TenantLifecycleService
     }
 
     /**
+     * SaaS-4: schedules (or clears, with null) the moment an Active or PastDue tenant stops being
+     * usable — the end of a past-due grace period, or of a cancelled subscription's paid period.
+     * Effective from that second on every request (Tenant::effectiveStatus); billing records the
+     * suspension afterwards. Called only through CommercialSubscriptionService.
+     */
+    public function setAccessEnd(Tenant $tenant, ?DateTimeInterface $endsAt, string $reason, ?User $operator = null, string $source = 'billing'): Tenant
+    {
+        PlatformOperatorGate::assert($operator);
+        $reason = $this->reason($reason);
+
+        return DB::transaction(function () use ($tenant, $endsAt, $reason, $operator, $source): Tenant {
+            $locked = $this->lock($tenant);
+            $from = $locked->access_ends_at;
+
+            if ($from?->getTimestamp() === ($endsAt === null ? null : $endsAt->getTimestamp())) {
+                return $locked;
+            }
+
+            $locked->forceFill(['access_ends_at' => $endsAt])->save();
+            CommercialChange::record($locked, $endsAt === null ? 'access_end_cleared' : 'access_end_scheduled', ['access_ends_at' => $from?->format(DATE_ATOM)], ['access_ends_at' => $endsAt?->format(DATE_ATOM)], $operator, $source, $reason);
+
+            if ($tenant !== $locked) {
+                $tenant->setRawAttributes($locked->getAttributes(), true);
+            }
+
+            return $locked;
+        });
+    }
+
+    /**
      * Records the end of every trial that has ended (hourly, platform task). Correctness never
      * depends on it: an ended trial is already treated as Suspended.
      *
@@ -172,7 +202,13 @@ class TenantLifecycleService
             }
 
             $wasUsable = $locked->isUsable();
-            $resumable = $from === TenantStatus::Suspended || ($from === TenantStatus::Trial && $locked->trialHasExpired());
+            $resumable = $from === TenantStatus::Suspended || ($from === TenantStatus::Trial && $locked->trialHasExpired()) || $locked->accessHasEnded();
+
+            // SaaS-4: a scheduled end of access belongs to the state it was set in; any transition
+            // but the one into PastDue (whose grace end billing sets next) ends it.
+            if ($to !== TenantStatus::PastDue && $locked->access_ends_at !== null) {
+                $extra['access_ends_at'] = null;
+            }
 
             $locked->forceFill([
                 'status' => $to,

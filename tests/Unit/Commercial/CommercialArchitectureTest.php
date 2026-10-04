@@ -16,12 +16,18 @@ function commercialSources(): array
 
 function commercialIsPlatformCommand(string $path): bool
 {
-    return in_array($path, array_map(fn (string $command): string => "app/Console/Commands/{$command}.php", ['PlansSync', 'TenantsProvision', 'TenantsPlan', 'TenantsEntitlement', 'TenantsLifecycle', 'TenantsLifecycleSweep']), true);
+    return in_array($path, array_map(fn (string $command): string => "app/Console/Commands/{$command}.php", ['PlansSync', 'TenantsProvision', 'TenantsPlan', 'TenantsEntitlement', 'TenantsLifecycle', 'TenantsLifecycleSweep', 'BillingPrice', 'BillingSubscription']), true);
 }
 
 test('only the platform reaches the commercial control plane — no page, route, Livewire component or job', function (): void {
     foreach (commercialSources() as $path => $source) {
         if (str_starts_with($path, 'app/Services/Platform/Commercial/') || commercialIsPlatformCommand($path)) {
+            continue;
+        }
+
+        // SaaS-4: the billing domain reaches it through its bridge and the platform gate only
+        // (BillingArchitectureTest checks exactly which classes).
+        if (str_starts_with($path, 'app/Services/Billing/')) {
             continue;
         }
 
@@ -58,7 +64,7 @@ test('a tenant\'s lifecycle state is written only by the lifecycle and provision
             continue;
         }
 
-        expect((bool) preg_match('/(Tenant::[^;]*->(update|forceFill|fill)\(\s*\[[^;]*[\'"](status|trial_ends_at|entitlement_version)[\'"]\s*=>|\$tenant->(status|trial_ends_at|entitlement_version)\s*=[^=])/s', $source))
+        expect((bool) preg_match('/(Tenant::[^;]*->(update|forceFill|fill)\(\s*\[[^;]*[\'"](status|trial_ends_at|access_ends_at|entitlement_version)[\'"]\s*=>|\$tenant->(status|trial_ends_at|access_ends_at|entitlement_version)\s*=[^=])/s', $source))
             ->toBeFalse("{$path} writes a tenant's lifecycle or commercial state outside TenantLifecycleService");
     }
 });

@@ -5,6 +5,7 @@ use App\Http\Controllers\Identity\TenantInvitationController;
 use App\Http\Controllers\Integrations\CalendarOAuthController;
 use App\Http\Controllers\PrivateFileController;
 use App\Http\Controllers\QueueHealthController;
+use App\Http\Controllers\Webhooks\BillingWebhookController;
 use App\Http\Controllers\Webhooks\CommunicationWebhookController;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureStaffMfa;
@@ -22,6 +23,8 @@ Route::prefix('portal/{tenant}')->middleware(ResolveTenantFromRoute::class)->nam
 Route::prefix('webhooks')->middleware('throttle:webhooks')->group(function (): void {
     Route::get('communications/{provider}', [CommunicationWebhookController::class, 'verify'])->name('webhooks.communications.verify');
     Route::post('communications/{provider}', [CommunicationWebhookController::class, 'handle'])->name('webhooks.communications');
+    // SaaS-4: payment provider notifications (signature-verified, stored once, processed on the queue).
+    Route::post('billing/{provider}', BillingWebhookController::class)->name('webhooks.billing');
 });
 
 // Phase 5 OAuth connect flow for an employee's own calendar (staff session).

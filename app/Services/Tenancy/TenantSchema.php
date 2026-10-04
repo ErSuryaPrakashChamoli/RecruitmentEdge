@@ -122,6 +122,11 @@ final class TenantSchema
         'talent_pool_memberships',
         'talent_pools',
         'talent_signal_snapshots',
+        // SaaS-4: the tenant's billing identity, subscriptions, invoices and payments.
+        'billing_customers',
+        'billing_invoices',
+        'billing_payments',
+        'billing_subscriptions',
         // SaaS-3: the tenant's entitlement overrides and plan assignments (commercial control plane).
         'tenant_entitlement_overrides',
         // SaaS-2: invitations into the tenant (hashed tokens).
@@ -136,11 +141,14 @@ final class TenantSchema
      *   which no tenant query can reach;
      * - communication_webhook_events: provider callbacks are received before their tenant is
      *   known; tenant_id is filled in from the matched message (null = not matched).
+     * - billing_events (SaaS-4): payment provider notifications, likewise received before their
+     *   tenant is known; tenant_id comes from the local record the event refers to.
      *
      * @var list<string>
      */
     public const NULLABLE_TENANT_TABLES = [
         'audit_logs',
+        'billing_events',
         'communication_webhook_events',
     ];
 
@@ -160,6 +168,9 @@ final class TenantSchema
         'plans',
         'plan_versions',
         'plan_entitlements',
+        // SaaS-4: versioned prices of plan versions, and the platform's single invoice series.
+        'billing_prices',
+        'billing_invoice_sequences',
     ];
 
     /**
@@ -511,6 +522,15 @@ final class TenantSchema
      * @var array<string, array<string, string>>
      */
     public const COMPOSITE_REFERENCES = [
+        'billing_invoices' => [
+            'billing_subscription_id' => 'billing_subscriptions',
+        ],
+        'billing_payments' => [
+            'billing_invoice_id' => 'billing_invoices',
+        ],
+        'billing_subscriptions' => [
+            'billing_customer_id' => 'billing_customers',
+        ],
         'ai_messages' => [
             'conversation_id' => 'ai_conversations',
         ],

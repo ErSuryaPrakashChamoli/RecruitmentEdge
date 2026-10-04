@@ -24,6 +24,8 @@ use App\Services\Automation\AutomationActionRegistry;
 use App\Services\Automation\AutomationEventRegistry;
 use App\Services\Automation\AutomationFieldRegistry;
 use App\Services\Automation\AutomationRuntime;
+use App\Services\Billing\BillingStatusService;
+use App\Services\Billing\Providers\BillingProviderManager;
 use App\Services\CandidatePortalService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
@@ -107,6 +109,9 @@ class AppServiceProvider extends ServiceProvider
         // request / queued job.
         $this->app->scoped(HierarchyMemo::class);
         $this->app->scoped(RecruitmentAnalyticsService::class);
+        // SaaS-4: one provider adapter instance per request / queued job (adapters may hold a client).
+        $this->app->scoped(BillingProviderManager::class);
+        $this->app->scoped(BillingStatusService::class);
         // Phase 8.9: one heartbeat writer per worker process (it throttles its own writes).
         $this->app->singleton(WorkerHeartbeat::class);
 
