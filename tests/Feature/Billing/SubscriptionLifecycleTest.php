@@ -15,8 +15,10 @@ use App\Services\Billing\BillingClock;
 use App\Services\Billing\Money;
 use App\Services\Billing\PriceCatalogService;
 use App\Services\Billing\SubscriptionService;
+use App\Services\Billing\SubscriptionStateMachine;
 use App\Services\Entitlements\EntitlementService;
 use App\Services\Platform\Commercial\PlanAssignmentService;
+use Illuminate\Support\Facades\DB;
 use Tests\Feature\Billing\BillingWorld;
 
 /*
@@ -233,4 +235,17 @@ test('a subscription never paid expires without touching the tenant it never ser
     expect($this->world->subscription('paying')->status)->toBe(SubscriptionStatus::Expired)
         ->and($this->world->tenant('paying')->status)->toBe(TenantStatus::Active)
         ->and($this->world->tenant('paying')->isUsable())->toBeTrue();
+});
+
+test('the state machine refuses every transition outside its table, and an ended subscription stays ended', function (): void {
+    $subscription = $this->world->subscribe('paying');
+    $machine = app(SubscriptionStateMachine::class);
+
+    expect(fn () => $this->world->in('paying', fn () => DB::transaction(fn () => $machine->transition($subscription->fresh(), SubscriptionStatus::PastDue, 'x', 'test'))))->toThrow(DomainException::class, 'cannot move')
+        ->and(fn () => $this->world->in('paying', fn () => DB::transaction(fn () => $machine->transition($subscription->fresh(), SubscriptionStatus::Cancelling, 'x', 'test'))))->toThrow(DomainException::class, 'cannot move');
+
+    app(SubscriptionService::class)->cancelForPlatform($subscription, 'Left', immediately: true);
+
+    expect(fn () => $this->world->in('paying', fn () => DB::transaction(fn () => $machine->transition($this->world->subscription('paying'), SubscriptionStatus::Active, 'x', 'test'))))->toThrow(DomainException::class, 'cannot move')
+        ->and(fn () => app(SubscriptionService::class)->cancelForPlatform($this->world->subscription('paying'), 'Again'))->toThrow(DomainException::class, 'ended');
 });
