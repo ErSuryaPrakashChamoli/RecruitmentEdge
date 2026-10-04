@@ -4,13 +4,13 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\AccessState;
-use App\Enums\TenantMembershipStatus;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\Identity\CredentialService;
 use App\Services\Identity\MfaService;
 use App\Services\Identity\StaffAccessService;
 use App\Services\Tenancy\TenantContext;
+use Closure;
 use Database\Factories\UserFactory;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
@@ -25,20 +25,35 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use LogicException;
 use SensitiveParameter;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['name', 'email', 'password', 'employee_id', 'theme'])]
+/**
+ * SaaS-2: the GLOBAL staff identity — one row per person on the platform, whatever number of
+ * tenants they belong to. It holds only what is the person's own everywhere: name, email,
+ * password, MFA, sessions, display preferences, and the platform's identity lock (disabled_at).
+ *
+ * Everything tenant-specific lives on the person's TenantMembership for that tenant: access state,
+ * employee record, default-tenant preference; roles are spatie team (tenant) assignments. The
+ * attributes employee_id, employee, access_status and revoked_roles are read from the membership
+ * of the CURRENT tenant (TenantContext), so existing tenant code keeps asking the same questions and
+ * gets that tenant's answer — null outside a tenant or for a non-member. They cannot be written
+ * here: the identity services change the membership.
+ */
+// employee_id stays fillable only so that a mass assignment of it reaches its mutator and is refused.
+#[Fillable(['name', 'email', 'password', 'theme', 'employee_id'])]
 #[Hidden(['password', 'remember_token', 'session_epoch'])]
 class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasAvatar, HasDefaultTenant, HasTenants
 {
@@ -56,19 +71,57 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     }
 
     /**
-     * Phase 8.4: the access state changes only through StaffAccessService, and the employee link
-     * (which decides whose team the login sees) only through IdentityProvisioningService.
+     * SaaS-2: relations whose rows depend on the current tenant — spatie's team-scoped roles and
+     * direct permissions, and the employee record of the current membership. A loaded copy is
+     * only reused in the tenant it was loaded in; in any other tenant (or none) it is dropped and
+     * read again, so one tenant's roles can never answer a question in another tenant.
+     */
+    private const TENANT_RELATIONS = ['roles', 'permissions', 'employee'];
+
+    /**
+     * @var array<string, int|null> relation => the tenant it was loaded in
+     */
+    private array $relationTenants = [];
+
+    /**
+     * The StaffAccessService generation the loaded memberships belong to.
+     */
+    private ?int $membershipsGeneration = null;
+
+    /**
+     * The employee an unsaved stand-in represents (standInFor()).
+     */
+    private ?int $standInEmployeeId = null;
+
+    /**
+     * SaaS-2: a transient, never-saved stand-in for an employee — the dashboard's recruiter filter
+     * scopes widgets to that employee's hierarchy. It has the employee as its employee record and
+     * no membership, so it holds no access, role or permission anywhere.
+     */
+    public static function standInFor(Employee $employee): self
+    {
+        $user = new self;
+        $user->forceFill(['name' => $employee->fullName()]);
+        $user->standInEmployeeId = (int) $employee->getKey();
+        $user->setRelation('employee', $employee);
+
+        return $user;
+    }
+
+    /**
+     * Phase 8.4 / SaaS-2: the identity lock belongs to the platform plane; the access state and the
+     * employee link are no longer attributes of the identity (they live on the membership).
      *
      * @return array<int, string>
      */
     public function lifecycleAttributes(): array
     {
-        return ['access_status', 'employee_id'];
+        return ['disabled_at', 'disabled_reason'];
     }
 
     public function lifecycleOwner(): string
     {
-        return 'StaffAccessService / IdentityProvisioningService';
+        return 'PlatformIdentityService';
     }
 
     protected static function booted(): void
@@ -112,25 +165,75 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     }
 
     /**
-     * @return BelongsTo<Employee, $this>
+     * SaaS-2: the person's employee record in the CURRENT tenant, through that tenant's membership —
+     * so a list, an eager load or a whereHas('employee') is tenant-correct in the database too. With
+     * no tenant it matches nothing.
+     *
+     * @return HasOneThrough<Employee, TenantMembership, $this>
      */
-    public function employee(): BelongsTo
+    public function employee(): HasOneThrough
     {
-        return $this->belongsTo(Employee::class);
+        return $this->hasOneThrough(Employee::class, TenantMembership::class, 'user_id', 'id', 'id', 'employee_id')
+            ->where('tenant_memberships.tenant_id', TenantContext::current()->id());
     }
 
     /**
-     * Phase 8.4: only a permitted (Active) login with a role may use the panel. Checked at sign-in
-     * and on every panel request, including Livewire updates.
+     * SaaS-2: the employee record of the current tenant's membership — null outside a tenant, for a
+     * non-member, or for a member without an employee record. Changed only by
+     * IdentityProvisioningService (on the membership).
      */
+    protected function employeeId(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): ?int => ! $this->exists ? $this->standInEmployeeId : (($id = $this->currentMembership()?->employee_id) === null ? null : (int) $id),
+            set: fn (): never => throw new LogicException('User employee_id can only change through IdentityProvisioningService: the employee link belongs to the tenant membership.'),
+        );
+    }
+
     /**
-     * SaaS-1: a signed-in identity may use the panel when its login is permitted and it can reach
-     * at least one tenant. Which tenant a request acts in is decided by the tenant in the URL and
-     * canAccessTenant(), never here.
+     * SaaS-2: the access state of the current tenant's membership — null outside a tenant or for a
+     * non-member (who has no access there). Changed only by StaffAccessService.
+     */
+    protected function accessStatus(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): ?AccessState => $this->currentMembership()?->status,
+            set: fn (): never => throw new LogicException('User access_status can only change through StaffAccessService: the access state belongs to the tenant membership.'),
+        )->withoutObjectCaching();
+    }
+
+    /**
+     * @return Attribute<list<string>|null, never>
+     */
+    protected function revokedRoles(): Attribute
+    {
+        return Attribute::get(fn (): ?array => $this->currentMembership()?->revoked_roles);
+    }
+
+    /**
+     * @return Attribute<string|null, never>
+     */
+    protected function accessReason(): Attribute
+    {
+        return Attribute::get(fn (): ?string => $this->currentMembership()?->status_reason);
+    }
+
+    /**
+     * @return Attribute<string|null, never>
+     */
+    protected function accessSource(): Attribute
+    {
+        return Attribute::get(fn (): ?string => $this->currentMembership()?->status_source);
+    }
+
+    /**
+     * SaaS-1: a signed-in identity may use the panel when the identity itself is usable (not
+     * disabled by the platform) and it can reach at least one tenant. Which tenant a request acts
+     * in is decided by the tenant in the URL and canAccessTenant(), never here.
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return app(StaffAccessService::class)->permits($this) && $this->accessibleTenants()->isNotEmpty();
+        return app(StaffAccessService::class)->identityPermits($this) && $this->accessibleTenants()->isNotEmpty();
     }
 
     /**
@@ -153,13 +256,80 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     }
 
     /**
-     * SaaS-1: staff identities are global; a tenant lists or sweeps only its own members (active or
-     * revoked). Every User query that lists people inside a tenant goes through this.
+     * SaaS-2: this identity's membership of the current tenant (any state), or null.
+     */
+    public function currentMembership(): ?TenantMembership
+    {
+        $tenantId = TenantContext::current()->id();
+
+        return $tenantId === null ? null : $this->membershipIn($tenantId);
+    }
+
+    /**
+     * SaaS-2: this identity's membership of $tenantId (any state), or null. All memberships are read
+     * once (or taken from an eager load) and re-read after any identity change in this process.
+     */
+    public function membershipIn(int $tenantId): ?TenantMembership
+    {
+        if (! $this->exists) {
+            return null;
+        }
+
+        if (! $this->relationLoaded('memberships') || $this->membershipsGeneration !== StaffAccessService::generation()) {
+            $this->setRelation('memberships', $this->memberships()->get());
+        }
+
+        return $this->memberships->first(fn (TenantMembership $membership): bool => (int) $membership->tenant_id === $tenantId);
+    }
+
+    /**
+     * SaaS-1: staff identities are global; a tenant lists or sweeps only its own members (any
+     * state). Every User query that lists people inside a tenant goes through this. SaaS-2: the
+     * optional constraint narrows the membership (its state, its employee link).
+     *
+     * @param  (Closure(Builder<TenantMembership>): mixed)|null  $membership
      */
     #[Scope]
-    protected function membersOfCurrentTenant(Builder $query): void
+    protected function membersOfCurrentTenant(Builder $query, ?Closure $membership = null): void
     {
-        $query->whereHas('memberships', fn (Builder $membership) => $membership->where('tenant_id', TenantContext::current()->requireId()));
+        $tenantId = TenantContext::current()->requireId();
+
+        $query->whereHas('memberships', function (Builder $query) use ($tenantId, $membership): void {
+            $query->where('tenant_id', $tenantId);
+
+            if ($membership !== null) {
+                $membership($query);
+            }
+        });
+    }
+
+    /**
+     * SaaS-2: the login linked to an employee record (one at most: the employee belongs to one
+     * tenant and a membership links one employee).
+     */
+    #[Scope]
+    protected function linkedToEmployee(Builder $query, int $employeeId): void
+    {
+        $query->whereHas('memberships', fn (Builder $membership) => $membership->where('employee_id', $employeeId));
+    }
+
+    /**
+     * SaaS-2: the identity with this email address, compared the way the platform normalises it
+     * (trimmed, lower case). MySQL's collation already compares case-insensitively (and keeps the
+     * unique index usable); SQLite's does not.
+     */
+    #[Scope]
+    protected function whereEmailIs(Builder $query, string $email): void
+    {
+        $normalised = self::normaliseEmail($email);
+
+        $query->where(fn (Builder $match) => $match->where('email', $normalised)
+            ->when(DB::connection($this->getConnectionName())->getDriverName() === 'sqlite', fn (Builder $sqlite) => $sqlite->orWhereRaw('lower(email) = ?', [$normalised])));
+    }
+
+    public static function normaliseEmail(string $email): string
+    {
+        return mb_strtolower(trim($email));
     }
 
     /**
@@ -168,62 +338,39 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
      */
     public function isMemberOfCurrentTenant(): bool
     {
-        $tenantId = TenantContext::current()->id();
-
-        return $tenantId !== null && $this->membershipTenantIds()->contains($tenantId);
+        return $this->currentMembership() !== null;
     }
 
     /**
-     * SaaS-1: a member of the current tenant and of no other — then the identity-wide answer to
-     * "what can this person hold?" is the current tenant's (MfaService).
+     * SaaS-1: a member of the current tenant and of no other (in any state) — then the identity is
+     * the current tenant's alone: its global credentials may be managed by this tenant
+     * (AuthorityGuard::assertCanManageCredentials) and the identity-wide answer to "what can this
+     * person hold?" is the current tenant's (MfaService).
      */
     public function belongsOnlyToCurrentTenant(): bool
     {
         $tenantId = TenantContext::current()->id();
-        $tenantIds = $this->membershipTenantIds();
 
-        return $tenantId !== null && $tenantIds->isNotEmpty() && $tenantIds->every(fn (int $id): bool => $id === $tenantId);
+        if ($tenantId === null || ! $this->exists) {
+            return false;
+        }
+
+        $this->membershipIn($tenantId);
+        $tenantIds = $this->memberships->map(fn (TenantMembership $membership): int => (int) $membership->tenant_id);
+
+        return $tenantIds->isNotEmpty() && $tenantIds->every(fn (int $id): bool => $id === $tenantId);
     }
 
     /**
-     * Eager-loaded memberships when a list loaded them (no query per person), otherwise one query.
-     *
-     * @return Collection<int, int>
-     */
-    private function membershipTenantIds(): Collection
-    {
-        $tenantIds = $this->relationLoaded('memberships') ? $this->memberships->pluck('tenant_id') : $this->memberships()->pluck('tenant_id');
-
-        return $tenantIds->map(fn (mixed $id): int => (int) $id)->values();
-    }
-
-    /**
-     * SaaS-1: the tenants this identity may enter — an active membership, a usable tenant
-     * (TenantStatus), and at least one role in that tenant.
+     * SaaS-2: the tenants this identity may enter right now (StaffAccessService::accessibleTenants):
+     * an Active membership, a usable tenant, at least one role there, and no employment fact there
+     * that blocks access. Never anything else.
      *
      * @return Collection<int, Tenant>
      */
     public function accessibleTenants(): Collection
     {
-        $tenantIds = $this->memberships()->where('status', TenantMembershipStatus::Active)->pluck('tenant_id');
-
-        if ($tenantIds->isEmpty()) {
-            return collect();
-        }
-
-        $withRoles = DB::table('model_has_roles')
-            ->where('model_type', $this->getMorphClass())
-            ->where('model_id', $this->getKey())
-            ->whereIn('tenant_id', $tenantIds->all())
-            ->distinct()
-            ->pluck('tenant_id');
-
-        return Tenant::query()
-            ->whereKey($withRoles->all())
-            ->orderBy('name')
-            ->get()
-            ->filter(fn (Tenant $tenant): bool => $tenant->isUsable())
-            ->values();
+        return app(StaffAccessService::class)->accessibleTenants($this);
     }
 
     /**
@@ -237,62 +384,39 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function canAccessTenant(Model $tenant): bool
     {
         return $tenant instanceof Tenant
-            && app(StaffAccessService::class)->permits($this)
+            && app(StaffAccessService::class)->identityPermits($this)
             && $this->accessibleTenants()->contains(fn (Tenant $accessible): bool => $accessible->is($tenant));
     }
 
     /**
-     * The identity's own membership is the only source: the tenant that employs the person when it
-     * is reachable, otherwise the first reachable tenant by name. Never a platform-wide default.
+     * SaaS-2: where to land when no tenant was named — a convenience, never an authorisation (every
+     * request still checks canAccessTenant()). Deterministic:
+     * 1. the membership marked as the person's default, while it is accessible;
+     * 2. otherwise the only accessible tenant, when there is exactly one and no default was chosen;
+     * 3. otherwise none: the person chooses (ChooseTenant). A default that became inaccessible is
+     *    never silently replaced by another tenant.
      */
     public function getDefaultTenant(Panel $panel): ?Model
     {
         $tenants = $this->accessibleTenants();
-        $employing = $this->employingTenantId();
 
-        return $tenants->first(fn (Tenant $tenant): bool => (int) $tenant->getKey() === $employing) ?? $tenants->first();
-    }
-
-    /**
-     * SaaS-1 identity plane: the tenant whose employee record this identity is linked to
-     * (users.employee_id). Read directly because it is needed before any tenant is selected.
-     */
-    public function employingTenantId(): ?int
-    {
-        if ($this->employee_id === null) {
+        if (! $this->exists || $tenants->isEmpty()) {
             return null;
         }
 
-        // A list that eager-loaded the employee (Access Review) needs no query per person.
-        if ($this->relationLoaded('employee') && $this->employee !== null) {
-            return (int) $this->employee->tenant_id;
+        $this->membershipIn((int) $tenants->first()->getKey());
+        $default = $this->memberships->first(fn (TenantMembership $membership): bool => $membership->is_default);
+
+        if ($default !== null) {
+            return $tenants->first(fn (Tenant $tenant): bool => (int) $tenant->getKey() === (int) $default->tenant_id);
         }
 
-        $tenantId = DB::table('employees')->where('id', $this->employee_id)->value('tenant_id');
-
-        return $tenantId === null ? null : (int) $tenantId;
+        return $tenants->count() === 1 ? $tenants->first() : null;
     }
 
     /**
-     * SaaS-1 identity plane: evaluates the identity's own employment facts (due separations, the
-     * last-CHRO protection) in the tenant that holds them — needed at sign-in and on every panel
-     * request, before the request's tenant is identified. The previous tenant context, if any, is
-     * restored afterwards. This never chooses the tenant a request acts in.
-     *
-     * @template T
-     *
-     * @param  callable(): T  $callback
-     * @return T
-     */
-    public function withinEmployingTenant(callable $callback): mixed
-    {
-        $tenantId = $this->employingTenantId();
-
-        return $tenantId === null || $tenantId === TenantContext::current()->id() ? $callback() : TenantContext::current()->run($tenantId, $callback);
-    }
-
-    /**
-     * Phase 8.4: a suspended or revoked login holds no permission anywhere — web, Copilot,
+     * Phase 8.4 / SaaS-2: a login with no Active membership in the current tenant (suspended,
+     * revoked, never a member, or no tenant at all) holds no permission there — web, Copilot,
      * automation ownership, jobs — whatever roles it still has.
      *
      * @param  mixed  $permission
@@ -304,7 +428,45 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
 
     public function getFilamentAvatarUrl(): ?string
     {
-        return $this->employee?->photoUrl();
+        return TenantContext::current()->hasTenant() ? $this->employee?->photoUrl() : null;
+    }
+
+    /**
+     * SaaS-2: remembers which tenant a tenant-dependent relation was loaded in, and when the
+     * memberships were read.
+     *
+     * @param  string  $relation
+     * @param  mixed  $value
+     * @return $this
+     */
+    public function setRelation($relation, $value)
+    {
+        if (in_array($relation, self::TENANT_RELATIONS, true)) {
+            $this->relationTenants[$relation] = TenantContext::current()->id();
+        }
+
+        if ($relation === 'memberships') {
+            $this->membershipsGeneration = StaffAccessService::generation();
+        }
+
+        return parent::setRelation($relation, $value);
+    }
+
+    /**
+     * SaaS-2: a tenant-dependent relation loaded in another tenant (or none) is not loaded here.
+     *
+     * @param  string  $key
+     */
+    public function relationLoaded($key): bool
+    {
+        if (in_array($key, self::TENANT_RELATIONS, true) && array_key_exists($key, $this->relations)
+            && ($this->relationTenants[$key] ?? null) !== TenantContext::current()->id()) {
+            unset($this->relations[$key]);
+
+            return false;
+        }
+
+        return parent::relationLoaded($key);
     }
 
     /**
@@ -317,11 +479,9 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'access_status' => AccessState::class,
-            'access_changed_at' => 'datetime',
-            'revoked_roles' => 'array',
             'last_login_at' => 'datetime',
             'mfa_enabled_at' => 'datetime',
+            'disabled_at' => 'datetime',
         ];
     }
 }

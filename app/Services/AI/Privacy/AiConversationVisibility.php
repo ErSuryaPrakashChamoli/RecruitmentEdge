@@ -2,8 +2,10 @@
 
 namespace App\Services\AI\Privacy;
 
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -39,7 +41,8 @@ class AiConversationVisibility
             return true;
         }
 
-        $ownerEmployeeId = User::query()->whereKey($ownerUserId)->value('employee_id');
+        // SaaS-2: the owner's employee record in this tenant (its membership).
+        $ownerEmployeeId = TenantMembership::query()->where('tenant_id', TenantContext::current()->requireId())->where('user_id', $ownerUserId)->value('employee_id');
 
         return $ownerEmployeeId !== null && $visibleIds->contains($ownerEmployeeId);
     }
@@ -64,6 +67,6 @@ class AiConversationVisibility
 
         return $query->where(fn (Builder $scoped) => $scoped
             ->where($userColumn, $viewer->id)
-            ->orWhereIn($userColumn, User::query()->whereIn('employee_id', $visibleIds)->select('id')));
+            ->orWhereIn($userColumn, TenantMembership::query()->where('tenant_id', TenantContext::current()->requireId())->whereIn('employee_id', $visibleIds)->select('user_id')));
     }
 }

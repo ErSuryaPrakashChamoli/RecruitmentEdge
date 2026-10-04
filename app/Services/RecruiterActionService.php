@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\AccessState;
 use App\Enums\RecruiterActionStatus;
 use App\Enums\TimelineEventType;
 use App\Enums\TimelineSource;
@@ -189,9 +190,7 @@ class RecruiterActionService
     public function fallbackOwner(): ?Employee
     {
         return User::query()
-            ->membersOfCurrentTenant()
-            ->whereNotNull('employee_id')
-            ->where('access_status', 'active')
+            ->membersOfCurrentTenant(fn (Builder $membership) => $membership->whereNotNull('employee_id')->where('status', AccessState::Active->value))
             ->with('employee.user')
             ->orderBy('id')
             ->get()

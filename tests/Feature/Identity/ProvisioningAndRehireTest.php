@@ -52,7 +52,7 @@ test('conversion provisions employee, login, base role, manager and access in on
     Event::fake([UserProvisioned::class]);
 
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->where('employee_id', $employee->id)->sole();
+    $user = User::query()->linkedToEmployee($employee->id)->sole();
 
     expect($employee->reports_to_id)->toBe($this->managerEmployee->id)
         ->and($employee->status)->toBe(EmployeeStatus::Active)
@@ -116,7 +116,7 @@ test('duplicate conversion is refused', function (): void {
 
 test('a separated employee is rehired: the same record and login come back, history kept, no old authority', function (): void {
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->where('employee_id', $employee->id)->sole();
+    $user = User::query()->linkedToEmployee($employee->id)->sole();
     app(RoleAssignmentService::class)->syncUserRoles($user, [Role::byKeyOrFail('recruiter')->id], $this->chro);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(3)->toDateString(), 'separation_reason' => 'resignation']);
 
@@ -165,12 +165,12 @@ test('cancelling a separation needs the permission and a reason, and before it t
     $this->travel(10)->days();
     $this->artisan('identity:enforce-separations')->assertSuccessful();
 
-    expect(User::query()->where('employee_id', $employee->id)->sole()->access_status)->toBe(AccessState::Active);
+    expect(User::query()->linkedToEmployee($employee->id)->sole()->access_status)->toBe(AccessState::Active);
 });
 
 test('cancelling an effective separation restores employment but never silently restores access or old roles', function (): void {
     $employee = $this->conversion->convert(provisioningJoining($this->candidate, $this->recruiter, $this->managerEmployee), $this->vp);
-    $user = User::query()->where('employee_id', $employee->id)->sole();
+    $user = User::query()->linkedToEmployee($employee->id)->sole();
     app(RoleAssignmentService::class)->syncUserRoles($user, [Role::byKeyOrFail('manager')->id], $this->chro);
     $separation = app(EmployeeLifecycleService::class)->recordSeparation($employee, $this->vp, ['separation_date' => now()->subDays(2)->toDateString(), 'separation_reason' => 'resignation']);
 

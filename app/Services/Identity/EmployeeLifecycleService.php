@@ -462,7 +462,7 @@ class EmployeeLifecycleService
 
     private function userOf(?Employee $employee): ?User
     {
-        return $employee !== null ? User::query()->where('employee_id', $employee->id)->first() : null;
+        return $employee !== null ? User::query()->linkedToEmployee($employee->id)->first() : null;
     }
 
     /**

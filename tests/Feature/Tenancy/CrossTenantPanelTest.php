@@ -1,6 +1,6 @@
 <?php
 
-use App\Enums\TenantMembershipStatus;
+use App\Enums\AccessState;
 use App\Enums\TenantStatus;
 use App\Filament\Pages\AccessReview;
 use App\Filament\Resources\AuditLogs\Pages\ListAuditLogs;
@@ -117,12 +117,12 @@ test('staff identities, roles and access stay inside the tenant', function (): v
 
     expect($this->alpha->recruiter->fresh()->roles()->pluck('roles.id')->all())->not->toContain($bravoChroRole->id)
         ->and(fn () => app(StaffAccessService::class)->suspend($this->bravo->recruiter, $this->alpha->chro, 'Not ours'))->toThrow(DomainException::class)
-        ->and($this->bravo->recruiter->fresh()->access_status->value)->toBe('active')
+        ->and(TenantContext::current()->run($this->bravo->tenant, fn () => $this->bravo->recruiter->fresh()->access_status->value))->toBe('active')
         ->and(Role::byKey('chro')->tenant_id)->toBe($this->alpha->tenant->id);
 });
 
 test('a person in two tenants sees each tenant\'s own roles, permissions and notifications only', function (): void {
-    TenantMembership::query()->create(['tenant_id' => $this->bravo->tenant->id, 'user_id' => $this->alpha->recruiter->id, 'status' => TenantMembershipStatus::Active]);
+    TenantMembership::query()->create(['tenant_id' => $this->bravo->tenant->id, 'user_id' => $this->alpha->recruiter->id, 'status' => AccessState::Active]);
     TenantContext::current()->run($this->bravo->tenant, function (): void {
         $this->alpha->recruiter->unsetRelation('roles')->assignRole('chro');
         $this->alpha->recruiter->notify(new StaffDatabaseNotification(Notification::make()->title('BRAVO only')->getDatabaseMessage()));
@@ -138,14 +138,18 @@ test('a person in two tenants sees each tenant\'s own roles, permissions and not
 });
 
 test('a revoked membership or an unusable tenant closes the door', function (): void {
-    TenantMembership::query()->where('tenant_id', $this->bravo->tenant->id)->where('user_id', $this->bravo->chro->id)->update(['status' => TenantMembershipStatus::Revoked->value]);
+    TenantMembership::query()->where('tenant_id', $this->bravo->tenant->id)->where('user_id', $this->bravo->chro->id)->update(['status' => AccessState::Revoked->value]);
 
     expect($this->bravo->chro->fresh()->canAccessTenant($this->bravo->tenant))->toBeFalse();
 
     $this->alpha->tenant->update(['status' => TenantStatus::Suspended]);
 
-    expect($this->alpha->chro->fresh()->canAccessTenant($this->alpha->tenant->fresh()))->toBeFalse()
-        ->and($this->get('/admin/alpha')->status())->toBeIn([403, 404]);
+    // SaaS-2: with no tenant left to the person, the session itself ends (sign-in page), rather
+    // than a 403 page inside a still-signed-in session.
+    expect($this->alpha->chro->fresh()->canAccessTenant($this->alpha->tenant->fresh()))->toBeFalse();
+
+    $this->get('/admin/alpha')->assertRedirect(Filament::getPanel('admin')->getLoginUrl());
+    $this->assertGuest();
 });
 
 test('the audit log shows the tenant\'s own stream only — never the other tenant\'s or the platform\'s', function (): void {
@@ -177,7 +181,7 @@ test('MFA follows the identity: required everywhere when any tenant the person b
 
     expect($mfa->isRequiredFor($person->fresh()))->toBeFalse();
 
-    TenantMembership::query()->create(['tenant_id' => $this->bravo->tenant->id, 'user_id' => $person->id, 'status' => TenantMembershipStatus::Active]);
+    TenantMembership::query()->create(['tenant_id' => $this->bravo->tenant->id, 'user_id' => $person->id, 'status' => AccessState::Active]);
     TenantContext::current()->run($this->bravo->tenant, fn () => $person->unsetRelation('roles')->assignRole('chro'));
 
     expect($mfa->isRequiredFor($person->fresh()))->toBeTrue()

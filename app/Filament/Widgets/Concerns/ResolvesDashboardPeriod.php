@@ -56,11 +56,7 @@ trait ResolvesDashboardPeriod
             return $viewer;
         }
 
-        $scopedUser = new User;
-        $scopedUser->forceFill(['employee_id' => $recruiter->id, 'name' => $recruiter->fullName()]);
-        $scopedUser->setRelation('employee', $recruiter);
-
-        return $scopedUser;
+        return User::standInFor($recruiter);
     }
 
     protected function filteredRecruiterId(): ?int

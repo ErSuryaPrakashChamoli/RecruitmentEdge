@@ -5,7 +5,8 @@ namespace App\Listeners;
 use App\Events\EmployeeAccessRevoked;
 use App\Events\EmployeeAccessSuspended;
 use App\Jobs\ProcessOwnershipHandoffJob;
-use App\Models\User;
+use App\Models\TenantMembership;
+use App\Services\Tenancy\TenantContext;
 
 /**
  * Phase 8.4: a suspension or revocation starts the handoff of the person's current work (queued).
@@ -25,7 +26,8 @@ class StartOwnershipHandoff
 
     private function dispatch(int $userId, ?int $employeeId, string $trigger): void
     {
-        $changedAt = User::query()->whereKey($userId)->value('access_changed_at');
+        // SaaS-2: the access change is the membership's, in the tenant the event happened in.
+        $changedAt = TenantMembership::query()->where('tenant_id', TenantContext::current()->requireId())->where('user_id', $userId)->value('status_changed_at');
 
         ProcessOwnershipHandoffJob::dispatch($userId, $employeeId, $trigger, "{$userId}:{$trigger}:".strtotime((string) $changedAt));
     }

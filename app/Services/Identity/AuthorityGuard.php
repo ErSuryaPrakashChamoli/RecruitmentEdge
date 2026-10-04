@@ -31,31 +31,40 @@ class AuthorityGuard
             throw new DomainException('Managing access needs the users.access.manage permission.');
         }
 
+        // SaaS-2: access state belongs to the person's membership of THIS tenant, so a tenant changes
+        // only its own membership (assertInScope requires one) and never the person's access to any
+        // other tenant they belong to.
         $this->assertNotSelf($actor, $target, 'You cannot change your own access.');
         $this->assertInScope($actor, $target);
+    }
 
-        // SaaS-1: access state (active / suspended / revoked) belongs to the identity, which may be
-        // a member of several tenants; only the tenant that owns the login may change it.
-        if (! $this->ownedByCurrentTenant($target)) {
-            throw new DomainException('This login belongs to another organisation; its access is managed there.');
+    /**
+     * SaaS-2: the global credentials of an identity — password, email address, MFA, every session —
+     * are shared by every tenant the person belongs to. A tenant's administrator may manage them
+     * only for an identity that belongs to this tenant alone; otherwise one tenant could take over
+     * the account and use it in another. A shared identity manages its own credentials ("Forgot
+     * password", profile page).
+     */
+    public function assertCanManageCredentials(User $actor, User $target, string $permission, string $selfMessage): void
+    {
+        if (! $actor->can($permission)) {
+            throw new DomainException("This needs the {$permission} permission.");
+        }
+
+        $this->assertNotSelf($actor, $target, $selfMessage);
+        $this->assertInScope($actor, $target);
+
+        if (! $this->managesCredentialsOf($target)) {
+            throw new DomainException('This person also belongs to another organisation, so only they can change their sign-in details (they can use "Forgot password" on the sign-in page).');
         }
     }
 
     /**
-     * SaaS-1: the login is employed by the current tenant, or (no employee record) is a member of
-     * no other tenant.
+     * SaaS-2: the identity is a member of the current tenant and of no other, in any state.
      */
-    public function ownedByCurrentTenant(User $target): bool
+    public function managesCredentialsOf(User $target): bool
     {
-        $tenantId = TenantContext::current()->requireId();
-        $employing = $target->employingTenantId();
-
-        if ($employing !== null) {
-            return $employing === $tenantId;
-        }
-
-        return $target->memberships()->where('tenant_id', '!=', $tenantId)->doesntExist()
-            && $target->memberships()->where('tenant_id', $tenantId)->exists();
+        return $target->belongsOnlyToCurrentTenant();
     }
 
     public function assertNotSelf(User $actor, User $target, string $message): void
@@ -176,12 +185,15 @@ class AuthorityGuard
 
         $access = app(StaffAccessService::class);
 
+        // SaaS-2: the access state is the membership of this tenant (the CHRO role is this tenant's).
         return User::query()
             ->select('users.*')
             ->join('model_has_roles', fn ($join) => $join->on('model_has_roles.model_id', '=', 'users.id')
                 ->where('model_has_roles.model_type', (new User)->getMorphClass())
                 ->where('model_has_roles.role_id', $chro->getKey()))
-            ->where('users.access_status', AccessState::Active->value)
+            ->join('tenant_memberships', fn ($join) => $join->on('tenant_memberships.user_id', '=', 'users.id')
+                ->where('tenant_memberships.tenant_id', TenantContext::current()->requireId())
+                ->where('tenant_memberships.status', AccessState::Active->value))
             ->when($locking, fn (Builder $query) => $query->sharedLock())
             ->get()
             ->filter(fn (User $candidate) => $access->permits($candidate))

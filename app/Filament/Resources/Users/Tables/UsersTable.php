@@ -57,7 +57,9 @@ class UsersTable
                     ->relationship('roles', 'name', fn (Builder $query) => $query->forCurrentTenant()),
                 SelectFilter::make('access_status')
                     ->label('Access')
-                    ->options(collect(AccessState::cases())->mapWithKeys(fn (AccessState $state) => [$state->value => $state->label()])->all()),
+                    ->options(collect(AccessState::cases())->mapWithKeys(fn (AccessState $state) => [$state->value => $state->label()])->all())
+                    // SaaS-2: the access state is this tenant's membership.
+                    ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null) ? $query->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', $data['value'])) : $query),
             ])
             ->recordActions([
                 EditAction::make(),

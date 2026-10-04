@@ -118,13 +118,15 @@ class AccessReview extends Page implements HasTable
             ->filters([
                 SelectFilter::make('access_status')
                     ->label('Access')
-                    ->options(collect(AccessState::cases())->mapWithKeys(fn (AccessState $state) => [$state->value => $state->label()])->all()),
+                    ->options(collect(AccessState::cases())->mapWithKeys(fn (AccessState $state) => [$state->value => $state->label()])->all())
+                    // SaaS-2: the access state is this tenant's membership.
+                    ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null) ? $query->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', $data['value'])) : $query),
                 TernaryFilter::make('needs_attention')
                     ->label('Needs attention')
                     ->queries(
                         true: fn (Builder $query) => $query->where(fn (Builder $attention) => $attention
                             ->whereHas('employee', fn (Builder $employee) => $employee->withTrashed()->where(fn (Builder $state) => $state->whereNotNull('deleted_at')->orWhere('status', '!=', EmployeeStatus::Active->value)))
-                            ->where('access_status', AccessState::Active->value)
+                            ->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value))
                             ->orWhereExists(fn ($handoff) => $handoff->from('ownership_handoffs')->whereColumn('ownership_handoffs.user_id', 'users.id')->where('status', OwnershipHandoff::OPEN))),
                         false: fn (Builder $query) => $query,
                     ),
@@ -146,7 +148,7 @@ class AccessReview extends Page implements HasTable
 
         // SaaS-1: only the current tenant's members — "view all" is all of this tenant.
         return User::query()
-            ->membersOfCurrentTenant()
+            ->membersOfCurrentTenant(fn (Builder $membership) => $membership->when($visible !== null, fn (Builder $scoped) => $scoped->whereIn('employee_id', $visible)))
             ->select('users.*')
             ->addSelect([
                 'active_sessions' => DB::table('sessions')->selectRaw('count(*)')->whereColumn('sessions.user_id', 'users.id'),
@@ -158,8 +160,7 @@ class AccessReview extends Page implements HasTable
                 'roles.permissions',
                 'permissions',
                 'memberships',
-            ])
-            ->when($visible !== null, fn (Builder $query) => $query->whereIn('users.employee_id', $visible));
+            ]);
     }
 
     private static function separationSummary(User $user): ?string

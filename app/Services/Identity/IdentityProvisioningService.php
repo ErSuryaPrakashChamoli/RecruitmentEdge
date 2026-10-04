@@ -2,8 +2,8 @@
 
 namespace App\Services\Identity;
 
+use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
-use App\Enums\TenantMembershipStatus;
 use App\Events\UserProvisioned;
 use App\Mail\StaffAccessInvitation;
 use App\Models\AuditLog;
@@ -58,7 +58,6 @@ class IdentityProvisioningService
                 'name' => $data['name'],
                 'email' => $data['email'],
                 'password' => $data['password'],
-                'employee_id' => $employee?->id,
             ]);
             $this->joinCurrentTenant($user, $employee);
 
@@ -92,7 +91,6 @@ class IdentityProvisioningService
             'name' => $employee->fullName(),
             'email' => $employee->email,
             'password' => Str::password(40),
-            'employee_id' => $employee->id,
         ]);
         $this->joinCurrentTenant($user, $employee);
 
@@ -114,7 +112,7 @@ class IdentityProvisioningService
      */
     public function reactivateForRehire(Employee $employee, User $actor): User
     {
-        $user = User::query()->where('employee_id', $employee->id)->first();
+        $user = User::query()->linkedToEmployee($employee->id)->first();
 
         if ($user === null) {
             return $this->provisionLogin($employee, $actor, 'rehire');
@@ -167,8 +165,11 @@ class IdentityProvisioningService
 
         return DB::transaction(function () use ($user, $employee, $actor): User {
             $old = $user->employee_id;
+            $membership = $user->currentMembership() ?? throw new DomainException('This person is not a member of this organisation.');
 
-            LifecycleGuard::allow(fn () => $user->forceFill(['employee_id' => $employee?->id])->save());
+            // SaaS-2: the employee link belongs to this tenant's membership.
+            LifecycleGuard::allow(fn () => $membership->forceFill(['employee_id' => $employee?->id])->save());
+            $user->unsetRelation('employee');
 
             AuditLog::record($user, 'employee_linked', ['employee_id' => $old], ['employee_id' => $employee?->id, 'by_user_id' => $actor->id]);
             Log::info('identity.employee_linked', ['user_id' => $user->id, 'from' => $old, 'to' => $employee?->id, 'actor_id' => $actor->id]);
@@ -194,7 +195,7 @@ class IdentityProvisioningService
             throw new DomainException('This employee is outside your hierarchy.');
         }
 
-        if (User::query()->where('employee_id', $employee->id)->when($for !== null, fn ($query) => $query->whereKeyNot($for->id))->exists()) {
+        if (User::query()->linkedToEmployee($employee->id)->when($for !== null, fn ($query) => $query->whereKeyNot($for->id))->exists()) {
             throw new DomainException('This employee already has a login.');
         }
 
@@ -202,14 +203,22 @@ class IdentityProvisioningService
     }
 
     /**
-     * SaaS-1: a login provisioned (or brought back) by a tenant is an active member of that
-     * tenant, linked to its employee there — otherwise it could reach no tenant at all.
+     * SaaS-1/2: a login provisioned (or brought back) by a tenant is a member of that tenant,
+     * linked to its employee there — otherwise it could reach no tenant at all. An existing
+     * membership keeps its access state (StaffAccessService owns it); only the link is set.
      */
     private function joinCurrentTenant(User $user, ?Employee $employee): void
     {
-        TenantMembership::query()->updateOrCreate(
-            ['tenant_id' => TenantContext::current()->requireId(), 'user_id' => $user->getKey()],
-            ['employee_id' => $employee?->getKey(), 'status' => TenantMembershipStatus::Active],
-        );
+        $tenantId = TenantContext::current()->requireId();
+        $membership = TenantMembership::query()->where('tenant_id', $tenantId)->where('user_id', $user->getKey())->lockForUpdate()->first();
+
+        if ($membership === null) {
+            TenantMembership::query()->create(['tenant_id' => $tenantId, 'user_id' => $user->getKey(), 'employee_id' => $employee?->getKey(), 'status' => AccessState::Active, 'joined_at' => now()]);
+        } elseif ($employee !== null && (int) $membership->employee_id !== (int) $employee->getKey()) {
+            LifecycleGuard::allow(fn () => $membership->forceFill(['employee_id' => $employee->getKey()])->save());
+        }
+
+        StaffAccessService::invalidateDecisions();
+        $user->unsetRelation('memberships');
     }
 }

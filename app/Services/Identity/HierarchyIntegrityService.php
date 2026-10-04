@@ -132,7 +132,7 @@ class HierarchyIntegrityService
             throw new DomainException('This employee still has direct reports. Move them to another manager first.');
         }
 
-        $login = User::query()->where('employee_id', $employee->id)->first();
+        $login = User::query()->linkedToEmployee($employee->id)->first();
 
         if ($login !== null && $login->access_status === AccessState::Active) {
             throw new DomainException('This employee still has an active login. Separate or deactivate them first.');
@@ -157,7 +157,7 @@ class HierarchyIntegrityService
 
     private function assertNotProtected(Employee $employee, User $actor): void
     {
-        $login = User::query()->where('employee_id', $employee->id)->with('roles')->first();
+        $login = User::query()->linkedToEmployee($employee->id)->with('roles')->first();
 
         foreach ($login?->roles ?? [] as $role) {
             if ($role->is_protected && ! $actor->hasRole($role)) {

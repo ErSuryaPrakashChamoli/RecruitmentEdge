@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
@@ -119,11 +120,14 @@ class Employee extends Model
     }
 
     /**
-     * @return HasOne<User, $this>
+     * SaaS-2: the login linked to this employee record, through its tenant membership (at most one:
+     * tenant_memberships.employee_id is unique). The membership — not the identity — holds the link.
+     *
+     * @return HasOneThrough<User, TenantMembership, $this>
      */
-    public function user(): HasOne
+    public function user(): HasOneThrough
     {
-        return $this->hasOne(User::class);
+        return $this->hasOneThrough(User::class, TenantMembership::class, 'employee_id', 'id', 'id', 'user_id');
     }
 
     /**

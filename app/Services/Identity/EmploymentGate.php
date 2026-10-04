@@ -67,7 +67,7 @@ class EmploymentGate
 
         return ! User::query()
             ->whereKeyNot($user->getKey())
-            ->where('access_status', AccessState::Active->value)
+            ->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value))
             ->whereHas('roles', fn (Builder $query) => $query->whereKey($chro->getKey()))
             ->exists();
     }

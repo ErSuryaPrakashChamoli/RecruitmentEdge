@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\TenantMembershipStatus;
+use App\Enums\AccessState;
 use App\Enums\TenantStatus;
 use Database\Factories\TenantFactory;
 use Filament\Models\Contracts\HasName;
@@ -39,6 +39,7 @@ class Tenant extends Model implements HasName
         return [
             'status' => TenantStatus::class,
             'status_changed_at' => 'datetime',
+            'mfa_required' => 'boolean',
             'branding' => 'array',
         ];
     }
@@ -56,7 +57,7 @@ class Tenant extends Model implements HasName
      */
     public function activeMemberships(): HasMany
     {
-        return $this->memberships()->where('status', TenantMembershipStatus::Active);
+        return $this->memberships()->where('status', AccessState::Active);
     }
 
     public function isUsable(): bool

@@ -84,7 +84,7 @@ test('a repeated interview reschedule to the same time alerts the interviewer on
     app(InterviewService::class)->reschedule($interview, $newTime);
     app(InterviewService::class)->reschedule(Interview::query()->find($interview->id), $newTime);
 
-    $user = User::query()->where('employee_id', $interviewer->employee_id)->sole();
+    $user = User::query()->linkedToEmployee($interviewer->employee_id)->sole();
 
     expect($user->notifications()->where('data->title', 'like', '%Interview rescheduled%')->count())->toBe(1);
 });

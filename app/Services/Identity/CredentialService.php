@@ -25,6 +25,9 @@ use Illuminate\Validation\Rules\Password;
  *   while signed in; the old address is told and can block it.
  * - Sign out everywhere: yourself (keeping this session), or someone in your hierarchy
  *   (users.access.manage).
+ * - SaaS-2: an identity's credentials and sessions are shared by every tenant it belongs to, so an
+ *   administrator manages them only for an identity that belongs to their tenant alone
+ *   (AuthorityGuard::assertCanManageCredentials). A shared identity manages its own.
  */
 class CredentialService
 {
@@ -41,12 +44,9 @@ class CredentialService
 
     public function setPasswordByAdministrator(User $target, string $password, User $actor): void
     {
-        if (! $actor->can('users.manage')) {
-            throw new DomainException('Setting a password needs the users.manage permission.');
-        }
-
-        $this->authority->assertNotSelf($actor, $target, 'Change your own password on your profile page.');
-        $this->authority->assertInScope($actor, $target);
+        // SaaS-2: a password signs in to every tenant the identity belongs to, so only an identity
+        // that belongs to this tenant alone can have it set here.
+        $this->authority->assertCanManageCredentials($actor, $target, 'users.manage', 'Change your own password on your profile page.');
         self::assertAcceptablePassword($password);
 
         self::$writingPassword = true;
@@ -69,19 +69,19 @@ class CredentialService
      */
     public function requestEmailChange(User $target, string $newEmail, User $actor): void
     {
-        if (! $actor->can('users.manage')) {
-            throw new DomainException('Changing an email needs the users.manage permission.');
-        }
-
-        $this->authority->assertNotSelf($actor, $target, 'Change your own email on your profile page.');
-        $this->authority->assertInScope($actor, $target);
+        $this->authority->assertCanManageCredentials($actor, $target, 'users.manage', 'Change your own email on your profile page.');
 
         if (strcasecmp($target->email, $newEmail) === 0) {
             return;
         }
 
-        if (User::query()->whereKeyNot($target->id)->where('email', $newEmail)->exists()) {
-            throw new DomainException('Another login already uses this email address.');
+        // SaaS-2 (S1-01): whether an address already has an identity anywhere on the platform is
+        // never revealed. The request looks the same either way; a taken address simply gets no
+        // verification link (it could never apply).
+        if (self::addressIsTaken($target, $newEmail)) {
+            self::recordEmailChangeRequest($target, $newEmail, $actor);
+
+            return;
         }
 
         $notification = app(VerifyEmailChange::class);
@@ -99,6 +99,22 @@ class CredentialService
         self::recordEmailChangeRequest($target, $newEmail, $actor);
     }
 
+    /**
+     * SaaS-2: another identity already uses $newEmail (compared the way the platform normalises
+     * addresses). Only for deciding whether to send a link — never shown to anyone. A taken address
+     * is noted in the platform log, without the address.
+     */
+    public static function addressIsTaken(User $target, string $newEmail): bool
+    {
+        $taken = User::query()->whereKeyNot($target->getKey())->whereEmailIs($newEmail)->exists();
+
+        if ($taken) {
+            Log::info('identity.email_change_unavailable', ['user_id' => $target->getKey()]);
+        }
+
+        return $taken;
+    }
+
     public static function recordEmailChangeRequest(User $target, string $newEmail, ?User $actor): void
     {
         AuditLog::record($target, 'email_change_requested', ['email' => $target->email], ['email' => $newEmail, 'by_user_id' => $actor?->id, 'pending_verification' => true]);
@@ -110,8 +126,10 @@ class CredentialService
      */
     public function signOutEverywhere(User $target, User $actor, ?Session $current = null): int
     {
+        // SaaS-2: sessions are the identity's, in every tenant — another identity is signed out
+        // everywhere only when it belongs to this tenant alone.
         if ($actor->isNot($target)) {
-            $this->authority->assertCanManageAccess($actor, $target);
+            $this->authority->assertCanManageCredentials($actor, $target, 'users.access.manage', 'You cannot change your own access.');
         }
 
         $deleted = $this->sessions->revokeAll($target, $actor->is($target) ? $current : null, $actor->is($target) ? 'sign_out_other_sessions' : 'sign_out_everywhere_by_admin');

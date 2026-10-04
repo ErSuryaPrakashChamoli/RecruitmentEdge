@@ -91,6 +91,7 @@ test('crossing tenants happens only in reviewed places', function (): void {
         'app/Services/Communication/DeliveryStatusService.php' => 'finds a provider callback\'s tenant from the provider\'s own message id, then works inside it',
         'app/Http/Middleware/ResolveTenantForFilamentDownload.php' => 'reads an export\'s tenant by id before checking access to it',
         'app/Services/QueueHealthService.php' => 'platform health: counts only, with no tenant established',
+        'app/Services/Identity/TenantInvitationService.php' => 'finds an invitation by its token hash, then works inside the invitation\'s own tenant',
     ];
 
     $found = collect(tenancyArchSources())

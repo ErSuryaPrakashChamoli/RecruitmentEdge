@@ -10,7 +10,6 @@ use App\Filament\Resources\Users\Schemas\UserForm;
 use App\Filament\Resources\Users\Tables\UsersTable;
 use App\Models\User;
 use App\Services\HierarchyService;
-use App\Services\Tenancy\TenantContext;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -46,10 +45,10 @@ class UserResource extends Resource
         $viewer = auth()->user();
         $visible = $viewer instanceof User ? app(HierarchyService::class)->visibleEmployeeIdsFor($viewer) : collect();
 
+        // SaaS-2: the employee link (and so the hierarchy scope) is this tenant's membership.
         return parent::getEloquentQuery()
-            ->whereHas('memberships', fn (Builder $query) => $query->where('tenant_id', TenantContext::current()->requireId()))
-            ->with(['employee' => fn ($query) => $query->withTrashed(), 'roles.permissions', 'permissions', 'memberships'])
-            ->when($visible !== null, fn (Builder $query) => $query->whereIn('employee_id', $visible));
+            ->membersOfCurrentTenant(fn (Builder $membership) => $membership->when($visible !== null, fn (Builder $scoped) => $scoped->whereIn('employee_id', $visible)))
+            ->with(['employee' => fn ($query) => $query->withTrashed(), 'roles.permissions', 'permissions', 'memberships']);
     }
 
     public static function form(Schema $schema): Schema

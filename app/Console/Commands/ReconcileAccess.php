@@ -11,6 +11,7 @@ use App\Services\Identity\StaffAccessService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Throwable;
 
 /**
@@ -30,7 +31,7 @@ class ReconcileAccess extends Command
         $separations = $lifecycle->enforceDueSeparations(dryRun: ! $execute);
         $counts = ['separations_due' => $separations['due'], 'separations_applied' => $separations['applied'], 'to_suspend' => 0, 'suspended' => 0, 'protected' => $separations['protected'], 'failed' => $separations['failed']];
 
-        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
+        User::query()->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value)->whereNotNull('employee_id'))
             ->with(['employee' => fn ($query) => $query->withTrashed()])
             ->lazyById(500)
             ->filter(fn (User $user) => $user->employee !== null && ($user->employee->trashed() || $user->employee->status === EmployeeStatus::Inactive))

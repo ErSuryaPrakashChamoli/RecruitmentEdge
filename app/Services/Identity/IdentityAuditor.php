@@ -13,6 +13,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Automation\AutomationRuleService;
 use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -62,7 +63,7 @@ class IdentityAuditor
 
     private function accessVersusEmployment(int $limit): void
     {
-        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
+        User::query()->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value)->whereNotNull('employee_id'))
             ->with(['employee' => fn ($query) => $query->withTrashed()])
             ->lazyById(500)
             ->filter(fn (User $user) => $user->employee === null || $user->employee->trashed() || $user->employee->status !== EmployeeStatus::Active)
@@ -75,7 +76,7 @@ class IdentityAuditor
             $this->add(self::WARNING, 'separations_due', '—', "{$due} separation(s) took effect but were not applied yet (identity:enforce-separations). Their logins are already refused.");
         }
 
-        $withoutEmployee = User::query()->membersOfCurrentTenant()->whereNull('employee_id')->where('access_status', AccessState::Active->value)->count();
+        $withoutEmployee = User::query()->membersOfCurrentTenant(fn (Builder $membership) => $membership->whereNull('employee_id')->where('status', AccessState::Active->value))->count();
 
         if ($withoutEmployee > 0) {
             $this->add(self::INFO, 'logins_without_employee', '—', "{$withoutEmployee} active login(s) have no employee record (no hierarchy scope unless hierarchy.view-all).");
@@ -137,7 +138,7 @@ class IdentityAuditor
         }
 
         AiToolCall::query()->where('status', AiToolCallStatus::Pending->value)
-            ->whereHas('requester', fn ($query) => $query->where('access_status', '!=', AccessState::Active->value))
+            ->whereHas('requester', fn ($query) => $query->whereDoesntHave('memberships', fn (Builder $membership) => $membership->where('tenant_id', TenantContext::current()->requireId())->where('status', AccessState::Active->value)))
             ->limit($limit)->pluck('id')
             ->each(fn (int $id) => $this->add(self::WARNING, 'pending_ai_action_of_inactive_requester', "AI-CALL-{$id}", 'Pending action of a requester without active access. It can never run.'));
     }
@@ -158,7 +159,7 @@ class IdentityAuditor
             $this->add(self::WARNING, 'mfa_not_enforced', '—', 'identity.mfa.enforce is off.');
         }
 
-        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNull('app_authentication_secret')->with('roles.permissions')->lazyById(500)
+        User::query()->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value))->whereNull('app_authentication_secret')->with('roles.permissions')->lazyById(500)
             ->filter(fn (User $user) => $this->mfa->isRequiredFor($user))
             ->take($limit)
             ->each(fn (User $user) => $this->add(self::INFO, 'mfa_required_not_enrolled', "USER-{$user->id}", 'Must enrol in MFA at next sign-in.'));

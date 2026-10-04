@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\TenantMembershipStatus;
+use App\Enums\AccessState;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -153,7 +153,7 @@ class AuditLog extends Model
         if ($subject instanceof User) {
             $tenants = TenantMembership::query()
                 ->where('user_id', $subject->getKey())
-                ->where('status', TenantMembershipStatus::Active)
+                ->where('status', AccessState::Active)
                 ->orderBy('tenant_id')
                 ->pluck('tenant_id')
                 ->map(fn (mixed $id): int => (int) $id)

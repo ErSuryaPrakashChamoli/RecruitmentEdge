@@ -6,6 +6,7 @@ use App\Enums\AppTheme;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Identity\CredentialService;
+use App\Services\Identity\TenantSelectionService;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantStorage;
 use Filament\Actions\Action;
@@ -37,16 +38,18 @@ use Illuminate\Support\Arr;
 class Profile extends EditProfile
 {
     /**
-     * SaaS-1: the profile is Filament's tenant-less page, but it shows and edits the person's own
-     * employee record, which lives in the tenant that employs them. Every request of this page
-     * (Livewire updates included) runs in that tenant — only while the person may act there.
+     * SaaS-1/2: the profile is Filament's tenant-less page: the identity's own name, email, password
+     * and MFA are global. The employee details and photo belong to a tenant — the one the person
+     * last entered in this session, else their default (TenantSelectionService), each re-checked
+     * against their membership on every request of this page (Livewire updates included). With no
+     * such tenant the page shows the identity only.
      */
     public function boot(): void
     {
         $user = $this->getUser();
-        $tenant = $user instanceof User ? Tenant::query()->find($user->employingTenantId()) : null;
+        $tenant = $user instanceof User ? app(TenantSelectionService::class)->workingTenant($user, request()->hasSession() ? request()->session() : null) : null;
 
-        if ($tenant instanceof Tenant && $user->canAccessTenant($tenant)) {
+        if ($tenant instanceof Tenant) {
             TenantContext::current()->setTenant($tenant);
         }
     }
@@ -83,9 +86,32 @@ class Profile extends EditProfile
     {
         if ($record instanceof User && $record->email !== $newEmail) {
             CredentialService::recordEmailChangeRequest($record, $newEmail, $record);
+
+            // SaaS-2 (S1-01): an address another identity uses gets no link, and the page says the
+            // same as for any other address — it never reveals who is on the platform.
+            if (CredentialService::addressIsTaken($record, $newEmail)) {
+                $this->getEmailChangeVerificationSentNotification($newEmail)?->send();
+                $this->data['email'] = $record->getAttributeValue('email');
+
+                return;
+            }
         }
 
         parent::sendEmailChangeVerification($record, $newEmail);
+    }
+
+    /**
+     * SaaS-2 (S1-01): no uniqueness check on the address (Filament's default would answer "already
+     * taken" for any address on the platform); sendEmailChangeVerification() handles a taken one.
+     */
+    protected function getEmailFormComponent(): Component
+    {
+        return TextInput::make('email')
+            ->label(__('filament-panels::auth/pages/edit-profile.form.email.label'))
+            ->email()
+            ->required()
+            ->maxLength(255)
+            ->live(debounce: 500);
     }
 
     public function setThemePreference(string $theme): void

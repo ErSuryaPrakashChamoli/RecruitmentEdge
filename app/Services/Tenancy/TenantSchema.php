@@ -117,9 +117,13 @@ final class TenantSchema
         'role_dna_profiles',
         'role_dna_versions',
         'saved_table_views',
+        // SaaS-2: support access a tenant grants a platform operator (time-bound, revocable).
+        'support_access_grants',
         'talent_pool_memberships',
         'talent_pools',
         'talent_signal_snapshots',
+        // SaaS-2: invitations into the tenant (hashed tokens).
+        'tenant_invitations',
     ];
 
     /**
@@ -147,6 +151,8 @@ final class TenantSchema
         'tenants',
         'ai_evaluations',
         'ai_evaluation_runs',
+        // SaaS-2: platform operators (administrators, support, compliance) — never tenant members.
+        'platform_operators',
     ];
 
     /**
@@ -485,6 +491,9 @@ final class TenantSchema
         'talent_signal_snapshots' => [
             'candidate_application_id' => 'candidate_applications',
             'role_dna_version_id' => 'role_dna_versions',
+        ],
+        'tenant_invitations' => [
+            'employee_id' => 'employees',
         ],
     ];
 

@@ -42,6 +42,16 @@ enum TenantStatus: string
     }
 
     /**
+     * The stored values of the usable states, for queries.
+     *
+     * @return list<string>
+     */
+    public static function usableValues(): array
+    {
+        return array_values(array_map(fn (self $status): string => $status->value, array_filter(self::cases(), fn (self $status): bool => $status->isUsable())));
+    }
+
+    /**
      * Queued jobs, listeners and scheduled tasks may run for the tenant.
      */
     public function allowsBackgroundWork(): bool

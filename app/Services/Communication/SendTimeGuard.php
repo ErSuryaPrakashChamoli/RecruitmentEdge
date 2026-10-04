@@ -99,7 +99,7 @@ class SendTimeGuard
             return null;
         }
 
-        $sender = User::query()->where('employee_id', $communication->sent_by)->first();
+        $sender = User::query()->linkedToEmployee((int) $communication->sent_by)->first();
 
         if ($sender === null || ! $sender->can('communications.send') || ! $sender->can('view', $communication->candidate)) {
             return 'The staff member who sent this message no longer has access to send it.';

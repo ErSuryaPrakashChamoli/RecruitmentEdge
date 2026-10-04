@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use App\Enums\TenantMembershipStatus;
+use App\Enums\AccessState;
 use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
@@ -23,12 +23,18 @@ class TenantMembershipFactory extends Factory
         return [
             'tenant_id' => Tenant::factory(),
             'user_id' => User::factory(),
-            'status' => TenantMembershipStatus::Active,
+            'status' => AccessState::Active,
+            'joined_at' => now(),
         ];
+    }
+
+    public function suspended(): static
+    {
+        return $this->state(fn (): array => ['status' => AccessState::Suspended]);
     }
 
     public function revoked(): static
     {
-        return $this->state(fn (): array => ['status' => TenantMembershipStatus::Revoked]);
+        return $this->state(fn (): array => ['status' => AccessState::Revoked]);
     }
 }
