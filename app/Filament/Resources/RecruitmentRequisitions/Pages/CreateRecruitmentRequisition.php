@@ -2,17 +2,37 @@
 
 namespace App\Filament\Resources\RecruitmentRequisitions\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\RecruitmentPipelineTemplate;
 use App\Models\RecruitmentRequisition;
+use App\Models\User;
 use App\Services\PipelineTemplateService;
+use App\Services\RequisitionService;
 use App\Services\SequenceCodeGenerator;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
 
 class CreateRecruitmentRequisition extends CreateRecord
 {
+    use GuardsDomainExceptions;
+
     protected static string $resource = RecruitmentRequisitionResource::class;
+
+    /**
+     * SaaS-3: created through RequisitionService — the person's permission AND room under the
+     * tenant's active-requisition limit, taken atomically.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function handleRecordCreation(array $data): Model
+    {
+        $actor = Filament::auth()->user();
+        abort_unless($actor instanceof User, 403);
+
+        return self::guarded('Requisition not created', fn (): Model => app(RequisitionService::class)->create($actor, fn (): Model => parent::handleRecordCreation($data)));
+    }
 
     protected ?int $pipelineTemplateId = null;
 

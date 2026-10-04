@@ -2,9 +2,11 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\Entitlement;
 use App\Filament\Widgets\Automation\AutomationStats;
 use App\Models\User;
 use App\Services\Automation\AutomationHealthService;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\RecruitmentAnalyticsService;
 use BackedEnum;
 use Filament\Pages\Page;
@@ -33,7 +35,8 @@ class AutomationDashboard extends Page
     {
         $user = auth()->user();
 
-        return $user !== null && ($user->can('automation.analytics') || $user->can('automation.view'));
+        // SaaS-3: and automation in the tenant's plan.
+        return $user !== null && ($user->can('automation.analytics') || $user->can('automation.view')) && app(EntitlementService::class)->allows(Entitlement::AutomationRules);
     }
 
     protected function getHeaderWidgets(): array

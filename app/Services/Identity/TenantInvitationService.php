@@ -4,6 +4,7 @@ namespace App\Services\Identity;
 
 use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
+use App\Enums\Entitlement;
 use App\Enums\InvitationStatus;
 use App\Events\UserProvisioned;
 use App\Mail\TenantInvitationMail;
@@ -14,6 +15,8 @@ use App\Models\Tenant;
 use App\Models\TenantInvitation;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Services\Entitlements\EntitlementDenied;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\HierarchyService;
 use App\Services\Lifecycle\LifecycleGuard;
 use App\Services\Tenancy\TenantContext;
@@ -50,6 +53,7 @@ class TenantInvitationService
     public function __construct(
         private readonly RoleAssignmentService $roles,
         private readonly HierarchyService $hierarchy,
+        private readonly EntitlementService $entitlements,
     ) {}
 
     /**
@@ -76,6 +80,11 @@ class TenantInvitationService
 
         $employee = filled($data['employee_id'] ?? null) ? $this->linkableEmployee((int) $data['employee_id'], $actor) : null;
 
+        // SaaS-3: no free staff seat, no new invitation (acceptance takes the seat, atomically).
+        if (! $this->entitlements->canAdd(Entitlement::MembersActiveMax)) {
+            throw new EntitlementDenied(Entitlement::MembersActiveMax, 'limit_reached');
+        }
+
         if ($employee === null && $this->hierarchy->visibleEmployeeIdsFor($actor) !== null) {
             throw new DomainException('Someone without an employee record can only be invited by a person with organisation-wide visibility.');
         }
@@ -96,6 +105,18 @@ class TenantInvitationService
         $base = Role::byKeyOrFail((string) config('identity.base_role'));
 
         return $this->create($this->validEmail((string) $employee->email), $employee->fullName(), new Collection([$base]), $employee, $source, $actor);
+    }
+
+    /**
+     * SaaS-3: provisioning invites the tenant's initial owner — the protected CHRO role (every
+     * permission) and ownership of the tenant, once accepted. Not an administrator's action: the
+     * platform's provisioning service is the caller.
+     */
+    public function inviteOwner(string $email, ?string $name): TenantInvitation
+    {
+        $chro = Role::byKeyOrFail((string) config('identity.chro_role'));
+
+        return $this->create($this->validEmail($email), $name, new Collection([$chro]), null, 'provisioning', null, grantsOwnership: true);
     }
 
     /**
@@ -336,24 +357,28 @@ class TenantInvitationService
 
         $roles = $this->stillGrantable($invitation, $user);
         $employee = $this->stillLinkable($invitation, $user);
+        $ownership = $invitation->grants_ownership ? ['is_owner' => true] : [];
 
-        if ($membership === null) {
-            try {
-                // A savepoint: the unique keys (one membership per tenant and person, one login per
-                // employee record) are the last word if another acceptance got there first.
-                $membership = DB::transaction(fn (): TenantMembership => TenantMembership::query()->create([
-                    'tenant_id' => $invitation->tenant_id,
-                    'user_id' => $user->getKey(),
-                    'employee_id' => $employee?->getKey(),
-                    'status' => AccessState::Active,
-                    'joined_at' => now(),
-                ]));
-            } catch (UniqueConstraintViolationException) {
-                throw new InvitationUnavailable('membership_conflict');
+        // SaaS-3: a new or re-activated member takes a staff seat — under the tenant lock already
+        // held, so the last seat goes to one acceptance only.
+        [$membership, $event] = $this->entitlements->consume(Entitlement::MembersActiveMax, function () use ($membership, $invitation, $user, $employee, $ownership): array {
+            if ($membership === null) {
+                try {
+                    // A savepoint: the unique keys (one membership per tenant and person, one login
+                    // per employee record, one owner per tenant) are the last word.
+                    return [DB::transaction(fn (): TenantMembership => TenantMembership::query()->create([
+                        'tenant_id' => $invitation->tenant_id,
+                        'user_id' => $user->getKey(),
+                        'employee_id' => $employee?->getKey(),
+                        'status' => AccessState::Active,
+                        'joined_at' => now(),
+                        ...$ownership,
+                    ])), 'membership_created'];
+                } catch (UniqueConstraintViolationException) {
+                    throw new InvitationUnavailable('membership_conflict');
+                }
             }
 
-            $event = 'membership_created';
-        } else {
             LifecycleGuard::allow(fn () => $membership->forceFill([
                 'status' => AccessState::Active,
                 'employee_id' => $employee?->getKey() ?? $membership->employee_id,
@@ -362,8 +387,9 @@ class TenantInvitationService
                 'status_reason' => 'Invitation accepted',
                 'status_source' => 'invitation',
             ])->save());
-            $event = 'membership_activated';
-        }
+
+            return [$membership, 'membership_activated'];
+        });
 
         $this->markAccepted($invitation, $user);
         StaffAccessService::invalidateDecisions();
@@ -396,7 +422,7 @@ class TenantInvitationService
     /**
      * @param  Collection<int, Role>  $roles
      */
-    private function create(string $email, ?string $name, Collection $roles, ?Employee $employee, string $source, User $actor): TenantInvitation
+    private function create(string $email, ?string $name, Collection $roles, ?Employee $employee, string $source, ?User $actor, bool $grantsOwnership = false): TenantInvitation
     {
         $existing = User::query()->whereEmailIs($email)->first();
         $membership = $existing?->currentMembership();
@@ -408,12 +434,12 @@ class TenantInvitationService
             throw new DomainException('A member of this organisation already uses this email address.');
         }
 
-        return DB::transaction(function () use ($email, $name, $roles, $employee, $source, $actor): TenantInvitation {
+        return DB::transaction(function () use ($email, $name, $roles, $employee, $source, $actor, $grantsOwnership): TenantInvitation {
             // One open invitation per address and tenant: an earlier one is superseded.
             TenantInvitation::query()->where('email', $email)->where('status', InvitationStatus::Pending->value)->update([
                 'status' => InvitationStatus::Revoked->value,
                 'revoked_at' => now(),
-                'revoked_by' => $actor->id,
+                'revoked_by' => $actor?->id,
                 'revoked_reason' => 'Superseded by a new invitation',
                 'updated_at' => now(),
             ]);
@@ -426,18 +452,19 @@ class TenantInvitationService
                 'role_ids' => $roles->pluck('id')->map(fn (mixed $id): int => (int) $id)->sort()->values()->all(),
                 'employee_id' => $employee?->getKey(),
                 'source' => $source,
+                'grants_ownership' => $grantsOwnership,
                 'token_hash' => self::hash($token),
                 'status' => InvitationStatus::Pending,
                 'expires_at' => $this->expiry(),
-                'invited_by' => $actor->id,
+                'invited_by' => $actor?->id,
                 'last_sent_at' => now(),
                 'send_count' => 1,
             ]);
 
             $this->sendAfterCommit($invitation, $token);
 
-            AuditLog::record($invitation, 'invitation_created', null, ['email' => $email, 'roles' => $roles->pluck('name')->sort()->values()->all(), 'employee_id' => $employee?->getKey(), 'source' => $source, 'by_user_id' => $actor->id]);
-            Log::info('identity.invitation_created', ['invitation_id' => $invitation->id, 'source' => $source, 'actor_id' => $actor->id]);
+            AuditLog::record($invitation, 'invitation_created', null, ['email' => $email, 'roles' => $roles->pluck('name')->sort()->values()->all(), 'employee_id' => $employee?->getKey(), 'source' => $source, 'grants_ownership' => $grantsOwnership, 'by_user_id' => $actor?->id]);
+            Log::info('identity.invitation_created', ['invitation_id' => $invitation->id, 'source' => $source, 'actor_id' => $actor?->id]);
 
             return $invitation;
         });
@@ -472,8 +499,10 @@ class TenantInvitationService
             throw new InvitationUnavailable('expired');
         }
 
-        // The tenant's state under lock: suspended or cancelled meanwhile means no new membership.
-        $tenant = Tenant::query()->whereKey($locked->tenant_id)->sharedLock()->first();
+        // The tenant's state under its row lock — the commercial lock (SaaS-3) that lifecycle changes,
+        // plan changes and seat consumption also take: suspended or cancelled meanwhile means no
+        // new membership, and two acceptances can never both take the last seat.
+        $tenant = Tenant::query()->whereKey($locked->tenant_id)->lockForUpdate()->first();
 
         if ($tenant === null || ! $tenant->isUsable()) {
             throw new InvitationUnavailable('tenant_unusable');
@@ -504,6 +533,15 @@ class TenantInvitationService
 
         if ($roles->count() !== count(array_unique($ids)) || $roles->isEmpty()) {
             throw new InvitationUnavailable('roles_changed');
+        }
+
+        if ($invitation->source === 'provisioning') {
+            // SaaS-3: the initial owner's invitation grants the protected CHRO role and nothing else.
+            if (! $invitation->grants_ownership || $roles->pluck('key')->all() !== [(string) config('identity.chro_role')]) {
+                throw new InvitationUnavailable('roles_changed');
+            }
+
+            return $roles;
         }
 
         if ($invitation->source !== 'administrator') {

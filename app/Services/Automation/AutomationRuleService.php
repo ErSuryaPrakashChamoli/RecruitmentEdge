@@ -5,11 +5,13 @@ namespace App\Services\Automation;
 use App\Enums\AutomationExecutionStatus;
 use App\Enums\AutomationRuleStatus;
 use App\Enums\AutomationScope;
+use App\Enums\Entitlement;
 use App\Models\AuditLog;
 use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
 use App\Models\AutomationRuleVersion;
 use App\Models\User;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Identity\StaffAccessService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -38,10 +40,21 @@ class AutomationRuleService
     ) {}
 
     /**
+     * SaaS-3: building, changing and switching on rules needs automation in the tenant's plan
+     * (pausing and archiving never do — a downgrade can always wind automation down). The person's
+     * own permissions are checked as before; the plan never stands in for them.
+     */
+    private function requireAutomationInPlan(): void
+    {
+        app(EntitlementService::class)->require(Entitlement::AutomationRules);
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      */
     public function create(array $data, User $actor): AutomationRule
     {
+        $this->requireAutomationInPlan();
         $rule = new AutomationRule($this->normalize($data));
         $rule->key = $this->uniqueKey($data['key'] ?? $rule->name);
         $rule->owner_id ??= $actor->id;
@@ -67,6 +80,8 @@ class AutomationRuleService
      */
     public function update(AutomationRule $rule, array $data, User $actor, ?string $reason = null, bool $keepPendingRuns = false): AutomationRule
     {
+        $this->requireAutomationInPlan();
+
         if ($rule->status === AutomationRuleStatus::Archived) {
             throw new DomainException('Archived rules cannot be edited — duplicate it instead.');
         }
@@ -127,6 +142,8 @@ class AutomationRuleService
 
     public function activate(AutomationRule $rule, User $actor, ?string $reason = null): AutomationRule
     {
+        $this->requireAutomationInPlan();
+
         if ($rule->status === AutomationRuleStatus::Archived) {
             throw new DomainException('Archived rules cannot be activated.');
         }
@@ -234,6 +251,8 @@ class AutomationRuleService
 
     public function duplicate(AutomationRule $rule, User $actor): AutomationRule
     {
+        $this->requireAutomationInPlan();
+
         $copy = $rule->replicate(['key', 'status', 'version', 'activated_at', 'activated_by', 'created_by']);
         $copy->name = Str::limit($rule->name.' (copy)', 250, '');
         $copy->key = $this->uniqueKey($rule->key.'-copy');

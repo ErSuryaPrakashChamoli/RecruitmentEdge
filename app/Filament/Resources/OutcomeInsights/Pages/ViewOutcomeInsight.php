@@ -6,6 +6,7 @@ use App\Enums\IntelligenceAiStatus;
 use App\Enums\OutcomeInsightKind;
 use App\Enums\RequirementLevel;
 use App\Filament\Concerns\GuardsDomainExceptions;
+use App\Filament\Pages\AiCopilot;
 use App\Filament\Resources\OutcomeInsights\OutcomeInsightResource;
 use App\Models\OutcomeInsight;
 use App\Models\RecruitmentRequisition;
@@ -37,7 +38,7 @@ class ViewOutcomeInsight extends ViewRecord
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalDescription('Sends the aggregate figures of this insight (counts, sample size, period, limitations — no person or record reference) to the configured AI provider. The insight itself does not change.')
-                ->visible(fn () => auth()->user()?->can('ai.query') ?? false)
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->disabled(fn () => $record->ai_status === IntelligenceAiStatus::Processing)
                 ->action(function () use ($record): void {
                     $status = app(IntelligenceAiService::class)->requestInsightSummary($record, auth()->user());

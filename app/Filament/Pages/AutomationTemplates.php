@@ -2,12 +2,14 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\Entitlement;
 use App\Filament\Resources\AutomationRules\AutomationRuleActions;
 use App\Filament\Resources\AutomationRules\AutomationRuleResource;
 use App\Models\AutomationRule;
 use App\Services\Automation\AutomationEventRegistry;
 use App\Services\Automation\AutomationRuleService;
 use App\Services\Automation\AutomationTemplateCatalog;
+use App\Services\Entitlements\EntitlementService;
 use BackedEnum;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -36,7 +38,8 @@ class AutomationTemplates extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->can('automation.view') ?? false;
+        // SaaS-3: and automation in the tenant's plan.
+        return (auth()->user()?->can('automation.view') ?? false) && app(EntitlementService::class)->allows(Entitlement::AutomationRules);
     }
 
     /**

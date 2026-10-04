@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\AutomationExecutions;
 
+use App\Enums\Entitlement;
+use App\Filament\Concerns\RequiresEntitlement;
 use App\Filament\Resources\AutomationExecutions\Pages\ListAutomationExecutions;
 use App\Filament\Resources\AutomationExecutions\Pages\ViewAutomationExecution;
 use App\Filament\Resources\AutomationExecutions\Schemas\AutomationExecutionInfolist;
@@ -25,6 +27,14 @@ use UnitEnum;
  */
 class AutomationExecutionResource extends Resource
 {
+    // SaaS-3: hidden and refused when automation is not in the tenant's plan.
+    use RequiresEntitlement;
+
+    protected static function requiredEntitlement(): Entitlement
+    {
+        return Entitlement::AutomationRules;
+    }
+
     protected static ?string $model = AutomationExecution::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedQueueList;

@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\AutomationEscalations;
 
+use App\Enums\Entitlement;
 use App\Enums\EscalationStatus;
 use App\Filament\Concerns\GuardsDomainExceptions;
+use App\Filament\Concerns\RequiresEntitlement;
 use App\Filament\Resources\AutomationEscalations\Pages\ListAutomationEscalations;
 use App\Filament\Resources\AutomationExecutions\AutomationExecutionResource;
 use App\Models\AutomationEscalation;
@@ -27,6 +29,14 @@ use UnitEnum;
  */
 class AutomationEscalationResource extends Resource
 {
+    // SaaS-3: hidden and refused when automation is not in the tenant's plan.
+    use RequiresEntitlement;
+
+    protected static function requiredEntitlement(): Entitlement
+    {
+        return Entitlement::AutomationRules;
+    }
+
     use GuardsDomainExceptions;
 
     protected static ?string $model = AutomationEscalation::class;

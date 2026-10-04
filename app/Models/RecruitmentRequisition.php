@@ -4,12 +4,14 @@ namespace App\Models;
 
 use App\Enums\CandidateStage;
 use App\Enums\EmploymentType;
+use App\Enums\Entitlement;
 use App\Enums\JoiningStatus;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Models\Concerns\ReferencesActiveMasterData;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\HierarchyService;
 use App\Services\Metrics\MetricPeriod;
 use Carbon\CarbonImmutable;
@@ -68,6 +70,26 @@ class RecruitmentRequisition extends Model
     public function lifecycleOwner(): string
     {
         return 'RequisitionApprovalService';
+    }
+
+    /**
+     * SaaS-3: a new (or restored) active requisition must fit the tenant's plan. The application's
+     * paths take the limit atomically (RequisitionService); this backstop refuses any path that
+     * forgot to.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $requisition): void {
+            if (! in_array($requisition->status, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true)) {
+                app(EntitlementService::class)->assertCanAdd(Entitlement::RequisitionsActiveMax);
+            }
+        });
+
+        static::restoring(function (self $requisition): void {
+            if (! in_array($requisition->status, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true)) {
+                app(EntitlementService::class)->assertCanAdd(Entitlement::RequisitionsActiveMax);
+            }
+        });
     }
 
     protected function casts(): array

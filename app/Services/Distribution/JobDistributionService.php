@@ -3,6 +3,7 @@
 namespace App\Services\Distribution;
 
 use App\Enums\DistributionStatus;
+use App\Enums\Entitlement;
 use App\Enums\JobPostingStatus;
 use App\Enums\RequisitionStatus;
 use App\Jobs\PublishJobDistributionJob;
@@ -11,6 +12,7 @@ use App\Models\Employee;
 use App\Models\JobDistribution;
 use App\Models\JobPosting;
 use App\Models\RecruitmentRequisition;
+use App\Services\Entitlements\EntitlementService;
 use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +30,8 @@ use Throwable;
  */
 class JobDistributionService
 {
+    public const string CAREER_SITE = 'career_site';
+
     public function __construct(private readonly JobBoardRegistry $boards) {}
 
     /**
@@ -77,6 +81,12 @@ class JobDistributionService
 
         if ($channels === []) {
             throw new DomainException('Choose at least one channel.');
+        }
+
+        // SaaS-3: external job boards need them in the tenant's plan; the tenant's own careers site
+        // is always included.
+        if (array_diff(array_unique($channels), [self::CAREER_SITE]) !== []) {
+            app(EntitlementService::class)->require(Entitlement::DistributionJobBoards);
         }
 
         $connectors = collect($channels)->unique()->mapWithKeys(fn (string $key) => [$key => $this->boards->find($key) ?? throw new DomainException("Unknown channel \"{$key}\".")]);

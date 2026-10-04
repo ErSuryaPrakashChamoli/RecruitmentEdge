@@ -3,11 +3,14 @@
 namespace App\Jobs;
 
 use App\Enums\DistributionStatus;
+use App\Enums\Entitlement;
 use App\Enums\JobPostingStatus;
 use App\Enums\RequisitionStatus;
 use App\Models\JobDistribution;
+use App\Services\Distribution\DistributionResult;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Distribution\JobDistributionService;
+use App\Services\Entitlements\EntitlementService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -69,6 +72,14 @@ class PublishJobDistributionJob implements ShouldBeUniqueUntilProcessing, Should
         $connector = $row !== null ? $boards->find($row->channel) : null;
 
         if ($row === null || $connector === null || $this->isStale($row)) {
+            return;
+        }
+
+        // SaaS-3: a publish or update waiting when external boards left the tenant's plan is not
+        // sent (taking a posting down always is) — recorded on the distribution, deterministically.
+        if (! in_array($this->operation, ['unpublish', 'pause'], true) && $row->channel !== JobDistributionService::CAREER_SITE && ! app(EntitlementService::class)->allows(Entitlement::DistributionJobBoards)) {
+            $distribution->record($row, $this->operation, DistributionResult::failed('Job board distribution is not included in the organisation\'s plan.', retryable: false));
+
             return;
         }
 

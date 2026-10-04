@@ -21,10 +21,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   them (checked again at acceptance). employee_id: the tenant's employee record to link.
  * - token_hash: SHA-256 of the single-use token in the emailed link. The token itself is never
  *   stored or logged; a resend replaces it.
+ * - grants_ownership (SaaS-3): the initial owner's invitation, created by provisioning.
  * - status: Pending → Accepted | Revoked | Expired, final; changed only by TenantInvitationService
  *   with a conditional update, so acceptance, revocation and expiry cannot both win.
  */
-#[Fillable(['email', 'name', 'role_ids', 'employee_id', 'source', 'token_hash', 'status', 'expires_at', 'invited_by', 'last_sent_at', 'send_count'])]
+#[Fillable(['email', 'name', 'role_ids', 'employee_id', 'source', 'grants_ownership', 'token_hash', 'status', 'expires_at', 'invited_by', 'last_sent_at', 'send_count'])]
 #[Hidden(['token_hash'])]
 class TenantInvitation extends Model
 {
@@ -36,7 +37,7 @@ class TenantInvitation extends Model
      */
     public function lifecycleAttributes(): array
     {
-        return ['status', 'token_hash', 'email', 'role_ids', 'employee_id', 'accepted_user_id'];
+        return ['status', 'token_hash', 'email', 'role_ids', 'employee_id', 'accepted_user_id', 'grants_ownership'];
     }
 
     public function lifecycleOwner(): string
@@ -48,6 +49,7 @@ class TenantInvitation extends Model
     {
         return [
             'role_ids' => 'array',
+            'grants_ownership' => 'boolean',
             'status' => InvitationStatus::class,
             'expires_at' => 'datetime',
             'last_sent_at' => 'datetime',

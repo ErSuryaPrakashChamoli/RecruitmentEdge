@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\AutomationRules;
 
+use App\Enums\Entitlement;
+use App\Filament\Concerns\RequiresEntitlement;
 use App\Filament\Resources\AutomationRules\Pages\CreateAutomationRule;
 use App\Filament\Resources\AutomationRules\Pages\DryRunAutomationRule;
 use App\Filament\Resources\AutomationRules\Pages\EditAutomationRule;
@@ -26,6 +28,14 @@ use UnitEnum;
  */
 class AutomationRuleResource extends Resource
 {
+    // SaaS-3: hidden and refused when automation is not in the tenant's plan.
+    use RequiresEntitlement;
+
+    protected static function requiredEntitlement(): Entitlement
+    {
+        return Entitlement::AutomationRules;
+    }
+
     protected static ?string $model = AutomationRule::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCog8Tooth;

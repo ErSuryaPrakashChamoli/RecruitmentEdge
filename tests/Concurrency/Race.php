@@ -54,9 +54,27 @@ final class Race
 
         // SaaS-1: races run inside one tenant, as the application always does; a forked contender
         // inherits it.
-        TenantContext::current()->setTenant(Tenant::query()->firstOrCreate(['slug' => 'concurrency'], [
+        $tenant = Tenant::query()->firstOrCreate(['slug' => 'concurrency'], [
             'name' => 'Concurrency', 'status' => TenantStatus::Active, 'timezone' => 'Asia/Kolkata', 'locale' => 'en', 'currency' => 'INR', 'country' => 'IN',
-        ]));
+        ]);
+
+        // SaaS-3: the harness tenant has every capability without limits (the legacy plan), unless
+        // a race test assigns another plan itself.
+        self::pinPlan($tenant, 'legacy');
+        TenantContext::current()->setTenant($tenant->refresh());
+    }
+
+    /**
+     * SaaS-3: fixture — pins $tenant to the latest published version of $code (no audit).
+     */
+    public static function pinPlan(Tenant $tenant, string $code): void
+    {
+        $versionId = DB::table('plan_versions')->join('plans', 'plans.id', '=', 'plan_versions.plan_id')
+            ->where('plans.code', $code)->where('plan_versions.status', 'published')->orderByDesc('plan_versions.version')->value('plan_versions.id');
+
+        DB::table('tenant_plan_assignments')->where('tenant_id', $tenant->id)->delete();
+        DB::table('tenant_plan_assignments')->insert(['tenant_id' => $tenant->id, 'plan_version_id' => $versionId, 'is_current' => true, 'effective_from' => now(), 'source' => 'factory', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tenants')->where('id', $tenant->id)->increment('entitlement_version');
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Enums\AutomationActionStatus;
 use App\Enums\AutomationExecutionStatus;
 use App\Enums\AutomationFailureBehavior;
 use App\Enums\AutomationRuleStatus;
+use App\Enums\Entitlement;
 use App\Enums\EscalationStatus;
 use App\Jobs\RunAutomationExecutionJob;
 use App\Models\AuditLog;
@@ -15,6 +16,7 @@ use App\Models\AutomationRule;
 use App\Models\User;
 use App\Services\Automation\Actions\ActionOutcome;
 use App\Services\Automation\Data\TriggerDefinition;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Tenancy\TenantCache;
 use Carbon\CarbonInterface;
 use DomainException;
@@ -60,6 +62,15 @@ class AutomationEngine
     }
 
     /**
+     * SaaS-3: whether the current tenant's plan includes automation (the engine is a process-wide
+     * singleton; the entitlement service is per request or job, so it is resolved each time).
+     */
+    private function entitled(): bool
+    {
+        return app(EntitlementService::class)->allows(Entitlement::AutomationRules);
+    }
+
+    /**
      * Entry point for domain events. Returns the number of executions created.
      */
     public function handleEvent(object $event): int
@@ -74,7 +85,8 @@ class AutomationEngine
      */
     public function trigger(string $trigger, Model $subject, array $eventData = []): int
     {
-        if (! in_array($trigger, $this->activeTriggers(), true)) {
+        // SaaS-3: no automation in the tenant's plan, no new runs.
+        if (! $this->entitled() || ! in_array($trigger, $this->activeTriggers(), true)) {
             return 0;
         }
 
@@ -111,7 +123,7 @@ class AutomationEngine
     {
         $definition = $this->events->find($rule->trigger);
 
-        if ($definition === null || ! $definition->isScheduled() || ! $rule->isActive() || ! $rule->isEffectiveAt(now())) {
+        if (! $this->entitled() || $definition === null || ! $definition->isScheduled() || ! $rule->isActive() || ! $rule->isEffectiveAt(now())) {
             return ['matched' => 0, 'created' => 0];
         }
 
@@ -159,6 +171,15 @@ class AutomationEngine
      */
     public function run(int $executionId): ?AutomationExecution
     {
+        // SaaS-3: a run waiting when automation left the tenant's plan never runs — it is cancelled,
+        // visibly, rather than left pending.
+        if (! $this->entitled()) {
+            AutomationExecution::query()->whereKey($executionId)->where('status', AutomationExecutionStatus::Pending)
+                ->update(['status' => AutomationExecutionStatus::Cancelled, 'skip_reason' => 'Automation is not included in the organisation\'s plan.', 'completed_at' => now()]);
+
+            return null;
+        }
+
         $execution = DB::transaction(function () use ($executionId): ?AutomationExecution {
             $execution = AutomationExecution::query()->lockForUpdate()->find($executionId);
 
@@ -245,6 +266,10 @@ class AutomationEngine
      */
     public function processDue(int $limit): array
     {
+        if (! $this->entitled()) {
+            return ['dispatched' => 0, 'stale_failed' => 0, 'stale_cancelled' => 0];
+        }
+
         // Phase 8.7 (D8.7-013): a run whose worker died before any action started is safe to run
         // again, once; one that had started an action is failed for a person to retry, because
         // that action's effect is unknown.

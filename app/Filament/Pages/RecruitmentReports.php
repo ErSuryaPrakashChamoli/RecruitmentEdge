@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\CandidateStage;
+use App\Enums\Entitlement;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\AuditLog;
 use App\Models\CandidateSource;
@@ -10,6 +11,7 @@ use App\Models\Department;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\CostPerHireService;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Export\ReportExportService;
 use App\Services\Metrics\MetricResult;
 use App\Services\Metrics\MetricService;
@@ -185,9 +187,12 @@ class RecruitmentReports extends Page implements HasForms
         };
     }
 
+    /**
+     * The person's permission AND (SaaS-3) data exports in the tenant's plan.
+     */
     public function canExport(): bool
     {
-        return (bool) Filament::auth()->user()?->can('reports.export');
+        return (bool) Filament::auth()->user()?->can('reports.export') && app(EntitlementService::class)->allows(Entitlement::ExportsData);
     }
 
     public function exportFunnel(): StreamedResponse

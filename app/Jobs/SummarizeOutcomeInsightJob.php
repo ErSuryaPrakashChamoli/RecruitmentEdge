@@ -2,10 +2,12 @@
 
 namespace App\Jobs;
 
+use App\Enums\Entitlement;
 use App\Enums\IntelligenceAiStatus;
 use App\Jobs\Concerns\RunsForRequester;
 use App\Models\OutcomeInsight;
 use App\Models\User;
+use App\Services\Entitlements\SkipWithoutEntitlement;
 use App\Services\Intelligence\IntelligenceAiService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -45,6 +47,16 @@ class SummarizeOutcomeInsightJob implements ShouldBeUnique, ShouldQueue
     public function backoff(): array
     {
         return [60];
+    }
+
+    /**
+     * SaaS-3: AI work runs only while the tenant's plan includes the AI assistant.
+     *
+     * @return array<int, object>
+     */
+    public function middleware(): array
+    {
+        return [new SkipWithoutEntitlement(Entitlement::AiAssistant)];
     }
 
     public function handle(IntelligenceAiService $ai): void

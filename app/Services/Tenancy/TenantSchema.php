@@ -122,8 +122,11 @@ final class TenantSchema
         'talent_pool_memberships',
         'talent_pools',
         'talent_signal_snapshots',
+        // SaaS-3: the tenant's entitlement overrides and plan assignments (commercial control plane).
+        'tenant_entitlement_overrides',
         // SaaS-2: invitations into the tenant (hashed tokens).
         'tenant_invitations',
+        'tenant_plan_assignments',
     ];
 
     /**
@@ -153,6 +156,10 @@ final class TenantSchema
         'ai_evaluation_runs',
         // SaaS-2: platform operators (administrators, support, compliance) — never tenant members.
         'platform_operators',
+        // SaaS-3: the plan catalog (plans, immutable versions, what each version grants).
+        'plans',
+        'plan_versions',
+        'plan_entitlements',
     ];
 
     /**

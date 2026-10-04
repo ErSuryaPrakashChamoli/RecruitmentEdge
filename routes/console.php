@@ -50,6 +50,9 @@ Schedule::command('cache:prune-expired')->dailyAt('02:40')->withoutOverlapping(3
 Schedule::command('auth:clear-resets')->dailyAt('02:45')->withoutOverlapping(15)->onOneServer();
 Schedule::command('queue:prune-batches', ['--hours' => (int) config('queue.failed.retention_hours', 720)])->dailyAt('02:50')->withoutOverlapping(15)->onOneServer();
 // Phase 8.7 (D8.7-013): re-queue lost messages; fail work a crashed worker or request left stuck.
+// SaaS-3: ended trials are recorded (they are already treated as suspended) and unfinished
+// provisioning is reported — a platform pass over the tenants table only.
+Schedule::command('tenants:lifecycle-sweep')->hourly()->withoutOverlapping(55)->onOneServer();
 // SaaS-2: pending invitations past their expiry become Expired (each tenant's own, audited).
 Schedule::command('tenants:dispatch invitations:expire')->hourly()->withoutOverlapping(55)->onOneServer();
 Schedule::command('tenants:dispatch reliability:sweep')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();

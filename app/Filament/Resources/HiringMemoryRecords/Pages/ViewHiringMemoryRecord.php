@@ -4,6 +4,7 @@ namespace App\Filament\Resources\HiringMemoryRecords\Pages;
 
 use App\Enums\IntelligenceAiStatus;
 use App\Filament\Concerns\GuardsDomainExceptions;
+use App\Filament\Pages\AiCopilot;
 use App\Filament\Resources\HiringMemoryRecords\HiringMemoryRecordResource;
 use App\Models\HiringMemoryRecord;
 use App\Services\Intelligence\EvidenceLookup;
@@ -44,7 +45,7 @@ class ViewHiringMemoryRecord extends ViewRecord
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalDescription('Sends the role-level facts of this record (no names, contact details or compensation) to the configured AI provider.')
-                ->visible(fn () => auth()->user()?->can('ai.query') ?? false)
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->disabled(fn () => $record->ai_status === IntelligenceAiStatus::Processing)
                 ->action(function () use ($record): void {
                     $status = app(IntelligenceAiService::class)->requestMemorySummary($record, auth()->user());

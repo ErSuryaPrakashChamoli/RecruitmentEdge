@@ -3,8 +3,11 @@
 namespace App\Models;
 
 use App\Enums\AccessState;
+use App\Enums\Entitlement;
 use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Identity\StaffAccessService;
+use App\Services\Tenancy\TenantContext;
 use Database\Factories\TenantMembershipFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,13 +24,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *   kept in revoked_roles for the record). Another tenant's membership is never affected.
  * - employee_id: the person's employee record in this tenant (at most one login per employee).
  * - is_default: the person's preferred tenant — a convenience, never an authorisation.
+ * - is_owner (SaaS-3): the tenant's owner — the person provisioning invited (one per tenant, unique).
+ *   A membership fact, never an attribute of the global identity; authority comes from roles.
+ * - An Active membership takes one staff seat (Entitlement::MembersActiveMax).
  *
  * Identity-plane, so not tenant-scoped: every query names its tenant or its user. Status and the
  * employee link change only through the identity services (GuardsLifecycleAttributes).
  * Invitations (TenantInvitation) are the way a membership is created; "invited" is the pending
  * invitation, never a membership row that could be mistaken for access.
  */
-#[Fillable(['tenant_id', 'user_id', 'employee_id', 'status', 'is_default', 'joined_at'])]
+#[Fillable(['tenant_id', 'user_id', 'employee_id', 'status', 'is_default', 'is_owner', 'joined_at'])]
 class TenantMembership extends Model
 {
     /** @use HasFactory<TenantMembershipFactory> */
@@ -48,6 +54,16 @@ class TenantMembership extends Model
 
     protected static function booted(): void
     {
+        // SaaS-3: a membership that becomes Active takes a staff seat. The identity services take it
+        // atomically (EntitlementService::consume); this backstop refuses any path that forgot to.
+        static::saving(function (self $membership): void {
+            $activating = $membership->status === AccessState::Active && (! $membership->exists || $membership->isDirty('status'));
+
+            if ($activating) {
+                TenantContext::current()->run((int) $membership->tenant_id, fn () => app(EntitlementService::class)->assertCanAdd(Entitlement::MembersActiveMax));
+            }
+        });
+
         // Any membership write ends every memoised access decision in this process.
         static::saved(fn () => StaffAccessService::invalidateDecisions());
         static::deleted(fn () => StaffAccessService::invalidateDecisions());
@@ -60,6 +76,7 @@ class TenantMembership extends Model
             'status_changed_at' => 'datetime',
             'revoked_roles' => 'array',
             'is_default' => 'boolean',
+            'is_owner' => 'boolean',
             'joined_at' => 'datetime',
             'last_selected_at' => 'datetime',
         ];

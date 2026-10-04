@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\AiCopilot;
 use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
@@ -35,7 +36,7 @@ class SmartRecommendationsWidget extends Widget
 
     public function canNarrate(): bool
     {
-        return (bool) Filament::auth()->user()?->can('ai.query') && app(AiGateway::class)->isConfigured();
+        return AiCopilot::canAccess() && app(AiGateway::class)->isConfigured();
     }
 
     public function generate(): void
@@ -52,7 +53,7 @@ class SmartRecommendationsWidget extends Widget
             start: $start,
             end: $end,
             scope: $scopeUser,
-            narrate: (bool) $viewer->can('ai.query'),
+            narrate: AiCopilot::canAccess(),
         );
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Enums\Entitlement;
 use App\Http\Controllers\PrivateFileController;
 use App\Http\Middleware\AuditExportDownload;
 use App\Http\Middleware\EnforceStaffAccess;
@@ -26,6 +27,7 @@ use App\Services\Automation\AutomationRuntime;
 use App\Services\CandidatePortalService;
 use App\Services\Communication\CommunicationProviderManager;
 use App\Services\Distribution\JobBoardRegistry;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Export\ExportGovernance;
 use App\Services\HierarchyMemo;
 use App\Services\Identity\StaffAccessService;
@@ -192,6 +194,9 @@ class AppServiceProvider extends ServiceProvider
     private function configureExports(): void
     {
         ExportAction::configureUsing(fn (ExportAction $action): ExportAction => $action
+            // SaaS-3: hidden when data exports are not in the tenant's plan (the Export record
+            // refuses to be created anyway — the button is not the boundary).
+            ->hidden(fn (): bool => ! app(EntitlementService::class)->allows(Entitlement::ExportsData))
             ->maxRows(ExportGovernance::MAX_ROWS)
             ->before(fn (ExportAction $action, array $data, Component $livewire) => ExportGovernance::rememberRequest($action, $data, $livewire))
             ->after(fn () => ExportGovernance::recordRefusedIfNotStarted()));

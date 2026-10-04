@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\Users\Actions;
 
+use App\Enums\Entitlement;
 use App\Filament\Resources\Users\Schemas\UserForm;
 use App\Models\Role;
 use App\Models\User;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Identity\TenantInvitationService;
 use DomainException;
 use Filament\Actions\Action;
@@ -28,6 +30,9 @@ class InviteMemberAction
             ->label('Invite member')
             ->icon('heroicon-o-envelope')
             ->visible(fn (): bool => auth()->user()?->can('create', User::class) ?? false)
+            // SaaS-3: no free staff seat, no invitation (acceptance takes the seat; both refuse anyway).
+            ->disabled(fn (): bool => ! app(EntitlementService::class)->canAdd(Entitlement::MembersActiveMax))
+            ->tooltip(fn (): ?string => app(EntitlementService::class)->canAdd(Entitlement::MembersActiveMax) ? null : Entitlement::MembersActiveMax->unavailableMessage())
             ->modalDescription('They get an email link to join this organisation — signing in with their existing account, or creating one.')
             ->schema([
                 TextInput::make('email')

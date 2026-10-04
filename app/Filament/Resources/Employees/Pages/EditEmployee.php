@@ -31,7 +31,7 @@ class EditEmployee extends EditRecord
                 ->label('Analyze with AI')
                 ->icon(Heroicon::OutlinedSparkles)
                 ->color('gray')
-                ->visible(fn () => (bool) auth()->user()?->can('ai.query'))
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->url(fn () => AiCopilot::linkForContext('employee', $this->record->id)),
             EmploymentActions::deactivate(),
             EmploymentActions::reactivate(),

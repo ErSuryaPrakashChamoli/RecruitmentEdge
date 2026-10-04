@@ -2,6 +2,8 @@
 
 namespace App\Services\Export;
 
+use App\Enums\Entitlement;
+use App\Services\Entitlements\EntitlementService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -19,6 +21,9 @@ class ReportExportService
      */
     public function streamCsv(string $filename, array $headers, iterable $rows): StreamedResponse
     {
+        // SaaS-3: a bulk data export needs data exports in the tenant's plan, whoever asks for it.
+        app(EntitlementService::class)->require(Entitlement::ExportsData);
+
         return response()->streamDownload(function () use ($headers, $rows): void {
             $out = fopen('php://output', 'w');
             fputcsv($out, array_map(self::neutraliseFormula(...), $headers));

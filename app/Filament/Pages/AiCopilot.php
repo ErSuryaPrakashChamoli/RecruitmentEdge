@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Enums\AiMessageRole;
 use App\Enums\AiToolCallStatus;
+use App\Enums\Entitlement;
 use App\Models\AiConversation;
 use App\Models\AiToolCall;
 use App\Models\Candidate;
@@ -19,6 +20,7 @@ use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Orchestrator\AiOrchestrator;
 use App\Services\AI\Privacy\AiReference;
 use App\Services\AI\Privacy\AiReferenceResolver;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\HierarchyService;
 use BackedEnum;
 use DomainException;
@@ -102,7 +104,8 @@ class AiCopilot extends Page
 
     public static function canAccess(): bool
     {
-        return (bool) Filament::auth()->user()?->can('ai.query');
+        // SaaS-3: and the AI assistant in the tenant's plan (every AI call checks it again).
+        return (bool) Filament::auth()->user()?->can('ai.query') && app(EntitlementService::class)->allows(Entitlement::AiAssistant);
     }
 
     /**

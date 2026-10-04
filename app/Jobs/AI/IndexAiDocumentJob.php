@@ -3,8 +3,10 @@
 namespace App\Jobs\AI;
 
 use App\Enums\AiDocumentStatus;
+use App\Enums\Entitlement;
 use App\Models\AiDocument;
 use App\Services\AI\Rag\DocumentIngestionService;
+use App\Services\Entitlements\SkipWithoutEntitlement;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -43,6 +45,16 @@ class IndexAiDocumentJob implements ShouldBeUnique, ShouldQueue
     public function backoff(): array
     {
         return [60, 300];
+    }
+
+    /**
+     * SaaS-3: AI work runs only while the tenant's plan includes the AI assistant.
+     *
+     * @return array<int, object>
+     */
+    public function middleware(): array
+    {
+        return [new SkipWithoutEntitlement(Entitlement::AiAssistant)];
     }
 
     public function handle(DocumentIngestionService $ingestion): void

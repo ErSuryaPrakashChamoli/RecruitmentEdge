@@ -173,7 +173,7 @@ class Dashboard extends BaseDashboard
                 ->label('Explain with AI')
                 ->icon(Heroicon::OutlinedSparkles)
                 ->color('gray')
-                ->visible(fn () => (bool) auth()->user()?->can('ai.query'))
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->url(fn () => AiCopilot::linkForContext('dashboard')),
         ];
     }

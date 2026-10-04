@@ -90,6 +90,11 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::BODY_END,
                 fn (): string => Blade::render('<livewire:command-palette />'),
             )
+            // SaaS-3: a trial tenant sees when its trial ends.
+            ->renderHook(
+                PanelsRenderHook::BODY_START,
+                fn (): string => view('filament.components.trial-banner')->render(),
+            )
             ->renderHook(
                 PanelsRenderHook::HEAD_START,
                 fn (): string => view('filament.components.theme-anti-fouc')->render(),

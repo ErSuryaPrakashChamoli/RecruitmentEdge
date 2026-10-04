@@ -3,6 +3,7 @@
 namespace App\Services\Identity;
 
 use App\Enums\AccessState;
+use App\Enums\Entitlement;
 use App\Enums\TenantStatus;
 use App\Events\EmployeeAccessRestored;
 use App\Events\EmployeeAccessRevoked;
@@ -12,6 +13,7 @@ use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Lifecycle\LifecycleGuard;
 use App\Services\Tenancy\TenantContext;
 use DomainException;
@@ -278,7 +280,15 @@ class StaffAccessService
             throw new DomainException('A reason is required to change access.');
         }
 
-        $changed = $this->authority->protecting("access_{$to->value}", $actor, fn (): ?AccessState => DB::transaction(fn (): ?AccessState => $this->apply($target, $actor, $reason, $source, $decide, $effects)));
+        $work = fn (): ?AccessState => $this->apply($target, $actor, $reason, $source, $decide, $effects);
+
+        // SaaS-3: becoming Active again takes a staff seat — under the tenant lock (after the CHRO
+        // lock, before the membership lock: the order every identity path keeps).
+        $changed = $this->authority->protecting("access_{$to->value}", $actor, fn (): ?AccessState => DB::transaction(
+            fn (): ?AccessState => $to === AccessState::Active && $this->storedState($target) !== AccessState::Active
+                ? app(EntitlementService::class)->consume(Entitlement::MembersActiveMax, $work)
+                : $work(),
+        ));
 
         $target->unsetRelation('roles');
         $target->unsetRelation('memberships');
@@ -352,6 +362,14 @@ class StaffAccessService
         });
 
         return $next;
+    }
+
+    /**
+     * The membership's state as stored right now (not the identity's memoised view).
+     */
+    private function storedState(User $user): ?AccessState
+    {
+        return TenantMembership::query()->where('tenant_id', TenantContext::current()->requireId())->where('user_id', $user->getKey())->value('status');
     }
 
     private function stamp(): string

@@ -2,8 +2,10 @@
 
 namespace App\Jobs\AI;
 
+use App\Enums\Entitlement;
 use App\Models\AiKnowledgeArticle;
 use App\Services\AI\Rag\DocumentIngestionService;
+use App\Services\Entitlements\SkipWithoutEntitlement;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -48,6 +50,16 @@ class ReindexKnowledgeArticleJob implements ShouldBeUniqueUntilProcessing, Shoul
     public function backoff(): array
     {
         return [60, 300];
+    }
+
+    /**
+     * SaaS-3: AI work runs only while the tenant's plan includes the AI assistant.
+     *
+     * @return array<int, object>
+     */
+    public function middleware(): array
+    {
+        return [new SkipWithoutEntitlement(Entitlement::AiAssistant)];
     }
 
     public function handle(DocumentIngestionService $ingestion): void

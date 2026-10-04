@@ -19,6 +19,7 @@ class TenantDirectory
     {
         $statuses = array_values(array_filter(TenantStatus::cases(), fn (TenantStatus $status): bool => $status->allowsBackgroundWork()));
 
-        return Tenant::query()->whereIn('status', $statuses)->orderBy('id')->get();
+        // SaaS-3: a trial past its end is filtered out here too (Tenant::effectiveStatus()).
+        return Tenant::query()->whereIn('status', $statuses)->orderBy('id')->get()->filter(fn (Tenant $tenant): bool => $tenant->allowsBackgroundWork())->values();
     }
 }

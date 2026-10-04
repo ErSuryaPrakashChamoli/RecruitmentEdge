@@ -22,7 +22,7 @@ class EditCandidate extends EditRecord
                 ->label('Ask AI about this candidate')
                 ->icon(Heroicon::OutlinedSparkles)
                 ->color('gray')
-                ->visible(fn () => (bool) auth()->user()?->can('ai.query'))
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->url(fn () => AiCopilot::linkForContext('candidate', $this->record->id)),
             DeleteAction::make(),
             ForceDeleteAction::make(),

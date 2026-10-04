@@ -76,6 +76,8 @@ final class TenantTasks
         'auth:clear-resets',
         'queue:prune-batches',
         'queue:health-check',
+        // SaaS-3: records ended trials and reports unfinished provisioning (reads tenants only).
+        'tenants:lifecycle-sweep',
     ];
 
     public static function isTenantTask(string $task): bool

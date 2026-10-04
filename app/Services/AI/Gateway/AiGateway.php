@@ -3,6 +3,7 @@
 namespace App\Services\AI\Gateway;
 
 use App\Enums\AiUsageRequestType;
+use App\Enums\Entitlement;
 use App\Models\AiUsageLog;
 use App\Models\User;
 use App\Services\AI\Contracts\EmbeddingProviderInterface;
@@ -17,6 +18,7 @@ use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Privacy\AiEgressGuard;
 use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Tools\ToolExecutionContext;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -35,6 +37,8 @@ use Throwable;
  * Phase 8.1: every provider-bound payload — messages, tool-call arguments, embedding texts and
  * research queries — passes AiEgressGuard before the provider is called, whatever the caller.
  * Failure logs carry the exception class and a scrubbed message, never request or response bodies.
+ *
+ * SaaS-3: and before anything is sent, the tenant's plan must include the AI assistant.
  */
 class AiGateway
 {
@@ -55,6 +59,7 @@ class AiGateway
      */
     public function generate(array $messages, array $tools, string $category, ?User $user = null, ?int $conversationId = null): LlmResponse
     {
+        $this->assertEntitled();
         $messages = $this->egress->messages($messages, 'generate');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
@@ -78,6 +83,7 @@ class AiGateway
      */
     public function stream(array $messages, array $tools, string $category, callable $onDelta, ?User $user = null, ?int $conversationId = null): LlmResponse
     {
+        $this->assertEntitled();
         $messages = $this->egress->messages($messages, 'stream');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
@@ -102,6 +108,7 @@ class AiGateway
      */
     public function structured(array $messages, array $jsonSchema, string $category = 'extraction', ?User $user = null, ?int $conversationId = null): array
     {
+        $this->assertEntitled();
         $messages = $this->egress->messages($messages, 'structured');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
@@ -126,6 +133,7 @@ class AiGateway
      */
     public function embed(array $texts, ?User $user = null, string $context = 'document', ?int $conversationId = null): array
     {
+        $this->assertEntitled();
         $texts = $this->egress->texts($texts, 'embed');
         $start = microtime(true);
         $model = $this->router->forEmbeddings();
@@ -147,6 +155,8 @@ class AiGateway
      */
     public function research(string $query, ?User $user = null, ?int $conversationId = null): array
     {
+        $this->assertEntitled();
+
         if (! config('ai.features.web_search_enabled')) {
             return [];
         }
@@ -169,6 +179,18 @@ class AiGateway
             $this->logUsage($user, $conversationId, AiUsageRequestType::WebSearch, config('ai.web_search.provider'), $model, [], $start, 'error');
 
             return [];
+        }
+    }
+
+    /**
+     * SaaS-3: every provider call made for a tenant needs the AI assistant in that tenant's plan —
+     * checked here, where every AI path passes, so no page, tool, job or command can go around it.
+     * Platform work (no tenant: provider diagnostics) is governed by platform configuration only.
+     */
+    private function assertEntitled(): void
+    {
+        if (TenantContext::current()->hasTenant()) {
+            app(EntitlementService::class)->require(Entitlement::AiAssistant);
         }
     }
 

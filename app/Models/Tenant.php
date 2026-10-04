@@ -20,6 +20,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `slug` is the platform-assigned identifier in tenant URLs (/admin/{slug}, careers, portal); it is
  * looked up in this table and never taken from the request Host. Billing, plans and branding
  * assets belong to later phases; `branding` only holds simple display settings for now.
+ *
+ * SaaS-3: the commercial control plane. `status` changes only through TenantLifecycleService (its
+ * transition table); a trial's end is evaluated on every read (effectiveStatus()), so an expired
+ * trial stops working at once, whether or not the hourly sweep has recorded it yet.
+ * `entitlement_version` is bumped by every commercial change and keys the entitlement cache.
  */
 #[Fillable(['slug', 'name', 'legal_name', 'status', 'timezone', 'locale', 'currency', 'country', 'branding'])]
 class Tenant extends Model implements HasName
@@ -50,6 +55,11 @@ class Tenant extends Model implements HasName
         return [
             'status' => TenantStatus::class,
             'status_changed_at' => 'datetime',
+            'trial_started_at' => 'datetime',
+            'trial_ends_at' => 'datetime',
+            'entitlement_version' => 'integer',
+            'provisioned_at' => 'datetime',
+            'provisioning_state' => 'array',
             'mfa_required' => 'boolean',
             'branding' => 'array',
         ];
@@ -71,14 +81,41 @@ class Tenant extends Model implements HasName
         return $this->memberships()->where('status', AccessState::Active);
     }
 
+    /**
+     * @return HasMany<TenantPlanAssignment, $this>
+     */
+    public function planAssignments(): HasMany
+    {
+        return $this->hasMany(TenantPlanAssignment::class);
+    }
+
+    /**
+     * SaaS-3: the state the tenant is in right now. A trial whose end has passed is Suspended
+     * (reason trial_expired) from that moment — the stored status catches up when the sweep (or
+     * any lifecycle change) records it.
+     */
+    public function effectiveStatus(): TenantStatus
+    {
+        if ($this->status === TenantStatus::Trial && $this->trialHasExpired()) {
+            return TenantStatus::Suspended;
+        }
+
+        return $this->status;
+    }
+
+    public function trialHasExpired(): bool
+    {
+        return $this->trial_ends_at !== null && ! $this->trial_ends_at->isFuture();
+    }
+
     public function isUsable(): bool
     {
-        return $this->status->isUsable();
+        return $this->effectiveStatus()->isUsable();
     }
 
     public function allowsBackgroundWork(): bool
     {
-        return $this->status->allowsBackgroundWork();
+        return $this->effectiveStatus()->allowsBackgroundWork();
     }
 
     public function getFilamentName(): string

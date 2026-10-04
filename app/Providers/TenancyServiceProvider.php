@@ -10,6 +10,7 @@ use App\Models\FailedImportRow;
 use App\Models\Import;
 use App\Models\Role;
 use App\Models\Tenant;
+use App\Services\Entitlements\EntitlementService;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantQueueGuard;
 use Filament\Actions\Exports\Models\Export as FilamentExport;
@@ -33,6 +34,9 @@ class TenancyServiceProvider extends ServiceProvider
     {
         // One context per request and per queued job (the worker forgets scoped instances).
         $this->app->scoped(TenantContext::class);
+
+        // SaaS-3: entitlement decisions are memoised per request or job, never across them.
+        $this->app->scoped(EntitlementService::class);
 
         // Filament builds its export / import records through the container: use the
         // tenant-owned models.

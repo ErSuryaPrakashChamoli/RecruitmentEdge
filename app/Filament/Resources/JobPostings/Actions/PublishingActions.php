@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\JobPostings\Actions;
 
+use App\Enums\Entitlement;
 use App\Enums\JobPostingStatus;
 use App\Filament\Resources\Interviews\Tables\InterviewsTable;
 use App\Models\JobPosting;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Distribution\JobDistributionService;
+use App\Services\Entitlements\EntitlementService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Textarea;
@@ -35,6 +37,9 @@ class PublishingActions
             ->schema([
                 CheckboxList::make('channels')
                     ->options(fn (): array => app(JobBoardRegistry::class)->options())
+                    // SaaS-3: external boards only when the tenant's plan includes them (the
+                    // service refuses them anyway); the careers site always.
+                    ->disableOptionWhen(fn (string $value): bool => $value !== JobDistributionService::CAREER_SITE && ! app(EntitlementService::class)->allows(Entitlement::DistributionJobBoards))
                     ->default(['career_site'])
                     ->helperText('Channels marked "not configured" have no API access — publishing there is recorded as failed, never faked.')
                     ->required(),
