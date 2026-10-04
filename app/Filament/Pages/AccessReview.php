@@ -144,7 +144,9 @@ class AccessReview extends Page implements HasTable
         $viewer = Filament::auth()->user();
         $visible = $viewer instanceof User ? app(HierarchyService::class)->visibleEmployeeIdsFor($viewer) : collect();
 
+        // SaaS-1: only the current tenant's members — "view all" is all of this tenant.
         return User::query()
+            ->membersOfCurrentTenant()
             ->select('users.*')
             ->addSelect([
                 'active_sessions' => DB::table('sessions')->selectRaw('count(*)')->whereColumn('sessions.user_id', 'users.id'),

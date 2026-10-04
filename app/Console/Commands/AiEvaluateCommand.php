@@ -32,7 +32,7 @@ use Throwable;
  */
 #[Signature('ai:evaluate
     {--live : Also run each question through the configured AI provider and check the expected tool was called}
-    {--user= : User id or email to run live evaluations as (default: first user with ai.manage)}')]
+    {--user= : User id or email to run live evaluations as (required with --live; runs in their tenant)}')]
 #[Description('Run the stored AI evaluation suite against the current tool registry')]
 class AiEvaluateCommand extends Command
 {
@@ -72,7 +72,8 @@ class AiEvaluateCommand extends Command
             $calledTools = [];
 
             if ($live) {
-                [$livePassed, $liveNotes, $calledTools] = $this->checkLive($evaluation, $orchestrator, $liveUser);
+                // SaaS-1: a live run is real Copilot work, so it runs in the user's own tenant.
+                [$livePassed, $liveNotes, $calledTools] = $liveUser->withinEmployingTenant(fn (): array => $this->checkLive($evaluation, $orchestrator, $liveUser));
                 $passed = $passed && $livePassed;
                 $notes = [...$notes, ...$liveNotes];
             }
@@ -192,6 +193,7 @@ class AiEvaluateCommand extends Command
                 ->first();
         }
 
-        return User::permission('ai.manage')->orderBy('id')->first();
+        // SaaS-1: with no tenant there is no "first ai.manage holder" — name the user.
+        return null;
     }
 }

@@ -2,6 +2,9 @@
 
 namespace Tests\Concurrency;
 
+use App\Enums\TenantStatus;
+use App\Models\Tenant;
+use App\Services\Tenancy\TenantContext;
 use Closure;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -39,17 +42,21 @@ final class Race
             throw new RuntimeException("Refusing to run concurrency tests against [{$database}].");
         }
 
-        if (self::$migrated) {
-            return;
+        if (! self::$migrated) {
+            $config = config('database.connections.mysql');
+            $pdo = new PDO("mysql:host={$config['host']};port={$config['port']}", $config['username'], $config['password']);
+            $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$database}`");
+            DB::purge('mysql');
+
+            Artisan::call('migrate:fresh', ['--force' => true]);
+            self::$migrated = true;
         }
 
-        $config = config('database.connections.mysql');
-        $pdo = new PDO("mysql:host={$config['host']};port={$config['port']}", $config['username'], $config['password']);
-        $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$database}`");
-        DB::purge('mysql');
-
-        Artisan::call('migrate:fresh', ['--force' => true]);
-        self::$migrated = true;
+        // SaaS-1: races run inside one tenant, as the application always does; a forked contender
+        // inherits it.
+        TenantContext::current()->setTenant(Tenant::query()->firstOrCreate(['slug' => 'concurrency'], [
+            'name' => 'Concurrency', 'status' => TenantStatus::Active, 'timezone' => 'Asia/Kolkata', 'locale' => 'en', 'currency' => 'INR', 'country' => 'IN',
+        ]));
     }
 
     /**

@@ -2,6 +2,7 @@
 
 use App\Enums\TenantMembershipStatus;
 use App\Enums\TenantStatus;
+use App\Filament\Pages\AccessReview;
 use App\Filament\Resources\AuditLogs\Pages\ListAuditLogs;
 use App\Filament\Resources\Candidates\Pages\ListCandidates;
 use App\Filament\Resources\Users\Pages\ListUsers;
@@ -157,4 +158,14 @@ test('the audit log shows the tenant\'s own stream only — never the other tena
     Livewire::test(ListAuditLogs::class)
         ->assertCanSeeTableRecords([$alphaEntry])
         ->assertCanNotSeeTableRecords([$bravoEntry, $platform]);
+});
+
+test('the access review and staff pickers list only the tenant\'s own staff, even for a view-all reviewer', function (): void {
+    $reviewed = AccessReview::reviewQuery()->pluck('users.id')->all();
+    $auditUserFilter = User::query()->membersOfCurrentTenant()->pluck('id')->all();
+
+    expect($reviewed)->toEqualCanonicalizing([$this->alpha->chro->id, $this->alpha->recruiter->id])
+        ->and($auditUserFilter)->not->toContain($this->bravo->chro->id, $this->bravo->recruiter->id);
+
+    $this->get('/admin/alpha/access-review')->assertOk()->assertSee('ALPHA Recruiter')->assertDontSee('BRAVO');
 });

@@ -46,6 +46,23 @@ final class TenantTasks
     ];
 
     /**
+     * Operator commands on tenant data (never scheduled): run them in a tenant with
+     * `tenants:run <task> --tenant=<slug> [--with=option[=value] …]`.
+     *
+     * @var list<string>
+     */
+    public const OPERATOR = [
+        'ai:redact-history',
+        'ai:reindex-knowledge',
+        'governance:audit',
+        'identity:audit',
+        'identity:reconcile-access',
+        'lifecycle:audit',
+        'outcomes:backfill',
+        'recruitment:assign-default-pipelines',
+    ];
+
+    /**
      * Platform tasks: framework housekeeping with no tenant meaning; they run with no tenant.
      * queue:health-check runs a platform pass and then a light per-tenant pass itself.
      *
@@ -61,6 +78,6 @@ final class TenantTasks
 
     public static function isTenantTask(string $task): bool
     {
-        return isset(self::QUEUED[$task]) || in_array($task, self::BACKGROUND, true);
+        return isset(self::QUEUED[$task]) || in_array($task, self::BACKGROUND, true) || in_array($task, self::OPERATOR, true);
     }
 }

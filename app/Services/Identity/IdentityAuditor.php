@@ -62,7 +62,7 @@ class IdentityAuditor
 
     private function accessVersusEmployment(int $limit): void
     {
-        User::query()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
+        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
             ->with(['employee' => fn ($query) => $query->withTrashed()])
             ->lazyById(500)
             ->filter(fn (User $user) => $user->employee === null || $user->employee->trashed() || $user->employee->status !== EmployeeStatus::Active)
@@ -75,7 +75,7 @@ class IdentityAuditor
             $this->add(self::WARNING, 'separations_due', '—', "{$due} separation(s) took effect but were not applied yet (identity:enforce-separations). Their logins are already refused.");
         }
 
-        $withoutEmployee = User::query()->whereNull('employee_id')->where('access_status', AccessState::Active->value)->count();
+        $withoutEmployee = User::query()->membersOfCurrentTenant()->whereNull('employee_id')->where('access_status', AccessState::Active->value)->count();
 
         if ($withoutEmployee > 0) {
             $this->add(self::INFO, 'logins_without_employee', '—', "{$withoutEmployee} active login(s) have no employee record (no hierarchy scope unless hierarchy.view-all).");
@@ -158,7 +158,7 @@ class IdentityAuditor
             $this->add(self::WARNING, 'mfa_not_enforced', '—', 'identity.mfa.enforce is off.');
         }
 
-        User::query()->where('access_status', AccessState::Active->value)->whereNull('app_authentication_secret')->with('roles.permissions')->lazyById(500)
+        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNull('app_authentication_secret')->with('roles.permissions')->lazyById(500)
             ->filter(fn (User $user) => $this->mfa->isRequiredFor($user))
             ->take($limit)
             ->each(fn (User $user) => $this->add(self::INFO, 'mfa_required_not_enrolled', "USER-{$user->id}", 'Must enrol in MFA at next sign-in.'));

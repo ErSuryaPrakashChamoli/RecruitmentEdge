@@ -189,6 +189,7 @@ class RecruiterActionService
     public function fallbackOwner(): ?Employee
     {
         return User::query()
+            ->membersOfCurrentTenant()
             ->whereNotNull('employee_id')
             ->where('access_status', 'active')
             ->with('employee.user')

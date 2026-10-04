@@ -23,6 +23,8 @@ use Filament\Models\Contracts\HasTenants;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -148,6 +150,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function memberships(): HasMany
     {
         return $this->hasMany(TenantMembership::class);
+    }
+
+    /**
+     * SaaS-1: staff identities are global; a tenant lists or sweeps only its own members (active or
+     * revoked). Every User query that lists people inside a tenant goes through this.
+     */
+    #[Scope]
+    protected function membersOfCurrentTenant(Builder $query): void
+    {
+        $query->whereHas('memberships', fn (Builder $membership) => $membership->where('tenant_id', TenantContext::current()->requireId()));
     }
 
     /**

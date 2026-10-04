@@ -95,7 +95,7 @@ class AuditLogsTable
                     ->options(array_combine(AuditLog::ACTOR_KINDS, array_map('ucfirst', AuditLog::ACTOR_KINDS))),
                 SelectFilter::make('user_id')
                     ->label('By')
-                    ->options(fn () => User::query()->orderBy('name')->pluck('name', 'id'))
+                    ->options(fn () => User::query()->membersOfCurrentTenant()->orderBy('name')->pluck('name', 'id'))
                     ->searchable(),
                 Filter::make('created_at')
                     ->schema([

@@ -19,7 +19,7 @@ use Throwable;
  * isolated (its failure is reported and logged, the others still run) and logged with its id
  * and duration.
  */
-#[Signature('tenants:run {task : A task listed in TenantTasks} {--tenant=* : Tenant slug(s)} {--all : Every tenant whose status allows background work}')]
+#[Signature('tenants:run {task : A task listed in TenantTasks} {--tenant=* : Tenant slug(s)} {--all : Every tenant whose status allows background work} {--with=* : An option for the task: name or name=value (e.g. --with=execute)}')]
 #[Description('Run a scheduled tenant task inside one, several or all active tenants')]
 class TenantsRun extends Command
 {
@@ -51,7 +51,7 @@ class TenantsRun extends Command
             $started = hrtime(true);
 
             try {
-                TenantContext::current()->run($tenant, fn (): int => Artisan::call($task, [], $this->output));
+                TenantContext::current()->run($tenant, fn (): int => Artisan::call($task, $this->taskOptions(), $this->output));
                 Log::info('tenancy.task_finished', ['task' => $task, 'tenant_id' => $tenant->id, 'duration_ms' => (int) round((hrtime(true) - $started) / 1e6)]);
             } catch (Throwable $exception) {
                 $failures++;
@@ -62,5 +62,20 @@ class TenantsRun extends Command
         }
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * @return array<string, string|true>
+     */
+    private function taskOptions(): array
+    {
+        $options = [];
+
+        foreach ((array) $this->option('with') as $option) {
+            [$name, $value] = array_pad(explode('=', (string) $option, 2), 2, null);
+            $options['--'.ltrim($name, '-')] = $value ?? true;
+        }
+
+        return $options;
     }
 }

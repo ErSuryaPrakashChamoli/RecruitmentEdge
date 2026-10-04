@@ -113,7 +113,8 @@ test('running in another tenant restores the previous tenant afterwards, even af
 });
 
 test('every table is classified, and every tenant-owned table has a mandatory tenant_id', function (): void {
-    $tables = collect(Schema::getTableListing(schemaQualified: false))->reject(fn (string $table) => str_starts_with($table, 'sqlite_'));
+    $schema = DB::getDriverName() === 'sqlite' ? 'main' : DB::getDatabaseName();
+    $tables = collect(Schema::getTableListing($schema, schemaQualified: false))->reject(fn (string $table) => str_starts_with($table, 'sqlite_'));
 
     expect($tables->diff(TenantSchema::classifiedTables())->values()->all())->toBe([]);
 

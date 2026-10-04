@@ -30,7 +30,7 @@ class ReconcileAccess extends Command
         $separations = $lifecycle->enforceDueSeparations(dryRun: ! $execute);
         $counts = ['separations_due' => $separations['due'], 'separations_applied' => $separations['applied'], 'to_suspend' => 0, 'suspended' => 0, 'protected' => $separations['protected'], 'failed' => $separations['failed']];
 
-        User::query()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
+        User::query()->membersOfCurrentTenant()->where('access_status', AccessState::Active->value)->whereNotNull('employee_id')
             ->with(['employee' => fn ($query) => $query->withTrashed()])
             ->lazyById(500)
             ->filter(fn (User $user) => $user->employee !== null && ($user->employee->trashed() || $user->employee->status === EmployeeStatus::Inactive))

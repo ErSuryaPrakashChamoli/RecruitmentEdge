@@ -9,7 +9,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
-| app/Models/*.php, app/Models/CandidateStageHistory.php | .ai/rules/app-models.md |
+| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/** | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php, app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php | .ai/rules/app-services-services.md |
@@ -42,10 +42,12 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AI/Gateway/*.php | .ai/rules/gateway.md |
 | composer.json, docker-compose.yml | .ai/rules/general.md |
 | app/Services/Governance/**,config/outcomes.php,config/metrics.php | .ai/rules/governance.md |
+| app/Models/User.php,app/Filament/**,app/Services/Identity/**,app/Console/Commands/** | .ai/rules/identity-console-commands.md |
 | app/Services/Identity/** | .ai/rules/identity.md |
 | app/Filament/Resources/Candidates/Schemas/CandidatePicker.php,app/Filament/Resources/CandidateApplications/**,app/Filament/Resources/Candidates/RelationManagers/**,app/Services/Intelligence/TalentRediscoveryService.php,app/Services/RecruitmentActivityService.php | .ai/rules/intelligence-services.md |
 | app/Services/AI/Tools/IntelligenceTools/** | .ai/rules/intelligence-tools.md |
 | app/Services/Intelligence/** | .ai/rules/intelligence.md |
+| app/Jobs/**,app/Console/Commands/**,routes/console.php | .ai/rules/jobs-console-commands.md |
 | app/Jobs/** | .ai/rules/jobs.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php,app/Services/CandidateJoiningService.php,app/Events/OfferAccepted.php,app/Listeners/CreateJoiningRecordForAcceptedOffer.php | .ai/rules/listeners.md |
 | app/Jobs/**,app/Listeners/**,app/Notifications/**,app/Mail/** | .ai/rules/mail.md |
@@ -78,6 +80,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Filament/Resources/RecruitmentIncentiveRules/** | .ai/rules/recruitment-incentive-rules.md |
 | app/Filament/Resources/**,app/Filament/Pages/*.php | .ai/rules/resources-filament-pages.md |
 | app/Services/OfferLetterIssuanceService.php,app/Jobs/ConvertOfferLetterJob.php,app/Models/OfferLetterConversion.php,app/Filament/Resources/Offers/** | .ai/rules/resources-offers.md |
+| routes/** | .ai/rules/routes.md |
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php | .ai/rules/schemas-models-services.md |
 | app/Filament/Resources/**/Schemas/*.php | .ai/rules/schemas.md |
 | app/Services/Automation/AutomationRuleService.php,app/Services/Communication/CommunicationTemplateService.php | .ai/rules/services-communication.md |

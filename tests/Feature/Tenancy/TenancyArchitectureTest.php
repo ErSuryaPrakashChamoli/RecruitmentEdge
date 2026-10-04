@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\PrivateFileController;
 use App\Http\Middleware\ResolveTenantFromRoute;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Export;
@@ -11,6 +12,7 @@ use Filament\Actions\Imports\Models\FailedImportRow as FilamentFailedImportRow;
 use Filament\Actions\Imports\Models\Import as FilamentImport;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\Finder\Finder;
 
@@ -198,4 +200,12 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
     }
 
     expect($offending)->toBe([]);
+});
+
+test('every private-file owner the download checks names a real column', function (): void {
+    foreach (PrivateFileController::OWNERS as $owner) {
+        $table = (new $owner['model'])->getTable();
+
+        expect(Schema::hasColumn($table, $owner['column']))->toBeTrue("{$table}.{$owner['column']} does not exist");
+    }
 });

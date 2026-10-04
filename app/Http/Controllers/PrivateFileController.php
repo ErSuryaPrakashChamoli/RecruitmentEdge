@@ -6,7 +6,6 @@ use App\Models\AiDocument;
 use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateDocument;
-use App\Models\EmployeeReferral;
 use App\Models\Import;
 use App\Models\OfferLetter;
 use App\Models\OfferLetterConversion;
@@ -45,14 +44,14 @@ class PrivateFileController extends Controller
 
     /**
      * Every column that holds a private-disk file, with the ability that decides who may open it
-     * (on the record itself, or on its parent relation).
+     * (on the record itself, or on its parent relation). A referral's resume is stored on the
+     * candidate the referral creates (candidates.resume_path).
      *
      * @var list<array{model: class-string<Model>, column: string, authorize?: string}>
      */
     public const array OWNERS = [
         ['model' => CandidateDocument::class, 'column' => 'file_path'],
         ['model' => Candidate::class, 'column' => 'resume_path'],
-        ['model' => EmployeeReferral::class, 'column' => 'resume_path'],
         ['model' => AiDocument::class, 'column' => 'file_path'],
         ['model' => OfferLetter::class, 'column' => 'file_path', 'authorize' => 'offer'],
         ['model' => OfferLetterConversion::class, 'column' => 'document_path', 'authorize' => 'offer'],

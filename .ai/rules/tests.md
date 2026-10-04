@@ -22,3 +22,6 @@ Filament's assertNotified()/Notification::assertNotified() mounts the Notificati
 
 ## Feature tests run on faked local and public disks
 Phase 8.9 (P89-DQ-016): tests/Pest.php fakes the local and public disks before every Feature test, then re-registers PrivateFileController::registerTemporaryUrls(). No test writes offer letters, templates or uploads into storage/app. A test that calls Storage::fake('local') again must also call registerTemporaryUrls() again if it needs signed preview URLs. To check for leaks: run a suite, then `find storage/app -newer <marker>` should be empty.
+
+## Tests run inside the "acme" tenant; cross-tenant fixtures via TenantWorld
+SaaS-1: TestCase (RefreshDatabase tests) creates tenant slug "acme" and calls actInTenant() (TenantContext + Filament tenant + {tenant} URL default). Panel paths are /admin/acme/…, careers /careers/acme/…, portal /portal/acme/…. Raw DB::table()->insert() on tenant tables must include 'tenant_id' => $this->tenant->id. A hand-built queue payload needs 'tenant_id' and 'illuminate:log:context' => Context::dehydrate(), or the worker hydration clears the tenant. Two-tenant fixtures: Tests\Feature\Tenancy\TenantWorld::build(). Concurrency tests run in tenant "concurrency" (Race::prepareDatabase).

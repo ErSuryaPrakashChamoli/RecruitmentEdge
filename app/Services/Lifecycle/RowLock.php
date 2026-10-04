@@ -4,6 +4,7 @@ namespace App\Services\Lifecycle;
 
 use App\Models\Concerns\BelongsToTenant;
 use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantSchema;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
@@ -66,7 +67,27 @@ final class RowLock
             return;
         }
 
-        self::withinTenant($modelClass::query()->withoutGlobalScopes(), new $modelClass)->whereKey($key)->lockForUpdate()->first();
+        $model = new $modelClass;
+        $query = self::withinTenant($modelClass::query()->withoutGlobalScopes(), $model);
+
+        // SaaS-1: through the (tenant_id, id) key, so another tenant's id finds no index record —
+        // locking by primary key would make that caller wait on (and time) the owner's lock, since
+        // InnoDB locks the primary-key row before it checks tenant_id.
+        if (in_array($model->getTable(), self::tenantKeyedTables(), true)) {
+            $query->forceIndex($model->getTable().'_tenant_id_key');
+        }
+
+        $query->whereKey($key)->lockForUpdate()->first();
+    }
+
+    /**
+     * Tables with a unique (tenant_id, id) key: the parents of composite tenant foreign keys.
+     *
+     * @return list<string>
+     */
+    private static function tenantKeyedTables(): array
+    {
+        return array_values(array_unique(array_merge(...array_map('array_values', array_values(TenantSchema::COMPOSITE_REFERENCES)))));
     }
 
     /**
