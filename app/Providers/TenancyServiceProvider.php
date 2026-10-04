@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Concerns\BelongsToTenant;
 use App\Models\Export;
 use App\Models\FailedImportRow;
 use App\Models\Import;
+use App\Models\Role;
 use App\Models\Tenant;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantQueueGuard;
@@ -12,8 +14,10 @@ use Filament\Actions\Exports\Models\Export as FilamentExport;
 use Filament\Actions\Imports\Models\FailedImportRow as FilamentFailedImportRow;
 use Filament\Actions\Imports\Models\Import as FilamentImport;
 use Filament\Events\TenantSet;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\ServiceProvider;
 
@@ -46,9 +50,35 @@ class TenancyServiceProvider extends ServiceProvider
             }
         });
 
+        // No ability is ever granted on another tenant's record (or role), whatever a policy says —
+        // a policy written as "view-all ⇒ allowed" cannot approve a foreign row.
+        Gate::before(fn (mixed $user, string $ability, array $arguments = []): ?bool => self::crossesTenant($arguments) ? false : null);
+
         // Every queued payload declares its tenant; Context (which carries it) is restored by the
         // framework before JobProcessing listeners registered here run.
         Queue::createPayloadUsing(fn (): array => app(TenantQueueGuard::class)->payload());
         Event::listen(JobProcessing::class, fn (JobProcessing $event) => app(TenantQueueGuard::class)->check($event->job));
+    }
+
+    /**
+     * @param  array<int, mixed>  $arguments
+     */
+    public static function crossesTenant(array $arguments): bool
+    {
+        $current = TenantContext::current()->id();
+
+        foreach ($arguments as $argument) {
+            if (! $argument instanceof Model || ! ($argument instanceof Role || in_array(BelongsToTenant::class, class_uses_recursive($argument), true))) {
+                continue;
+            }
+
+            $owner = $argument->getAttribute('tenant_id');
+
+            if ($owner !== null && ($current === null || (int) $owner !== $current)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

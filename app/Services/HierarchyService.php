@@ -49,6 +49,11 @@ class HierarchyService
      */
     public function canView(User $user, ?Employee $subject): bool
     {
+        // SaaS-1: another tenant's employee is never "in view", whatever the viewer's reach.
+        if ($subject !== null && (int) $subject->tenant_id !== TenantContext::current()->requireId()) {
+            return false;
+        }
+
         $visible = $this->visibleEmployeeIdsFor($user);
 
         return $visible === null || ($subject !== null && $visible->contains($subject->id));

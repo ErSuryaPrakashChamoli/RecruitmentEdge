@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Closure;
 use DomainException;
 use Illuminate\Database\Eloquent\Builder;
@@ -32,6 +33,29 @@ class AuthorityGuard
 
         $this->assertNotSelf($actor, $target, 'You cannot change your own access.');
         $this->assertInScope($actor, $target);
+
+        // SaaS-1: access state (active / suspended / revoked) belongs to the identity, which may be
+        // a member of several tenants; only the tenant that owns the login may change it.
+        if (! $this->ownedByCurrentTenant($target)) {
+            throw new DomainException('This login belongs to another organisation; its access is managed there.');
+        }
+    }
+
+    /**
+     * SaaS-1: the login is employed by the current tenant, or (no employee record) is a member of
+     * no other tenant.
+     */
+    public function ownedByCurrentTenant(User $target): bool
+    {
+        $tenantId = TenantContext::current()->requireId();
+        $employing = $target->employingTenantId();
+
+        if ($employing !== null) {
+            return $employing === $tenantId;
+        }
+
+        return $target->memberships()->where('tenant_id', '!=', $tenantId)->doesntExist()
+            && $target->memberships()->where('tenant_id', $tenantId)->exists();
     }
 
     public function assertNotSelf(User $actor, User $target, string $message): void
@@ -167,6 +191,12 @@ class AuthorityGuard
 
     public function inScope(User $actor, User $target): bool
     {
+        // SaaS-1: staff identities are global; only members of the current tenant are ever in
+        // scope — "view all" (null below) means all of this tenant, not every login.
+        if (! $target->isMemberOfCurrentTenant()) {
+            return false;
+        }
+
         $visible = $this->hierarchy->visibleEmployeeIdsFor($actor);
 
         if ($visible === null) {

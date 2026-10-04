@@ -9,6 +9,7 @@ use App\Services\Tenancy\TenantTasks;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Bus;
 
 /**
  * SaaS-1: the scheduler's entry for a tenant task. It only enumerates the tenants whose status
@@ -33,7 +34,9 @@ class TenantsDispatch extends Command
         $queued = 0;
 
         foreach ($tenants->forBackgroundWork() as $tenant) {
-            $context->run($tenant, fn () => RunTenantScheduledTask::dispatch($task));
+            // Bus::dispatch queues at once, inside the tenant. (A PendingDispatch returned from the
+            // callback would only be queued after run() had restored the previous context.)
+            $context->run($tenant, fn () => Bus::dispatch(new RunTenantScheduledTask($task)));
             $queued++;
         }
 

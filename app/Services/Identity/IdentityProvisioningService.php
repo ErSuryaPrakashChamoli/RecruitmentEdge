@@ -3,13 +3,16 @@
 namespace App\Services\Identity;
 
 use App\Enums\EmployeeStatus;
+use App\Enums\TenantMembershipStatus;
 use App\Events\UserProvisioned;
 use App\Mail\StaffAccessInvitation;
 use App\Models\AuditLog;
 use App\Models\Employee;
+use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\HierarchyService;
 use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Tenancy\TenantContext;
 use DomainException;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +60,7 @@ class IdentityProvisioningService
                 'password' => $data['password'],
                 'employee_id' => $employee?->id,
             ]);
+            $this->joinCurrentTenant($user, $employee);
 
             $this->roles->syncUserRoles($user, $data['roles'] ?? [], $actor, newUser: true);
 
@@ -90,6 +94,7 @@ class IdentityProvisioningService
             'password' => Str::password(40),
             'employee_id' => $employee->id,
         ]);
+        $this->joinCurrentTenant($user, $employee);
 
         $this->roles->grantBaseRole($user, $source, $actor);
 
@@ -116,6 +121,7 @@ class IdentityProvisioningService
         }
 
         app(StaffAccessService::class)->restore($user, null, 'Rehired', 'rehire');
+        $this->joinCurrentTenant($user, $employee);
 
         if ($user->roles()->doesntExist()) {
             $this->roles->grantBaseRole($user, 'rehire', $actor);
@@ -193,5 +199,17 @@ class IdentityProvisioningService
         }
 
         return $employee;
+    }
+
+    /**
+     * SaaS-1: a login provisioned (or brought back) by a tenant is an active member of that
+     * tenant, linked to its employee there — otherwise it could reach no tenant at all.
+     */
+    private function joinCurrentTenant(User $user, ?Employee $employee): void
+    {
+        TenantMembership::query()->updateOrCreate(
+            ['tenant_id' => TenantContext::current()->requireId(), 'user_id' => $user->getKey()],
+            ['employee_id' => $employee?->getKey(), 'status' => TenantMembershipStatus::Active],
+        );
     }
 }
