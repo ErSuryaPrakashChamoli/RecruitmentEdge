@@ -21,9 +21,11 @@ use Spatie\Permission\PermissionRegistrar;
  * tenant could never have matched anyway. With no tenant the map carries no roles (fail closed).
  *
  * Cache key: <key>.<global version>.tenant.<id>.<generation>. Invalidation rotates a token instead
- * of deleting an entry — twice: when the change is made and again after its transaction commits.
- * A map rebuilt in between from not-yet-committed state was stored under a generation nobody reads
- * any more, so it can never be served (SaaS-7 race test).
+ * of deleting an entry — twice: when the change is made (the request making it sees it at once),
+ * and again when its transaction ends, by commit or by rollback. A map rebuilt in between — from
+ * the committed state by another worker, or from the uncommitted change by the request itself —
+ * was stored under a generation nobody reads any more, so it can never be served after the change
+ * commits, nor after it is rolled back (SaaS-7 race test and TenantPermissionCacheTest).
  * - a role, or its permissions, changed: that role's tenant's generation (App\Models\Role);
  * - the permissions table changed, or a change with no tenant: the global version.
  */
@@ -91,6 +93,7 @@ class TenantPermissionRegistrar extends PermissionRegistrar
 
         $rotate();
         DB::afterCommit($rotate);
+        DB::afterRollBack($rotate);
     }
 
     /**
@@ -105,6 +108,7 @@ class TenantPermissionRegistrar extends PermissionRegistrar
 
         $rotate();
         DB::afterCommit($rotate);
+        DB::afterRollBack($rotate);
     }
 
     /**

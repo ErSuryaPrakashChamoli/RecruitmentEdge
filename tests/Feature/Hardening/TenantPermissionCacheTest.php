@@ -4,6 +4,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantPermissionRegistrar;
+use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\IdentityAccess\IdentityWorld;
@@ -83,16 +84,53 @@ test('a role change rebuilds its own tenant\'s map only — also when made from 
         ->and($acmeKey())->toBe($acmeBefore);
 });
 
-test('a new permission (the global table) reaches every tenant\'s map', function (): void {
-    $before = [$this->registrar->keyFor($this->world->acme->id), $this->registrar->keyFor($this->world->beta->id)];
+test('a new permission (the global table) reaches every tenant\'s map, before any of that tenant\'s roles changes', function (): void {
+    TenantContext::current()->run($this->world->beta, fn () => $this->registrar->getPermissions());
+    $betaBefore = $this->registrar->keyFor($this->world->beta->id);
 
     // Seeders create permissions inside a tenant; every tenant must see them.
     TenantContext::current()->run($this->world->acme, fn () => Permission::create(['name' => 'saas7.new', 'guard_name' => 'web']));
+    $seenInBeta = TenantContext::current()->run($this->world->beta, function (): bool {
+        $this->registrar->clearPermissionsCollection();
+
+        return $this->registrar->getPermissions(['name' => 'saas7.new'])->isNotEmpty();
+    });
+
+    expect($this->registrar->keyFor($this->world->beta->id))->not->toBe($betaBefore)
+        ->and($seenInBeta)->toBeTrue();
+
     TenantContext::current()->run($this->world->beta, fn () => Role::byKeyOrFail('recruiter')->givePermissionTo('saas7.new'));
 
-    expect([$this->registrar->keyFor($this->world->acme->id), $this->registrar->keyFor($this->world->beta->id)])->each->not->toBeIn($before)
-        ->and(TenantContext::current()->run($this->world->beta, fn () => permissionCacheCheck($this->world->personA, 'saas7.new')))->toBeTrue()
+    expect(TenantContext::current()->run($this->world->beta, fn () => permissionCacheCheck($this->world->personA, 'saas7.new')))->toBeTrue()
         ->and(TenantContext::current()->run($this->world->acme, fn () => permissionCacheCheck($this->world->personA, 'saas7.new')))->toBeFalse();
+});
+
+test('the request that changes a role sees the change at once, inside its own transaction', function (): void {
+    $seen = DB::transaction(fn (): bool => TenantContext::current()->run($this->world->beta, function (): bool {
+        permissionCacheCheck($this->world->personA, 'audit.view');
+        Role::byKeyOrFail('recruiter')->givePermissionTo('audit.view');
+
+        return permissionCacheCheck($this->world->personA, 'audit.view');
+    }));
+
+    expect($seen)->toBeTrue();
+});
+
+test('a role change that rolls back is never served, even after its own transaction rebuilt the map with it', function (): void {
+    try {
+        DB::transaction(function (): void {
+            TenantContext::current()->run($this->world->beta, function (): void {
+                Role::byKeyOrFail('recruiter')->givePermissionTo('audit.view');
+                permissionCacheCheck($this->world->personA, 'audit.view');
+            });
+
+            throw new RuntimeException('rolled back');
+        });
+    } catch (RuntimeException) {
+        // The change never happened.
+    }
+
+    expect(TenantContext::current()->run($this->world->beta, fn () => permissionCacheCheck($this->world->personA, 'audit.view')))->toBeFalse();
 });
 
 test('with no tenant the map carries no roles, so nobody holds a permission (fail closed)', function (): void {
