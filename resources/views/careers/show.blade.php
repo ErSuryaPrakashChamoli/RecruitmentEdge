@@ -42,7 +42,7 @@
                 <input type="file" name="resume" required accept=".pdf,.doc,.docx" class="@include('portal.partials.input-class')">
             </label>
             <fieldset class="flex flex-col gap-2 text-sm sm:col-span-2">
-                <label class="flex items-start gap-2"><input type="checkbox" name="privacy_consent" value="1" required class="mt-1 rounded border-line"> I agree to {{ config('app.name') }} processing my details for recruitment.</label>
+                <label class="flex items-start gap-2"><input type="checkbox" name="privacy_consent" value="1" required class="mt-1 rounded border-line"> I agree to {{ \App\Services\Branding::tenantName() }} processing my details for recruitment.</label>
                 <label class="flex items-start gap-2"><input type="checkbox" name="consent_email" value="1" @checked(old('consent_email', true)) class="mt-1 rounded border-line"> Email me about my application.</label>
                 <label class="flex items-start gap-2"><input type="checkbox" name="consent_whatsapp" value="1" @checked(old('consent_whatsapp')) class="mt-1 rounded border-line"> I'm happy to receive WhatsApp updates.</label>
             </fieldset>

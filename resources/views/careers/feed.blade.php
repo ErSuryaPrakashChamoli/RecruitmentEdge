@@ -1,7 +1,7 @@
 @php($cdata = fn (mixed $value): string => str_replace(']]>', ']]]]><![CDATA[>', (string) $value))
 {!! '<?xml version="1.0" encoding="UTF-8"?>' !!}
 <source>
-    <publisher>{{ config('app.name') }}</publisher>
+    <publisher>{{ \App\Services\Branding::tenantName() }}</publisher>
     <publisherurl>{{ route('careers.index') }}</publisherurl>
     <lastBuildDate>{{ now()->toRfc2822String() }}</lastBuildDate>
 @foreach ($postings as $posting)
@@ -10,7 +10,7 @@
         <date><![CDATA[{!! $cdata($posting->published_at?->toRfc2822String()) !!}]]></date>
         <referencenumber><![CDATA[{!! $cdata($posting->public_slug) !!}]]></referencenumber>
         <url><![CDATA[{!! $cdata(route('careers.show', ['slug' => $posting->public_slug, 'utm_source' => 'xml_feed'])) !!}]]></url>
-        <company><![CDATA[{!! $cdata(config('app.name')) !!}]]></company>
+        <company><![CDATA[{!! $cdata(\App\Services\Branding::tenantName()) !!}]]></company>
         <city><![CDATA[{!! $cdata($posting->requisition->location?->name) !!}]]></city>
         <country><![CDATA[IN]]></country>
         <description><![CDATA[{!! $cdata($posting->description) !!}]]></description>

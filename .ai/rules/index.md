@@ -9,7 +9,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
 | app/Filament/** | .ai/rules/app-filament.md |
-| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php, app/Models/Billing*.php | .ai/rules/app-models.md |
+| app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php, app/Models/Billing*.php, app/Models/AuditLog.php | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php, app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php | .ai/rules/app-services-services.md |
@@ -36,6 +36,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | database/factories/TenantFactory.php | .ai/rules/database-factories.md |
 | app/Models/RecruitmentSetting.php,app/Services/RecruitmentSettingService.php,app/Filament/Resources/RecruitmentSettings/**,app/Services/Metrics/Definitions/SlaLegCompliance.php | .ai/rules/definitions.md |
 | app/Services/Distribution/** | .ai/rules/distribution.md |
+| app/Models/Employee.php,app/Filament/Pages/Profile.php,app/Filament/Resources/Employees/Schemas/EmployeeForm.php | .ai/rules/employees-schemas.md |
 | app/Services/Entitlements/** | .ai/rules/entitlements.md |
 | app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php,app/Enums/IncentiveTriggerEvent.php, app/Services/PipelineTemplateService.php,app/Services/StageConfigurationService.php,app/Enums/StageHistoryEvent.php | .ai/rules/enums.md |
 | app/Filament/**,app/Services/Export/**,app/Policies/ExportPolicy.php | .ai/rules/export-policies.md |
@@ -43,6 +44,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | tests/Feature/Billing/** | .ai/rules/feature-billing.md |
 | resources/css/filament/admin/theme.css | .ai/rules/filament-admin.md |
 | app/Filament/Pages/*.php, app/Filament/Pages/Profile.php | .ai/rules/filament-pages.md |
+| app/Filament/Platform/** | .ai/rules/filament-platform.md |
 | app/Filament/Widgets/** | .ai/rules/filament-widgets.md |
 | app/Filament/Pages/Dashboard.php,app/Filament/Widgets/**,app/Providers/Filament/AdminPanelProvider.php | .ai/rules/filament.md |
 | app/Services/AI/Gateway/*.php | .ai/rules/gateway.md |
@@ -73,7 +75,9 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/OfferService.php,app/Services/OfferLetterIssuanceService.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/Offers/** | .ai/rules/offers.md |
 | app/Services/Outcomes/**, app/Services/Outcomes/OutcomeLearningService.php | .ai/rules/outcomes.md |
 | app/Services/AiAssistantService.php,app/Filament/Pages/AiCopilot.php | .ai/rules/pages.md |
+| resources/views/careers/**,resources/views/mail/candidate-*.blade.php,resources/views/components/portal/**,resources/views/pdf/**,app/Mail/Candidate*.php | .ai/rules/pdf-mail.md |
 | app/Services/OfferLetterRenderer.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/**,app/Filament/Resources/Offers/**,resources/views/pdf/offer-letter*.blade.php | .ai/rules/pdf.md |
+| app/Services/Platform/** | .ai/rules/platform.md |
 | app/Filament/Resources/RecruitmentRequisitions/**,app/Filament/Resources/Candidates/**,app/Filament/Resources/CandidateApplications/**,app/Policies/RecruitmentRequisitionPolicy.php,app/Policies/CandidatePolicy.php | .ai/rules/policies-policies.md |
 | app/Filament/Resources/**,app/Policies/** | .ai/rules/policies.md |
 | app/Models/AuditLog.php,app/Services/CandidatePortalService.php,app/Http/Controllers/Portal/**,routes/portal.php | .ai/rules/portal.md |

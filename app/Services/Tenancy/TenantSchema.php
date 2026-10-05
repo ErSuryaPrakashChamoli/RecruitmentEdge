@@ -171,6 +171,11 @@ final class TenantSchema
         // SaaS-4: versioned prices of plan versions, and the platform's single invoice series.
         'billing_prices',
         'billing_invoice_sequences',
+        // SaaS-5: platform records ABOUT a tenant (tenant_id names it; they survive its purge) and the
+        // operational event feed (tenant_id empty for platform-wide events).
+        'tenant_deletion_requests',
+        'compliance_exports',
+        'platform_events',
     ];
 
     /**

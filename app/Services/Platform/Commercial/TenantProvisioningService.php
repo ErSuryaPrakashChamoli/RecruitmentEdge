@@ -4,6 +4,7 @@ namespace App\Services\Platform\Commercial;
 
 use App\Enums\InvitationStatus;
 use App\Enums\PlanStatus;
+use App\Enums\PlatformEventSeverity;
 use App\Enums\TenantStatus;
 use App\Models\AuditLog;
 use App\Models\Tenant;
@@ -12,6 +13,7 @@ use App\Models\TenantMembership;
 use App\Models\TenantPlanAssignment;
 use App\Models\User;
 use App\Services\Identity\TenantInvitationService;
+use App\Services\Platform\PlatformEvents;
 use App\Services\Tenancy\TenantContext;
 use DomainException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -100,6 +102,8 @@ class TenantProvisioningService
             Tenant::query()->whereKey($tenant->getKey())->update(['provisioning_error' => mb_substr($e::class.': '.$e->getMessage(), 0, 255)]);
             TenantContext::current()->run($tenant, fn () => AuditLog::record($tenant, 'tenant_provisioning_failed', null, ['error' => $e::class]));
             Log::error('platform.tenant_provisioning_failed', ['tenant_id' => $tenant->getKey(), 'exception' => $e::class]);
+            // SaaS-5: operators see it on the platform panel (and by mail): it never goes live by itself.
+            rescue(fn () => app(PlatformEvents::class)->record('provisioning.failed', PlatformEventSeverity::Critical, "Provisioning of {$tenant->slug} failed", $tenant, ['error' => $e::class]), report: true);
 
             throw $e;
         }

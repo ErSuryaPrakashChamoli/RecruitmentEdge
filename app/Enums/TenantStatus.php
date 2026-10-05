@@ -58,4 +58,17 @@ enum TenantStatus: string
     {
         return $this->isUsable();
     }
+
+    /**
+     * SaaS-5: the badge colour on the platform panel.
+     */
+    public function color(): string
+    {
+        return match ($this) {
+            self::Trial, self::Active => 'success',
+            self::PastDue, self::Provisioning => 'warning',
+            self::Suspended, self::DeletionPending => 'danger',
+            self::Cancelled, self::Deleted => 'gray',
+        };
+    }
 }

@@ -50,6 +50,7 @@ test('a user without a linked employee record does not see the employee details 
 
 test('a user can update their profile photo, which persists to their employee record', function (): void {
     Storage::fake('public');
+    Storage::fake('local');
 
     $employee = Employee::factory()->create();
     $user = User::factory()->create(['employee_id' => $employee->id]);
@@ -67,5 +68,7 @@ test('a user can update their profile photo, which persists to their employee re
     $path = $employee->fresh()->photo_path;
 
     expect($path)->not->toBeNull();
-    Storage::disk('public')->assertExists($path);
+    // SaaS-5 (S1-06): photos are private.
+    Storage::disk('local')->assertExists($path);
+    Storage::disk('public')->assertMissing($path);
 });

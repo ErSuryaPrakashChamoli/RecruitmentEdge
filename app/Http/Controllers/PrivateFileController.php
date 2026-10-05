@@ -6,6 +6,7 @@ use App\Models\AiDocument;
 use App\Models\AuditLog;
 use App\Models\Candidate;
 use App\Models\CandidateDocument;
+use App\Models\Employee;
 use App\Models\Import;
 use App\Models\OfferLetter;
 use App\Models\OfferLetterConversion;
@@ -58,6 +59,8 @@ class PrivateFileController extends Controller
         ['model' => OfferLetterTemplate::class, 'column' => 'file_path'],
         ['model' => OfferLetterTemplateVersion::class, 'column' => 'file_path', 'authorize' => 'template'],
         ['model' => Import::class, 'column' => 'file_path', 'authorize' => 'user'],
+        // SaaS-5 (S1-06): a colleague's photo (an avatar) — any member of the tenant.
+        ['model' => Employee::class, 'column' => 'photo_path', 'authorize' => 'member'],
     ];
 
     /**
@@ -149,6 +152,11 @@ class PrivateFileController extends Controller
 
         if ($authorize === 'user') {
             return (int) $record->getAttribute('user_id') === (int) $user->getKey();
+        }
+
+        // The tenant's membership was checked before the record was looked up (__invoke).
+        if ($authorize === 'member') {
+            return true;
         }
 
         $subject = $authorize === null ? $record : $record->{$authorize};

@@ -3,6 +3,7 @@
 use App\Providers\AiServiceProvider;
 use App\Providers\AppServiceProvider;
 use App\Providers\Filament\AdminPanelProvider;
+use App\Providers\Filament\PlatformPanelProvider;
 use App\Providers\TenancyServiceProvider;
 
 return [
@@ -10,4 +11,5 @@ return [
     AppServiceProvider::class,
     AiServiceProvider::class,
     AdminPanelProvider::class,
+    PlatformPanelProvider::class,
 ];

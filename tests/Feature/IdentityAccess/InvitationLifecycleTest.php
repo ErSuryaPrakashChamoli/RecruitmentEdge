@@ -54,7 +54,8 @@ function invitationInviteToBeta(IdentityWorld $world, string $email, string $rol
 
 test('an invitation stores only the hash of its single-use token, emails the link and is audited without it', function (): void {
     $invitation = $this->invitations->invite(['email' => '  New.Person@Example.TEST ', 'name' => 'New Person', 'roles' => [Role::byKeyOrFail('recruiter')->id]], $this->world->adminA);
-    $token = (string) str(invitationLastLink())->afterLast('/');
+    // SaaS-5 (S2-A3): the token is in the query string, never in the path the access log records.
+    $token = (string) str(invitationLastLink())->after('/invitations/open?token=');
 
     expect($invitation->email)->toBe('new.person@example.test')
         ->and($invitation->status)->toBe(InvitationStatus::Pending)

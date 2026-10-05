@@ -37,7 +37,8 @@ class TenantLifecycleService
         'past_due' => ['active', 'suspended'],
         'suspended' => ['active', 'cancelled'],
         'cancelled' => ['deletion_pending'],
-        'deletion_pending' => ['deleted'],
+        // SaaS-5: a deletion is withdrawn during its grace period (back to Cancelled), or purged.
+        'deletion_pending' => ['deleted', 'cancelled'],
         'deleted' => [],
     ];
 
@@ -71,6 +72,15 @@ class TenantLifecycleService
     public function markDeleted(Tenant $tenant, string $reason, ?User $operator = null): Tenant
     {
         return $this->transition($tenant, TenantStatus::Deleted, $reason, $operator, 'platform', 'tenant_deleted');
+    }
+
+    /**
+     * SaaS-5: a deletion withdrawn before its purge started — the tenant is Cancelled again (closed,
+     * data intact). Called only through TenantDeletionService.
+     */
+    public function withdrawDeletion(Tenant $tenant, string $reason, ?User $operator = null): Tenant
+    {
+        return $this->transition($tenant, TenantStatus::Cancelled, $reason, $operator, 'platform', 'tenant_deletion_withdrawn');
     }
 
     /**
@@ -199,6 +209,12 @@ class TenantLifecycleService
 
             if (! in_array($to->value, self::TRANSITIONS[$from->value], true)) {
                 throw new DomainException("A tenant cannot move from {$from->label()} to {$to->label()}.");
+            }
+
+            // SaaS-5: leaving deletion-pending belongs to the deletion workflow (TenantDeletionService),
+            // which closes its request with it — never a plain cancel.
+            if ($from === TenantStatus::DeletionPending && $to === TenantStatus::Cancelled && $action !== 'tenant_deletion_withdrawn') {
+                throw new DomainException('A pending deletion is withdrawn through the deletion workflow (tenants:deletion cancel), not by cancelling the tenant.');
             }
 
             $wasUsable = $locked->isUsable();

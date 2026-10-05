@@ -13,3 +13,6 @@ Laravel's auto-generated foreign key names (table_column_foreign) break MySQL's 
 
 ## New tenant-owned tables: tenant_id NOT NULL, composite keys, frozen lists
 SaaS-1: a new tenant-owned table needs tenant_id (unsignedBigInteger NOT NULL, FK to tenants, restrictOnDelete), its business keys unique per tenant (tenant_id first), and CASCADE/RESTRICT references as composite FKs (tenant_id, x_id) → parent (tenant_id, id) — the parent needs unique (tenant_id, id). ON DELETE SET NULL references cannot be composite in MySQL: list them in TenantSchema::REFERENCES (checked in-app and by tenancy:verify). Migrations embed frozen copies of table lists, never read App\Services\Tenancy\TenantSchema. Data rollback is a backup restore, never down().
+
+## Foreign keys must not block or cascade into the tenant purge
+SaaS-5: TenantPurgePlan derives the purge from the schema and refuses (deleting nothing) when a table outside the purge — retained (config platform.deletion.retain_tables), platform or global — references a purged tenant table with RESTRICT/CASCADE. A new FK from such a table to a tenant table must be nullOnDelete(). A tenant-derived table without tenant_id that cascades with its parent must be added to TenantPurgePlan::CASCADED_WITH_PARENT. A new tenant table is purged and exported by construction once TenantSchema classifies it.

@@ -12,10 +12,14 @@ use Illuminate\Console\Command;
 /**
  * SaaS-3: platform staff move a tenant through its lifecycle (the transition table; audited).
  * Nothing here deletes data.
+ *
+ * SaaS-5: deletion is a workflow (request, a second operator's approval, a grace period, a purge —
+ * tenants:deletion or the platform panel); a tenant is no longer marked deletion-pending or deleted
+ * by hand, which would skip the approval, the grace period or the purge.
  */
 #[Signature('tenants:lifecycle
     {slug : The tenant}
-    {action : activate, suspend, past-due, cancel, extend-trial, deletion-pending or deleted}
+    {action : activate, suspend, past-due, cancel or extend-trial}
     {--days= : Days to extend a trial by}
     {--reason= : Why (required)}')]
 #[Description('Change a tenant\'s lifecycle state (platform)')]
@@ -40,8 +44,7 @@ class TenantsLifecycle extends Command
                 'past-due' => $lifecycle->markPastDue($tenant, $reason),
                 'cancel' => $lifecycle->cancel($tenant, $reason),
                 'extend-trial' => $lifecycle->extendTrial($tenant, (int) $this->option('days'), $reason),
-                'deletion-pending' => $lifecycle->markDeletionPending($tenant, $reason),
-                'deleted' => $lifecycle->markDeleted($tenant, $reason),
+                'deletion-pending', 'deleted' => throw new DomainException('Deletion is a workflow: use tenants:deletion (request, approval, grace period, purge).'),
                 default => throw new DomainException('Unknown action.'),
             };
         } catch (DomainException $e) {

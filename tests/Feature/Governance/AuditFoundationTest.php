@@ -125,8 +125,8 @@ test('the audit log can be filtered by date, actor and request id', function ():
     Context::add('request_id', 'req-governance-1');
     $mine = AuditLog::record($candidate, 'custom_mine', null, null);
     Context::forget('request_id');
-    $old = AuditLog::record($candidate, 'custom_old', null, null);
-    $old->forceFill(['created_at' => now()->subDays(40)])->save();
+    // SaaS-5: the audit trail is append-only — an old entry is recorded in the past, not backdated.
+    $old = $this->travelTo(now()->subDays(40), fn () => AuditLog::record($candidate, 'custom_old', null, null));
     actingAs($other);
     $theirs = AuditLog::record($candidate, 'custom_theirs', null, null);
     actingAs($viewer);

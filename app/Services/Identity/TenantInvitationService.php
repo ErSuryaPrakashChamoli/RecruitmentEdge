@@ -478,7 +478,8 @@ class TenantInvitationService
     {
         $tenantName = TenantContext::current()->requireTenant()->name;
         $inviter = $invitation->invited_by !== null ? User::query()->find($invitation->invited_by)?->name : null;
-        $url = route('invitations.open', ['token' => $token]);
+        // SaaS-5 (S2-A3): in the query string — the access log records the path only.
+        $url = route('invitations.link', ['token' => $token]);
 
         DB::afterCommit(fn () => Mail::to($invitation->email)->send(new TenantInvitationMail($tenantName, $inviter, $url, $invitation->expires_at->toDayDateTimeString())));
     }

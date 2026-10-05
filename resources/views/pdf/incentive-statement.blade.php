@@ -16,7 +16,7 @@
     </style>
 </head>
 <body>
-    <h1>{{ config('app.name') }}</h1>
+    <h1>{{ \App\Services\Branding::tenantName() }}</h1>
     <p class="subtitle">Incentive Statement &mdash; {{ $calculation->period_start->format('F Y') }}</p>
 
     <table>

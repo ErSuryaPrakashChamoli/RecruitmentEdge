@@ -9,6 +9,7 @@ use App\Models\Concerns\GuardsLifecycleAttributes;
 use App\Services\Identity\CredentialService;
 use App\Services\Identity\MfaService;
 use App\Services\Identity\StaffAccessService;
+use App\Services\Platform\PlatformAuthorization;
 use App\Services\Tenancy\TenantContext;
 use Closure;
 use Database\Factories\UserFactory;
@@ -230,9 +231,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
      * SaaS-1: a signed-in identity may use the panel when the identity itself is usable (not
      * disabled by the platform) and it can reach at least one tenant. Which tenant a request acts
      * in is decided by the tenant in the URL and canAccessTenant(), never here.
+     *
+     * SaaS-5: the platform panel is for platform operators only (an active platform role); a
+     * tenant role grants nothing there, and a platform role grants nothing in a tenant.
      */
     public function canAccessPanel(Panel $panel): bool
     {
+        if ($panel->getId() === 'platform') {
+            return app(PlatformAuthorization::class)->isOperator($this);
+        }
+
         return app(StaffAccessService::class)->identityPermits($this) && $this->accessibleTenants()->isNotEmpty();
     }
 

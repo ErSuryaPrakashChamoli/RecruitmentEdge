@@ -126,7 +126,7 @@ class OfferLetterRenderer
             'variable_salary' => $money($offer->variable_salary),
             'joining_bonus' => $money($offer->joining_bonus),
             'recruiter_name' => $application?->recruiter?->fullName() ?? '—',
-            'company_name' => (string) config('app.name'),
+            'company_name' => Branding::tenantLegalName(),
             'today' => now()->format('d M Y'),
         ];
     }

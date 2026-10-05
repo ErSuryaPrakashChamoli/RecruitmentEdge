@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Context;
+use LogicException;
 
 /**
  * Section 41's cross-cutting audit trail. Written via record() — by the Auditable trait for
@@ -55,7 +56,7 @@ class AuditLog extends Model
      */
     private static ?string $defaultActorKind = null;
 
-    public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system'];
+    public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system', 'platform'];
 
     protected static function booted(): void
     {
@@ -68,6 +69,11 @@ class AuditLog extends Model
                 $entry->setAttribute('tenant_id', TenantContext::current()->id());
             }
         });
+
+        // SaaS-5: append-only. A correction is a new entry, never an edit; nothing deletes history
+        // (a tenant purge keeps the audit trail — config('platform.deletion.retain_tables')).
+        static::updating(fn () => throw new LogicException('The audit trail is append-only: record a new entry instead.'));
+        static::deleting(fn () => throw new LogicException('The audit trail is append-only: entries are never deleted.'));
     }
 
     protected function casts(): array
@@ -202,6 +208,28 @@ class AuditLog extends Model
     {
         $previous = self::$actorContext;
         self::$actorContext = ['kind' => $kind, 'on_behalf_of' => $onBehalfOfUserId];
+
+        try {
+            return $callback();
+        } finally {
+            self::$actorContext = $previous;
+        }
+    }
+
+    /**
+     * SaaS-5: run a platform operator's action. Rows record the operator as the user (user_id) with
+     * actor kind `platform` — attributable to the person, and distinguishable from the same person
+     * acting as a member inside a tenant.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult
+     */
+    public static function asPlatformOperator(?User $operator, callable $callback): mixed
+    {
+        $previous = self::$actorContext;
+        self::$actorContext = ['kind' => $operator === null ? 'console' : 'platform', 'on_behalf_of' => null, 'actor' => $operator];
 
         try {
             return $callback();

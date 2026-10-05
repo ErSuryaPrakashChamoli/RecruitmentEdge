@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <meta name="referrer" content="no-referrer">
-    <title>{{ isset($title) ? $title.' · ' : '' }}{{ config('app.name') }} {{ $section }}</title>
+    <title>{{ isset($title) ? $title.' · ' : '' }}{{ \App\Services\Branding::tenantName() }} {{ $section }}</title>
     <link rel="icon" href="{{ asset('favicon.svg') }}">
     @vite(['resources/css/app.css'])
 </head>
@@ -16,7 +16,7 @@
         <div class="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3">
             <a href="{{ $home ?? (auth('candidate')->check() ? route('portal.dashboard') : route('portal.login')) }}" class="flex items-center gap-2 font-semibold">
                 <span class="inline-flex size-8 items-center justify-center rounded-lg bg-brand text-sm text-brand-ink">RE</span>
-                <span>{{ config('app.name') }} <span class="font-normal text-ink-muted">· {{ $section }}</span></span>
+                <span>{{ \App\Services\Branding::tenantName() }} <span class="font-normal text-ink-muted">· {{ $section }}</span></span>
             </a>
 
             @auth('candidate')

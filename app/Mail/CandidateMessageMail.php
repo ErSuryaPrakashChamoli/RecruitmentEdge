@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Services\Branding;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -13,11 +14,18 @@ use Illuminate\Mail\Mailables\Headers;
  */
 class CandidateMessageMail extends Mailable
 {
+    /**
+     * SaaS-5 (S1-08): signed with the organisation's name, not the platform's.
+     */
+    public readonly string $organisationName;
+
     public function __construct(
         public readonly string $messageSubject,
         public readonly string $messageBody,
         public readonly string $reference,
-    ) {}
+    ) {
+        $this->organisationName = Branding::tenantName();
+    }
 
     public function envelope(): Envelope
     {

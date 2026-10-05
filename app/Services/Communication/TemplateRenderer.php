@@ -2,6 +2,7 @@
 
 namespace App\Services\Communication;
 
+use App\Services\Branding;
 use DomainException;
 
 /**
@@ -138,7 +139,7 @@ class TemplateRenderer
             'recruiter.name' => $application?->recruiter?->fullName(),
             'offer.joining_date' => $context->offer?->expected_joining_date?->format('d M Y'),
             'joining.date' => $context->joining?->expected_doj?->format('d M Y'),
-            'company.name' => (string) config('app.name'),
+            'company.name' => Branding::tenantName(),
             'links.portal' => route('portal.login'),
             'links.scheduling' => $context->links['scheduling'] ?? null,
         ];

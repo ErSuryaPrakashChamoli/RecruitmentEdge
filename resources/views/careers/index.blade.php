@@ -1,7 +1,7 @@
 <x-portal.layout title="Careers" section="Careers" :home="route('careers.index')">
     <div>
         <h1 class="text-2xl font-semibold">Open positions</h1>
-        <p class="text-sm text-ink-muted">Find a role at {{ config('app.name') }} and apply in a few minutes.</p>
+        <p class="text-sm text-ink-muted">Find a role at {{ \App\Services\Branding::tenantName() }} and apply in a few minutes.</p>
     </div>
 
     <form method="GET" action="{{ route('careers.index') }}" class="flex gap-2" role="search">

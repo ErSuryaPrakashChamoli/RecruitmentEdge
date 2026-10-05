@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Services\Branding;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,17 +20,23 @@ class CandidateStepUpCode extends Mailable implements ShouldBeEncrypted, ShouldQ
 {
     use Queueable, SerializesModels;
 
+    /**
+     * SaaS-5 (S1-08): the candidate deals with the organisation, not the software it uses.
+     */
+    public readonly string $organisationName;
+
     public function __construct(
         public readonly string $candidateName,
         public readonly string $code,
         public readonly int $validMinutes,
     ) {
         $this->onQueue('security');
+        $this->organisationName = Branding::tenantName();
     }
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Your '.config('app.name').' verification code');
+        return new Envelope(subject: "Your {$this->organisationName} verification code");
     }
 
     public function content(): Content

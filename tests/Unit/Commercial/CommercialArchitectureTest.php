@@ -31,13 +31,20 @@ test('only the platform reaches the commercial control plane — no page, route,
             continue;
         }
 
+        // SaaS-5: the platform's own services, each authorising its operator's capability first.
+        if (in_array($path, ['app/Services/Platform/TenantAdministrationService.php', 'app/Services/Platform/TenantDeletionService.php', 'app/Services/Platform/TenantPurgeService.php'], true)) {
+            continue;
+        }
+
         expect(str_contains($source, 'Platform\\Commercial'))->toBeFalse("{$path} reaches the commercial control plane — plans, overrides and lifecycle are platform-only");
     }
 });
 
 test('the product asks the entitlement registry, never which plan a tenant is on', function (): void {
     $planModels = '/\b(Plan|PlanVersion|PlanEntitlement|TenantPlanAssignment|TenantEntitlementOverride)::|\b(plan_entitlements|tenant_plan_assignments|tenant_entitlement_overrides)\b/';
-    $allowed = ['app/Services/Entitlements/EntitlementService.php', 'app/Filament/Pages/PlanAndUsage.php', 'app/Services/Tenancy/TenantSchema.php'];
+    $allowed = ['app/Services/Entitlements/EntitlementService.php', 'app/Filament/Pages/PlanAndUsage.php', 'app/Services/Tenancy/TenantSchema.php',
+        // SaaS-5: the platform panel's tenant list shows each tenant's plan (metadata, never a gate).
+        'app/Services/Platform/PlatformDirectory.php'];
 
     foreach (commercialSources() as $path => $source) {
         if (str_starts_with($path, 'app/Services/Platform/Commercial/') || str_starts_with($path, 'app/Models/') || in_array($path, $allowed, true)) {

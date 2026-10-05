@@ -47,6 +47,21 @@ class TenantInvitationController extends Controller
         return redirect()->route('invitations.show');
     }
 
+    /**
+     * SaaS-5 (S2-A3): the link sent by mail — /invitations/open?token=… — so the token is never in
+     * the access log (which records the path only).
+     */
+    public function openLink(Request $request): Response
+    {
+        $token = $request->query('token');
+
+        if (! is_string($token) || preg_match('/^[A-Za-z0-9]{64}$/', $token) !== 1) {
+            return $this->unavailable();
+        }
+
+        return $this->open($request, $token);
+    }
+
     public function show(Request $request): Response
     {
         $invitation = $this->openInvitation($request);

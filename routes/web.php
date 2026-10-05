@@ -47,6 +47,9 @@ Route::prefix('invitations')->middleware('throttle:invitations')->name('invitati
     Route::get('/', [TenantInvitationController::class, 'show'])->name('show');
     Route::post('accept', [TenantInvitationController::class, 'accept'])->name('accept');
     Route::post('register', [TenantInvitationController::class, 'register'])->name('register');
+    // SaaS-5 (S2-A3): the link carries the token in its query string, which the access log never
+    // records (LogFormat %U). The path form stays for links sent before.
+    Route::get('open', [TenantInvitationController::class, 'openLink'])->name('link');
     Route::get('{token}', [TenantInvitationController::class, 'open'])->where('token', '[A-Za-z0-9]{64}')->name('open');
 });
 

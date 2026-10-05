@@ -6,6 +6,7 @@ paths:
   - app/Models/User.php
   - app/Models/Tenant.php
   - 'app/Models/Billing*.php'
+  - app/Models/AuditLog.php
 ---
 
 # App Models
@@ -30,3 +31,6 @@ An ended trial is Suspended from the second trial_ends_at passes (Tenant::effect
 
 ## Billing records are immutable history; create them only through services
 Issued invoices change only payment progress (status, amount paid/due, paid/void dates); payments never change amount, currency, invoice or reference (provider ref set once); prices are never edited (publish a new one); subscriptions, invoices, payments are never deleted — the models throw. One live subscription per tenant (unique tenant_id+is_live, NULL for ended). Invoice numbers come from the platform-wide series (InvoiceNumberer), not CodeSequence. Tests create billing records through the services (no factories) so the invariants are exercised.
+
+## The audit trail is append-only
+SaaS-5: AuditLog throws on update and delete; application code never updates or deletes audit_logs through the query builder either (PlatformArchitectureTest). Record a new entry instead. Tests that need an old entry record it in the past: $this->travelTo(now()->subDays(40), fn () => AuditLog::record(...)), never forceFill(['created_at' => ...])->save(). Platform actions are attributed with AuditLog::asPlatformOperator($operator, ...) (actor_kind platform).

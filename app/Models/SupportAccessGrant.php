@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\SupportGrantStatus;
+use App\Enums\SupportScope;
 use App\Models\Concerns\BelongsToTenant;
 use Carbon\CarbonInterface;
 use Database\Factories\SupportAccessGrantFactory;
@@ -15,11 +17,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * platform support operator to help inside this tenant. Tenant-owned: granted, listed and revoked
  * by the tenant's own administrators (SupportAccessService) and audited in the tenant's stream.
  *
- * SaaS-2 stores and audits grants only. Nothing reads a grant to let anyone into a tenant yet —
- * the support console that would (read-only by default, its own audited session, never a password
- * or "log in as") is SaaS-5 work. Until then an active grant opens nothing.
+ * SaaS-5: a grant is requested by the support operator or granted by the tenant, approved or denied
+ * by the tenant, scoped (SupportScope), time-bound and revocable; while active it opens the
+ * operator's read-only support workspace for this tenant and nothing else — never a membership,
+ * a role or sign-in-as. Every use is checked under the grant's row lock and audited.
  */
-#[Fillable(['platform_operator_id', 'granted_by', 'reason', 'starts_at', 'expires_at'])]
+#[Fillable(['platform_operator_id', 'status', 'granted_by', 'reason', 'requested_scopes', 'scopes', 'requested_minutes', 'requested_at', 'decided_at', 'starts_at', 'expires_at'])]
 class SupportAccessGrant extends Model
 {
     /** @use HasFactory<SupportAccessGrantFactory> */
@@ -28,9 +31,16 @@ class SupportAccessGrant extends Model
     protected function casts(): array
     {
         return [
+            'status' => SupportGrantStatus::class,
+            'requested_scopes' => 'array',
+            'scopes' => 'array',
+            'requested_at' => 'datetime',
+            'decided_at' => 'datetime',
             'starts_at' => 'datetime',
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
+            'last_used_at' => 'datetime',
+            'use_count' => 'integer',
         ];
     }
 
@@ -54,6 +64,14 @@ class SupportAccessGrant extends Model
     {
         $at ??= now();
 
-        return $this->revoked_at === null && $this->starts_at->lte($at) && $this->expires_at->gt($at);
+        return $this->status === SupportGrantStatus::Active && $this->revoked_at === null && $this->starts_at !== null && $this->expires_at !== null && $this->starts_at->lte($at) && $this->expires_at->gt($at);
+    }
+
+    /**
+     * SaaS-5: whether this grant covers $scope.
+     */
+    public function allows(SupportScope $scope): bool
+    {
+        return in_array($scope->value, (array) $this->scopes, true);
     }
 }

@@ -94,6 +94,9 @@ test('crossing tenants happens only in reviewed places', function (): void {
         'app/Services/Identity/TenantInvitationService.php' => 'finds an invitation by its token hash, then works inside the invitation\'s own tenant',
         'app/Console/Commands/BillingPayment.php' => 'platform console: an invoice by its globally unique number, a payment by its reference, then works inside its tenant (SaaS-4)',
         'app/Services/Billing/BillingReferenceResolver.php' => 'finds a verified provider event\'s payment by the provider\'s own reference, then works inside its tenant (SaaS-4)',
+        'app/Services/Platform/SupportAccessService.php' => 'a platform operator\'s own grants (by operator), and the expiry sweep; every use is then checked against the grant\'s tenant (SaaS-5)',
+        'app/Services/Platform/PlatformDirectory.php' => 'the platform panel\'s operational metadata across tenants: platform audit, support grants (SaaS-5)',
+        'app/Services/Platform/SupportWorkspace.php' => 'one grant\'s tenant, after SupportAccessService::usableGrant (SaaS-5)',
     ];
 
     $found = collect(tenancyArchSources())
@@ -187,6 +190,7 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
         'livewire-' => 'the component page\'s own (persistent) middleware', '_boost/' => 'development tool (not in the production image)',
         'invitations' => 'the invitation\'s own tenant, found by its token hash (SaaS-2)',
         'admin/organisations' => 'the signed-in identity\'s own accessible tenants (SaaS-2 chooser)',
+        'platform' => 'the platform panel: no tenant — operators only, metadata across tenants (PlatformDirectory), a tenant\'s data only through its own support grant (SupportWorkspace) (SaaS-5)',
     ];
     $offending = [];
 

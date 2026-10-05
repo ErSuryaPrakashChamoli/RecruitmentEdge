@@ -26,8 +26,9 @@ class StorageAudit extends Command
 {
     /**
      * Every column that holds a stored file's path, by disk. A soft-deleted row still references its file.
+     * SaaS-5: fallback_disk is where a file may still be until it is moved (employee photos, S1-06).
      *
-     * @var array<int, array{table: string, column: string, disk: string, disk_column?: string}>
+     * @var array<int, array{table: string, column: string, disk: string, disk_column?: string, fallback_disk?: string}>
      */
     public const array REFERENCES = [
         ['table' => 'candidates', 'column' => 'resume_path', 'disk' => 'local'],
@@ -38,7 +39,7 @@ class StorageAudit extends Command
         ['table' => 'offer_letter_templates', 'column' => 'file_path', 'disk' => 'local'],
         ['table' => 'offer_letter_template_versions', 'column' => 'file_path', 'disk' => 'local'],
         ['table' => 'imports', 'column' => 'file_path', 'disk' => 'local'],
-        ['table' => 'employees', 'column' => 'photo_path', 'disk' => 'public'],
+        ['table' => 'employees', 'column' => 'photo_path', 'disk' => 'local', 'fallback_disk' => 'public'],
     ];
 
     /**
@@ -129,7 +130,7 @@ class StorageAudit extends Command
         $referenced = [];
 
         foreach (self::REFERENCES as $reference) {
-            if (! isset($reference['disk_column']) && $reference['disk'] !== $disk) {
+            if (! isset($reference['disk_column']) && $reference['disk'] !== $disk && ($reference['fallback_disk'] ?? null) !== $disk) {
                 continue;
             }
 
@@ -177,7 +178,7 @@ class StorageAudit extends Command
     }
 
     /**
-     * @param  array{table: string, column: string, disk: string, disk_column?: string}  $reference
+     * @param  array{table: string, column: string, disk: string, disk_column?: string, fallback_disk?: string}  $reference
      * @return array{reference: string, records: int, missing: int}
      */
     private function missingFiles(array $reference): array
@@ -195,7 +196,7 @@ class StorageAudit extends Command
                 $records++;
                 $disk = isset($reference['disk_column']) ? (string) $row->{$reference['disk_column']} : $reference['disk'];
 
-                if (! Storage::disk($disk)->exists($row->{$reference['column']})) {
+                if (! Storage::disk($disk)->exists($row->{$reference['column']}) && ! (isset($reference['fallback_disk']) && Storage::disk($reference['fallback_disk'])->exists($row->{$reference['column']}))) {
                     $missing++;
 
                     if ($this->option('list')) {

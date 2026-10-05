@@ -82,9 +82,10 @@ class EmployeeForm
                     ->image()
                     ->avatar()
                     // Phase 8.10 (P810-SEC-002): raster only (after avatar(), which resets the types to image/*).
-                    // The public disk is served from the app origin, so an SVG opened directly would run script.
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
-                    ->disk('public')
+                    // SaaS-5 (S1-06): private; a photo not yet moved stays readable where it is.
+                    ->disk(fn (?Employee $record): string => Employee::photoDisk($record?->photo_path))
+                    ->visibility('private')
                     ->directory(fn (): string => TenantStorage::path('employee-photos')),
             ]);
     }

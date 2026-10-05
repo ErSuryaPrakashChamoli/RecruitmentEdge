@@ -56,6 +56,8 @@ final class TenantTasks
     public const OPERATOR = [
         'ai:redact-history',
         'ai:reindex-knowledge',
+        // SaaS-5 (S1-06): once per tenant after deploying SaaS-5.
+        'files:privatize-employee-photos',
         'governance:audit',
         'identity:audit',
         'identity:reconcile-access',
@@ -83,6 +85,9 @@ final class TenantTasks
         'billing:sweep',
         'billing:reconcile',
         'billing:prune-events',
+        // SaaS-5: support grant expiry, due purges (each a platform job keyed by its request),
+        // compliance export expiry — platform records; a purge works inside its own tenant id.
+        'platform:sweep',
     ];
 
     public static function isTenantTask(string $task): bool

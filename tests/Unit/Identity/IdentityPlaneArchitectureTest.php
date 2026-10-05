@@ -49,11 +49,19 @@ test('memberships are created only by accepting an invitation or by the provisio
 });
 
 test('the tenant plane never consults the platform plane', function (): void {
-    $platform = '/\b(PlatformOperator|PlatformAccess|SupportAccessGrant|SupportAccessService|PlatformRole)\b/';
+    $platform = '/\b(PlatformOperator|PlatformAccess|SupportAccessGrant|SupportAccessService|PlatformRole|PlatformCapability|PlatformDirectory|SupportWorkspace|TenantAdministrationService|TenantOwnershipService|TenantDeletionService|TenantPurgeService|ComplianceExportService)\b/';
+    // SaaS-5: the platform panel, its jobs and commands; and the tenant's own side of a support grant.
+    $platformFiles = [
+        'app/Models/PlatformOperator.php', 'app/Models/SupportAccessGrant.php', 'app/Models/TenantDeletionRequest.php', 'app/Models/ComplianceExport.php', 'app/Models/PlatformEvent.php',
+        'app/Enums/PlatformRole.php', 'app/Enums/PlatformCapability.php', 'app/Providers/Filament/PlatformPanelProvider.php',
+        'app/Console/Commands/PlatformOperatorCommand.php', 'app/Console/Commands/DisableIdentity.php', 'app/Console/Commands/PlatformSweep.php', 'app/Console/Commands/TenantsDeletion.php', 'app/Console/Commands/TenantsOwner.php',
+        'app/Jobs/PurgeTenantJob.php', 'app/Jobs/GenerateComplianceExport.php',
+        'app/Filament/Pages/SupportAccess.php',
+    ];
 
     foreach (identityPlaneSources() as $path => $source) {
-        $isPlatform = str_starts_with($path, 'app/Services/Platform/')
-            || in_array($path, ['app/Models/PlatformOperator.php', 'app/Models/SupportAccessGrant.php', 'app/Enums/PlatformRole.php', 'app/Console/Commands/PlatformOperatorCommand.php', 'app/Console/Commands/DisableIdentity.php'], true);
+        $isPlatform = str_starts_with($path, 'app/Services/Platform/') || str_starts_with($path, 'app/Filament/Platform/')
+            || in_array($path, $platformFiles, true);
 
         if (! $isPlatform) {
             expect((bool) preg_match($platform, $source))->toBeFalse("{$path} consults the platform plane — platform roles never grant tenant access");

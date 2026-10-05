@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Services\Branding;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -21,18 +22,24 @@ class CandidatePortalLink extends Mailable implements ShouldBeEncrypted, ShouldQ
 {
     use Queueable, SerializesModels;
 
+    /**
+     * SaaS-5 (S1-08): the candidate deals with the organisation, not the software it uses.
+     */
+    public readonly string $organisationName;
+
     public function __construct(
         public readonly string $candidateName,
         public readonly string $url,
         public readonly bool $isInvitation,
     ) {
         $this->onQueue('security');
+        $this->organisationName = Branding::tenantName();
     }
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: $this->isInvitation ? 'Your '.config('app.name').' candidate portal access' : 'Set your '.config('app.name').' portal password',
+            subject: $this->isInvitation ? "Your {$this->organisationName} candidate portal access" : "Set your {$this->organisationName} portal password",
         );
     }
 

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EmployeeStatus;
+use App\Http\Controllers\PrivateFileController;
 use App\Models\Concerns\Auditable;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\GuardsLifecycleAttributes;
@@ -74,9 +75,25 @@ class Employee extends Model
         return trim("{$this->first_name} {$this->last_name}");
     }
 
+    /**
+     * SaaS-5 (S1-06): photos are private — on the local disk, opened through a short-lived signed
+     * link (PrivateFileController) by members of the tenant. A photo not yet moved there
+     * (files:privatize-employee-photos) is still read from the public disk, so nothing is lost.
+     */
+    public static function photoDisk(?string $path): string
+    {
+        return filled($path) && ! Storage::disk('local')->exists($path) && Storage::disk('public')->exists($path) ? 'public' : 'local';
+    }
+
     public function photoUrl(): ?string
     {
-        return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
+        if (blank($this->photo_path)) {
+            return null;
+        }
+
+        return self::photoDisk($this->photo_path) === 'public'
+            ? Storage::disk('public')->url($this->photo_path)
+            : Storage::disk('local')->temporaryUrl($this->photo_path, now()->addMinutes(PrivateFileController::URL_TTL_MINUTES));
     }
 
     /**

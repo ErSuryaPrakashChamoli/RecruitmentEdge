@@ -8,5 +8,5 @@ Enter it in the candidate portal to continue. It expires in {{ $validMinutes }} 
 If you didn't ask for a code, you can ignore this email — nobody can use it without also being signed in to your portal account.
 
 Thanks,<br>
-{{ config('app.name') }}
+{{ $organisationName }}
 </x-mail::message>
