@@ -120,3 +120,5 @@ The one MySQL skip is the trigger test, which runs on SQLite only: on MySQL, `CR
 2. On `b749ae1`, concurrency 73 / 74: a master-data factory code collided in the never-rolled-back concurrency database (S7-28); fixed in `c395827`.
 
 The run above is the complete re-run on the fixed commit.
+
+**Release head (production-readiness phase, 2026-10-05).** `c395827` is the parent of the final SaaS-7 commit `54e551b`, which changes documentation and project rules only. One test reads a runbook that `54e551b` changed, so the complete regression was re-run on `54e551b` itself. Results were identical: SQLite 2,766 / 2,766; MySQL 2,765 + 1 skipped; concurrency 74 / 74; every subset green. **The tested release head is `54e551b`** (`docs/production-readiness-final-report.md` §3–4).
