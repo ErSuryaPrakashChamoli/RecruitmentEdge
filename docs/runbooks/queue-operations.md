@@ -66,7 +66,7 @@ No serving container migrates on start.
       - `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
       - `docker compose exec app php artisan queue:drain-status` shows a recent heartbeat for each of the four workers.
     - **Scheduler:**
-      - `docker compose exec app php artisan schedule:list` lists 20 tasks;
+      - `docker compose exec app php artisan schedule:list` lists 27 tasks (counted in the production-readiness code closure);
       - the scheduler container is `healthy` (its check is `ops:heartbeat scheduler`);
       - Administration → **Queue health** shows nothing under "Needs attention".
     - **Reopen:** `docker compose exec app php artisan up`; the sign-in page loads.

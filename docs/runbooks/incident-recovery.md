@@ -112,3 +112,7 @@ SEC-88-10 was deferred on "Apache serves production directly". If a reverse prox
 - `docs/runbooks/queue-operations.md`: deployment, queues, failed jobs, stuck work, scheduler, providers, housekeeping.
 - `docs/runbooks/backup-restore.md`: what to protect, backup and restore procedures, DR.
 - `docs/runbooks/production-environment.md`: production settings checklist.
+- Production-readiness code closure:
+  - **releases:** `failed-migration.md` and `failed-deployment.md` (the detailed forms of §5); `backup-restore-verification.md`;
+  - **security:** `security-incident.md`, `leaked-api-credential.md`, `compromised-integration.md`, `app-key-and-secret-rotation.md` (the detailed form of §6);
+  - **platform and integrations:** `tenant-suspension.md`, `tenant-purge-failure.md`, `webhook-failure-spike.md`.

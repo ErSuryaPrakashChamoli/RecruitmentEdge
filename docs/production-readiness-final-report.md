@@ -4,6 +4,15 @@
 
 **Date:** 2026-10-05. Evidence: `docs/production-readiness-discovery.md` (A1–A29 and the stop conditions).
 
+**Updated the same day by the production-readiness code closure.** It closed the repository-owned gaps; everything else is unchanged. Details:
+- findings: `docs/production-readiness-code-closure.md`;
+- security: `docs/production-readiness-security-review.md`;
+- decisions: `docs/production-readiness-decision-register.md`;
+- release: `docs/production-release-checklist.md`;
+- results: `docs/production-readiness-code-closure-final.md`.
+
+Every blocker below is now classified as CODE, INFRASTRUCTURE, OWNER, EXTERNAL TEST, PRODUCTION DATA or RELEASE GATE (§36–§37). None was removed.
+
 ## 1. Executive summary
 
 **Decision: NO-GO.** Recruitment Edge is engineering-complete and its test evidence holds on the release candidate. It cannot be released to production yet. None of these exists or could be verified:
@@ -20,6 +29,15 @@ In addition, billing has no production payment provider, and the platform's oper
 **Nine of the fifteen stop conditions are met.** None is a defect in application code: they are infrastructure that does not exist yet, production data that has not been provided, and owner decisions. No Critical or High security issue is open.
 
 The path to GO is §36: provide the infrastructure, take the owner decisions, run the production-copy rehearsal, then re-assess.
+
+**Code closure.** The repository-owned gaps are now closed:
+- the operational runbooks;
+- the post-restore integrity check covering SaaS state;
+- preflight rules for production, staging and development;
+- PR-01 and PR-02 mitigated in code;
+- PR-03 closed with evidence.
+
+**This does not change the decision.** No code change can supply the missing infrastructure, production data, owner decisions or external tests.
 
 ## 2. Release candidate
 
@@ -84,10 +102,17 @@ The SaaS-7 discrepancy is resolved. The two commits differ only in documentation
 - health endpoints;
 - `ops:preflight` (refuses an unsafe production start), `ops:migrate`, `ops:verify-integrity`, `audit:protect`, `security:reencrypt`.
 
-**Application-code gaps found** (recorded, not implemented, because the stop conditions apply):
-- **Integrity check coverage:** `ops:verify-integrity` does not check entitlement, billing, platform or API state, or audit-row integrity (A11).
-- **Database time zone:** the connection time zone is not pinned to UTC (PR-02).
-- **Runbooks:** nine required operational runbooks are missing (§33).
+**Application-code gaps found in discovery — status after the code closure:**
+- **Integrity check coverage (A11): CLOSED in code** (PRC-05).
+  - `ops:verify-integrity` now fails on impossible deletion, purge and billing states and on unreadable encrypted values.
+  - It warns on tenants without a plan or owner, credentials of non-members, work past its lease, and a missing audit protection.
+  - It stays read-only (tested).
+  - **Not covered:** audit-row tamper evidence (a hash chain). That would be a product change and is an owner decision (D-S7-O8).
+- **Database time zone (PR-02): MITIGATED, still a RELEASE GATE** (PRC-09).
+  - `DB_TIMEZONE` is supported; preflight and the integrity check report the offset.
+  - The setting is decided from the production-copy rehearsal.
+- **Runbooks (§33): CLOSED** — the prompt's nine plus tenant suspension. The billing webhook runbook waits for a payment provider.
+- **Preflight: rules by environment** (production, staging, development). New production blockers: application time zone, database driver, public private-files disk, trusted hosts without the app host, no alert recipient.
 
 ## 13. Infrastructure readiness
 
@@ -173,21 +198,27 @@ The application emits the signals (health endpoints, structured log lines, criti
 
 ## 24. Security readiness
 
+**After the code closure** (`docs/production-readiness-security-review.md`):
+
 **Critical 0. High 0. Medium 1 open:** S7-12 audit triggers not installed — a blocker unless the owner accepts application-only immutability.
 
-**Low 5 open:**
+**Low 4 open:**
 - S7-13 export retention;
-- S7-15 password-reset timing;
+- S7-15 password-reset timing (code-closable, deferred);
 - S7-16 proxy/LibreOffice egress;
-- PR-02 database time zone;
-- PR-03 hotfix lineage.
+- PR-02 database time zone (mitigated; release gate).
 
-**Info 3 open:**
+**PR-03 hotfix lineage: CLOSED with evidence.** The hotfix tests pass on the candidate (6 / 6), and the missing test was added.
+
+**Info 6 open:**
 - S7-14 upload size;
 - S7-25 panel headers;
-- PR-01 CORS any origin on `/api/*`.
+- PR-01 CORS any origin on `/api/*` (mitigated: configurable; owner decision);
+- PR-04 tenant #1 without an owner after migration;
+- PR-05 webhook failures do not alert;
+- PR-06 no bulk revocation, unlimited replay.
 
-Dependency audits are clean. No silent findings.
+Dependency audits re-run in the code closure: clean. No silent findings.
 
 ## 25. CI/CD readiness
 
@@ -221,7 +252,7 @@ Operator MFA is enforced by code.
 
 ## 29. API readiness
 
-**BLOCKED.** Infrastructure: domain/TLS, secrets, egress, monitoring. Owner decisions: exposure, authentication model, credential lifecycle, limits, retries, event catalogue, versioning, documentation exposure, plans. Operational runbooks are also missing. API and webhooks stay off for every tenant until then: no plan grants them.
+**BLOCKED.** Infrastructure: domain/TLS, secrets, egress, monitoring. Owner decisions: exposure, authentication model, credential lifecycle, limits, retries, event catalogue, versioning, documentation exposure, plans. The operational runbooks now exist (code closure: leaked credential, compromised integration, webhook failure spike). API and webhooks stay off for every tenant until then: no plan grants them.
 
 ## 30. Load-test status
 
@@ -248,11 +279,16 @@ It needs the production environment.
 
 ## 33. Runbooks
 
+Status after the code closure (discovery A29 numbering):
+
 | Status | Runbooks |
 |---|---|
-| Present | database outage, queue outage, failed migration, rollback, failed deployment, backup restore, `APP_KEY` rotation |
-| Partial | application outage, cache outage (the database's), worker overload, secret rotation |
-| **Missing** | webhook failure spike, leaked API credential, compromised integration, billing webhook failure, tenant suspension, tenant deletion, purge failure, security incident, suspicious cross-tenant activity |
+| Present before | database outage (#2), queue outage (#4), rollback (#11), backup restore (#16) |
+| **Written in the code closure** | webhook failure spike (#6), leaked API credential (#7), compromised integration (#8), failed migration (#10, detailed), failed deployment (#12, detailed), tenant suspension (#13), tenant deletion (#14, inside `tenant-purge-failure.md` and `tenant-suspension.md`), purge failure (#15), backup restore verification (#16, verification procedure), secret and `APP_KEY` rotation (#17, #18), security incident (#19), suspicious cross-tenant activity (#20, inside `security-incident.md`) |
+| Partial (unchanged) | application outage (#1), cache outage (#3), worker overload (#5) — `incident-recovery.md`, `queue-operations.md` |
+| **Missing** | billing webhook failure (#9). **OWNER:** it depends on the payment provider (D-S4-O1); only the fake adapter exists |
+
+**None has been exercised.** They are procedures; each depends on infrastructure that does not exist yet (backup, secret source, monitoring, container runtime).
 
 ## 34. Owner decisions
 
@@ -265,12 +301,21 @@ All open, each with a safe default:
 - **SaaS-6:** D-S6-O1…O15 (11 before production).
 - **SaaS-7:** D-S7-O1…O13 (10 before production).
 
-**New here:**
-- whether production runs `main` or a hotfix line;
-- the `TENANT_ONE_*` values for tenant #1;
-- acceptance or installation of the audit triggers;
-- CORS for `/api/*`;
-- the pilot tenant and its sign-off owner.
+**New here:** recorded, without choosing, in `docs/production-readiness-decision-register.md`, PRD-01 … PRD-16. They cover:
+- the production code line;
+- tenant #1's attributes and **owner**;
+- the database time zone;
+- the audit immutability model;
+- billing at launch;
+- the pilot;
+- CORS;
+- the alert recipient;
+- the maintenance and rollback windows;
+- previous-key retention;
+- incident notification;
+- webhook alerting;
+- bulk revocation and replay limits;
+- the remaining runbooks.
 
 ## 35. External infrastructure actions
 
@@ -291,49 +336,74 @@ All open, each with a safe default:
 
 ## 36. Production blockers
 
-1. Production migration state, and a **production-copy rehearsal** (backup → restore → migrate → integrity → smoke → tenancy).
-2. Backup system and a tested restore.
-3. Secrets manager.
-4. Egress controls.
-5. Domain/TLS.
-6. Monitoring and alerting with a named on-call owner.
-7. CI.
-8. Container deployment dry run.
-9. Billing: provider (or a manual-billing decision), prices, GST, numbering, finance operators.
-10. Platform policies (SaaS-5 decisions).
-11. Audit triggers installed, or application-only immutability accepted.
-12. API/integration decisions before enabling them for anyone.
-13. Missing operational runbooks.
-14. Load test and external penetration test (GA gates).
+**Classes:**
+- **CODE** — closable in this repository;
+- **INFRASTRUCTURE** — needs systems outside it;
+- **OWNER** — needs a decision;
+- **EXTERNAL TEST** — needs an outside party or environment;
+- **PRODUCTION DATA** — needs production's data or state;
+- **RELEASE GATE** — a check done during the release itself.
+
+Rows 1–14 are unchanged from the original report. Rows 15–19 were made explicit by the code closure. **None was removed.**
+
+| # | Blocker | Class | Evidence | Status after code closure |
+|---|---|---|---|---|
+| 1 | Production migration state, and a **production-copy rehearsal** (backup → restore → migrate → integrity → smoke → tenancy) | PRODUCTION DATA; RELEASE GATE | A9: production state unknown; 104 delta migrations, 25 forward-only; R1, R1b, R2 are not production | OPEN. `failed-migration.md` handles forward-only migrations (restore, never `migrate:rollback`) |
+| 2 | Backup system and a tested restore | INFRASTRUCTURE | A10; `backup-restore.md` "no backup system" | OPEN. Procedure ready: `backup-restore-verification.md`, with the extended integrity check |
+| 3 | Secrets manager | INFRASTRUCTURE (D-S7-O1) | A5 | OPEN. Application rotation procedure ready |
+| 4 | Egress controls | INFRASTRUCTURE | A6; S7-16 | OPEN |
+| 5 | Domain/TLS | INFRASTRUCTURE | A7 | OPEN |
+| 6 | Monitoring and alerting with a named on-call owner | INFRASTRUCTURE; OWNER (D-S5-O8, D-S7-O6) | A16–A17; stop conditions 11–12; PR-05 | OPEN. Preflight now refuses a production start without a valid alert recipient |
+| 7 | CI | INFRASTRUCTURE | A19 | OPEN |
+| 8 | Container deployment dry run | INFRASTRUCTURE | A20 | OPEN |
+| 9 | Billing: provider (or a manual-billing decision), prices, GST, numbering, finance operators; with the provider, its webhook runbook | OWNER, then CODE (an adapter, a runbook) | A24; D-S4-O1…O11; PRD-06 | OPEN |
+| 10 | Platform policies (SaaS-5 decisions) | OWNER | A25; D-S5-O1…O13 | OPEN |
+| 11 | Audit triggers installed, or application-only immutability accepted | OWNER (D-S7-O8, PRD-05); INFRASTRUCTURE (a privileged database user) | A12; S7-12 | OPEN. Preflight and integrity warn; checklist step |
+| 12 | API/integration decisions before enabling them for anyone | OWNER | A26; D-S6-O1…O15 | OPEN. Runbooks written |
+| 13 | Missing operational runbooks | CODE | A29; code closure PRC-01, PRC-02 | **CLOSED** (CODE). The billing-webhook runbook remains, under row 9 |
+| 14 | Load test and external penetration test (GA gates) | EXTERNAL TEST | §30–31; A23 | OPEN |
+| 15 | Database session time zone (PR-02) | RELEASE GATE | A4, A22; PRC-09; PRD-04 | OPEN. Mitigated: setting and detection in code; decided from row 1 |
+| 16 | Tenant #1 has no owner after the migration | OWNER (PRD-03) | PR-04; PRC-11; the migration sets no `is_owner` | OPEN. Detected by `ops:verify-integrity`; assigned at RELEASE step 10 |
+| 17 | Which code line production runs; the release commit | OWNER (PRD-01) | A1; PR-03; PRC-10 | OPEN (the candidate's hotfix content is proven) |
+| 18 | Production configuration: `ops:preflight` with production rules shows 0 blockers in the real environment | RELEASE GATE; INFRASTRUCTURE | A4 | OPEN. Code verified by tests; production not visible |
+| 19 | Full regression on exactly the released commit | RELEASE GATE | §3; `docs/production-readiness-code-closure-final.md` | OPEN until the release commit is fixed (row 17) |
+
+**CODE blockers still open:** none. Row 9's adapter and runbook are code, but only after the owner chooses a provider.
 
 ## 37. GO / NO-GO
 
-| Gate | Status | Evidence | Blocking |
-|------|--------|----------|----------|
-| SaaS architecture | PASS | All phase branches are ancestors of `54e551b`; full regression §3; architecture tests | No |
-| Tenant isolation | PASS (code) | SaaS-1 suite, tenancy architecture test, 74 MySQL races, `tenancy:verify` 0 violations on R1/R1b/R2; mutation 56/56 | No |
-| Identity | PASS (code) / owner decisions open | SaaS-2 suite; MFA enforced for privileged staff and operators; D-S2-O1, O4 open | Yes (owner) |
-| Entitlements | PASS (code) / plans undecided | SaaS-3 suite; D-S3-O1 real plans before any customer | Yes (owner) |
-| Billing | BLOCKED | Fake adapter only, refused in production (D-S4-O1); prices, GST, numbering open | Yes |
-| Platform control | BLOCKED | 12 SaaS-5 owner decisions open (operators, retention, deletion, purge, notifications) | Yes |
-| API | BLOCKED | 11 SaaS-6 decisions open; no domain/TLS, secrets, egress | Yes |
-| Integrations | BLOCKED | Egress uncontrolled at infrastructure level; webhook runbooks missing | Yes |
-| Security | PASS with open items | Critical 0, High 0; Medium S7-12 open (audit triggers); dependency audits clean; pen test pending | Yes (S7-12 decision; pen test for GA) |
-| Secrets | BLOCKED | No secrets manager; environment variables only (A5) | Yes |
-| Egress | BLOCKED | Application SSRF guard only; no infrastructure controls (A6) | Yes |
-| Database | BLOCKED | Production server unknown; development settings only (A8) | Yes |
-| Cache | PASS (architecture) | Database store with data and lock connections separated; races; preflight; availability tied to the database | No |
-| Queue | BLOCKED (runtime) | Topology tested statically; never run in a container runtime | Yes |
-| Monitoring | BLOCKED | No monitoring; `PLATFORM_NOTIFY_EMAIL` unset; no on-call (A16–A17) | Yes |
-| Backup | BLOCKED | No backup system (A10) | Yes |
-| Restore | BLOCKED | No restore test of production data (A10) | Yes |
-| Migration | BLOCKED | Production state unknown; no production copy; 25 forward-only migrations in the delta (A9) | Yes |
-| CI/CD | BLOCKED | No CI exists (A19) | Yes |
-| Container | BLOCKED | No container runtime; never built or run (A20) | Yes |
-| Load test | BLOCKED | No production-like infrastructure (§30) | Yes (GA) |
-| Pen test | PENDING | No external test commissioned (§31) | Yes (GA) |
-| Runbooks | PARTIAL | 7 present, 4 partial, 9 missing (§33) | Yes |
-| Pilot | NOT STARTED | Procedure defined (A28); needs the environment | Yes |
+Updated by the code closure: a **Class** column, and gates for the items made explicit in §36.
+
+| Gate | Status | Class | Evidence | Blocking |
+|------|--------|-------|----------|----------|
+| SaaS architecture | PASS | CODE | All phase branches are ancestors of `54e551b`; full regression (§3 and the code-closure run); architecture tests | No |
+| Tenant isolation | PASS (code) | CODE | SaaS-1 suite, tenancy architecture test, 74 MySQL races, `tenancy:verify` 0 violations on R1/R1b/R2; mutation 56/56 (carried forward from SaaS-7) | No |
+| Identity | PASS (code) / owner decisions open | OWNER | SaaS-2 suite; MFA enforced for privileged staff and operators; D-S2-O1, O4 open | Yes (owner) |
+| Entitlements | PASS (code) / plans undecided | OWNER | SaaS-3 suite; D-S3-O1 real plans before any customer | Yes (owner) |
+| Billing | BLOCKED | OWNER | Fake adapter only, refused in production (D-S4-O1); prices, GST, numbering open | Yes |
+| Platform control | BLOCKED | OWNER | 12 SaaS-5 owner decisions open (operators, retention, deletion, purge, notifications) | Yes |
+| API | BLOCKED | OWNER; INFRASTRUCTURE | 11 SaaS-6 decisions open; no domain/TLS, secrets, egress. CORS configurable (PR-01) | Yes |
+| Integrations | BLOCKED | INFRASTRUCTURE | Egress uncontrolled at infrastructure level. Runbooks written | Yes |
+| Security | PASS with open items | OWNER (S7-12); EXTERNAL TEST (pen test) | Critical 0, High 0; Medium 1 (S7-12); Low 4; Info 6; PR-03 closed with evidence; dependency audits clean | Yes (S7-12 decision; pen test for GA) |
+| Secrets | BLOCKED | INFRASTRUCTURE | No secrets manager; environment variables only (A5) | Yes |
+| Egress | BLOCKED | INFRASTRUCTURE | Application SSRF guard only; no infrastructure controls (A6) | Yes |
+| Database | BLOCKED | INFRASTRUCTURE; RELEASE GATE (PR-02) | Production server unknown (A8); time zone mitigated, not decided | Yes |
+| Cache | PASS (architecture) | CODE | Database store with data and lock connections separated; races; preflight; availability tied to the database | No |
+| Queue | BLOCKED (runtime) | INFRASTRUCTURE | Topology tested statically; never run in a container runtime | Yes |
+| Monitoring | BLOCKED | INFRASTRUCTURE; OWNER | No monitoring; no on-call (A16–A17). Preflight blocks a production start without an alert recipient | Yes |
+| Backup | BLOCKED | INFRASTRUCTURE | No backup system (A10) | Yes |
+| Restore | BLOCKED | INFRASTRUCTURE; PRODUCTION DATA | No restore test of production data (A10). Verification procedure and extended integrity check ready | Yes |
+| Migration | BLOCKED | PRODUCTION DATA; RELEASE GATE | Production state unknown; no production copy; 25 forward-only migrations in the delta (A9) | Yes |
+| CI/CD | BLOCKED | INFRASTRUCTURE | No CI exists (A19) | Yes |
+| Container | BLOCKED | INFRASTRUCTURE | No container runtime; never built or run (A20) | Yes |
+| Load test | BLOCKED | EXTERNAL TEST | No production-like infrastructure (§30) | Yes (GA) |
+| Pen test | PENDING | EXTERNAL TEST | No external test commissioned (§31) | Yes (GA) |
+| Runbooks | WRITTEN, not exercised | CODE | The prompt's 9 plus tenant suspension; A29 #14 and #20 inside them; billing webhook waits for a provider (§33) | No. Exercising them needs the infrastructure gates |
+| Integrity check | CODE VERIFIED | CODE | `PostRestoreIntegrityTest` (12, read-only proof). Running it on a production copy is part of Migration and Restore | No (covered by Migration, Restore) |
+| Preflight | CODE VERIFIED; production not run | RELEASE GATE | `OperationsTest`: tiers, new checks | Yes (§36 row 18) |
+| Release line | OPEN | OWNER | PRD-01; PR-03 evidence | Yes |
+| Tenant #1 owner | OPEN | OWNER | PRD-03; integrity warning; checklist step | Yes |
+| Pilot | NOT STARTED | OWNER (PRD-07); RELEASE GATE | Procedure defined (A28); needs the environment | Yes |
 
 **FINAL DECISION: NO-GO.**
 
@@ -344,4 +414,6 @@ Critical infrastructure and data-integrity requirements are unresolved:
 - no monitoring that can alert an operator;
 - no executed deployment.
 
-These are not code defects, and they cannot be closed from this repository. Re-assess after §35 and §36 items 1–11 are done. CONDITIONAL GO then becomes possible, with the load test and penetration test as GA gates.
+These are not code defects, and they cannot be closed from this repository. **The code closure removed the CODE blockers; it removed no other blocker.**
+
+Re-assess after §35 and §36 rows 1–12 and 15–18 are done. CONDITIONAL GO then becomes possible, with the load test and penetration test (row 14) as GA gates and row 19 run on the release commit.
