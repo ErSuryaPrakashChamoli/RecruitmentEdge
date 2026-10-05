@@ -36,8 +36,8 @@ function operationsSafeProduction(): void
         'session.secure' => true,
         'cache.default' => 'database',
         'cache.stores.database.connection' => 'mysql_cache',
-        // Locks on the business connection (the test database here).
-        'cache.stores.database.lock_connection' => 'sqlite',
+        // Locks on the business connection (whichever database this suite runs on).
+        'cache.stores.database.lock_connection' => config('database.default'),
         'queue.default' => 'database',
         'mail.default' => 'smtp',
         'database.connections.mysql.password' => 'a-long-generated-password',
@@ -81,6 +81,7 @@ test('preflight passes a safe production configuration', function (): void {
 });
 
 test('preflight blocks an unsafe production configuration', function (array $unsafe, string $check): void {
+    $default = config('database.default');
     operationsSafeProduction();
     config($unsafe);
 
@@ -89,7 +90,7 @@ test('preflight blocks an unsafe production configuration', function (array $uns
         $exitCode = $this->artisan('ops:preflight')->run();
     } finally {
         // The test database stays the default connection (RefreshDatabase rolls it back).
-        config(['database.default' => 'sqlite']);
+        config(['database.default' => $default]);
     }
 
     expect($problems->firstWhere('check', $check))->not->toBeNull()
@@ -131,6 +132,8 @@ test('outside production the same problems are warnings, and the messages never 
     $this->artisan('ops:preflight')->assertSuccessful();
 });
 
+// On MySQL, CREATE TRIGGER commits the test's wrapping transaction; the same behaviour is proven there by
+// the audit race (tests/Concurrency) and the rehearsal smoke, outside any wrapping transaction.
 test('with the triggers installed the audit trail cannot be changed or deleted by any query, only appended to', function (): void {
     $entry = AuditLog::record($this->tenant, 'saas7_probe', null, ['n' => 1]);
     $this->artisan('audit:protect install')->assertSuccessful();
@@ -143,7 +146,7 @@ test('with the triggers installed the audit trail cannot be changed or deleted b
     $this->artisan('audit:protect install')->assertSuccessful();
     $this->artisan('audit:protect remove')->assertSuccessful();
     expect(DB::table('audit_logs')->where('id', $entry->id)->update(['reason' => 'allowed again']))->toBe(1);
-});
+})->skip(fn (): bool => DB::getDriverName() !== 'sqlite', 'DDL would commit the test transaction; proven on MySQL by the audit race');
 
 test('re-encryption rewrites every encrypted value under the current key, so the previous key can go', function (): void {
     $oldKey = config('app.key');
@@ -199,8 +202,10 @@ test('the re-encryption registry lists every encrypted column the models declare
 test('the integrity check passes a sound database and names an orphaned reference', function (): void {
     $this->artisan('ops:verify-integrity')->assertSuccessful()->expectsOutputToContain('Integrity OK');
 
-    DB::statement('PRAGMA defer_foreign_keys = ON');
+    // An orphan, as a restore loaded with foreign-key checks off can leave.
+    DB::getDriverName() === 'sqlite' ? DB::statement('PRAGMA defer_foreign_keys = ON') : DB::statement('SET FOREIGN_KEY_CHECKS = 0');
     DB::table('webhook_deliveries')->insert(['tenant_id' => $this->tenant->id, 'webhook_event_id' => 999999, 'integration_connection_id' => 999999, 'delivery_key' => 'dlv_orphan', 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
+    DB::getDriverName() === 'sqlite' ?: DB::statement('SET FOREIGN_KEY_CHECKS = 1');
 
     $this->artisan('ops:verify-integrity')->assertFailed()->expectsOutputToContain('webhook_deliveries');
 });

@@ -5,9 +5,9 @@ use App\Logging\SensitiveDataRedactor;
 use App\Models\IntegrationConnection;
 use App\Models\WebhookDelivery;
 use App\Models\WebhookEvent;
-use App\Providers\AppServiceProvider;
 use App\Services\QueueHealthService;
 use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
@@ -41,22 +41,22 @@ test('every API request — refused ones too — leaves one api.request line wit
         ->and(json_encode($requests))->not->toContain($world->tokenA)->not->toContain(str_repeat('b', 40));
 });
 
-test('a slow query is logged with its SQL and duration but never its bindings', function (): void {
-    config(['database.slow_query_ms' => 1]);
-    // Register the listener as the provider does at boot (now with the 1 ms threshold).
-    (new ReflectionMethod(AppServiceProvider::class, 'configureHealthCheck'))->invoke(app()->getProvider(AppServiceProvider::class));
+test('a query over the threshold is logged with its SQL and duration but never its bindings; a faster one is not', function (): void {
+    // The provider registered the listener at boot with the configured threshold (default 500 ms).
+    expect(config('database.slow_query_ms'))->toBe(500);
     $lines = [];
     Event::listen(MessageLogged::class, function (MessageLogged $log) use (&$lines): void {
         $lines[] = ['message' => $log->message, 'context' => $log->context];
     });
 
-    DB::select("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 300000) SELECT count(*) AS c FROM n WHERE ? <> 'x'", ['priya.secret@example.com']);
+    // The queries as the connection reports them, with their measured time.
+    event(new QueryExecuted('select * from candidates where email = ?', ['priya.secret@example.com'], 750.0, DB::connection()));
+    event(new QueryExecuted('select * from candidates where mobile = ?', ['+91 98450 11111'], 100.0, DB::connection()));
 
-    $slow = collect($lines)->firstWhere('message', 'db.slow_query');
+    $slow = collect($lines)->where('message', 'db.slow_query')->values();
 
-    expect($slow)->not->toBeNull()
-        ->and($slow['context']['sql'])->toContain('WITH RECURSIVE')
-        ->and($slow['context']['ms'])->toBeInt()
+    expect($slow)->toHaveCount(1)
+        ->and($slow[0]['context'])->toMatchArray(['ms' => 750, 'sql' => 'select * from candidates where email = ?'])
         ->and(json_encode($slow))->not->toContain('priya.secret');
 });
 
