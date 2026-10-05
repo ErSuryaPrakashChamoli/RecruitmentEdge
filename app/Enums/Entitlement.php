@@ -30,6 +30,12 @@ enum Entitlement: string
     /** Staff seats: members whose access to the tenant is Active. */
     case MembersActiveMax = 'members.active.max';
 
+    /** SaaS-6: the tenant API — issuing API credentials and every API request made with them. */
+    case ApiAccess = 'api.access';
+
+    /** SaaS-6: webhook connections — outbound event delivery and inbound webhooks. */
+    case IntegrationsWebhooks = 'integrations.webhooks';
+
     public function type(): EntitlementType
     {
         return match ($this) {
@@ -47,6 +53,8 @@ enum Entitlement: string
             self::ExportsData => 'Data exports',
             self::RequisitionsActiveMax => 'Active requisitions',
             self::MembersActiveMax => 'Staff seats',
+            self::ApiAccess => 'API access',
+            self::IntegrationsWebhooks => 'Webhooks',
         };
     }
 

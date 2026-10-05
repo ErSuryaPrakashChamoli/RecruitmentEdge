@@ -64,13 +64,18 @@ class PlanCatalogService
     }
 
     /**
-     * Every registry key, with a value of its type — a version never leaves a key undefined.
+     * Every registry key, with a value of its type — a version never leaves a key undefined, except
+     * a key no plan grants yet (PlanCatalog::UNGRANTED), which stays denied while it is absent.
      *
      * @param  array<string, bool|int|string>  $values
      */
     private function assertComplete(string $code, int $number, array $values): void
     {
         foreach (Entitlement::cases() as $entitlement) {
+            if (! array_key_exists($entitlement->value, $values) && in_array($entitlement, PlanCatalog::UNGRANTED, true)) {
+                continue;
+            }
+
             $value = $values[$entitlement->value] ?? null;
             $valid = $entitlement->type() === EntitlementType::Feature ? is_bool($value) : (is_int($value) && $value >= 0) || $value === PlanCatalog::UNLIMITED;
 

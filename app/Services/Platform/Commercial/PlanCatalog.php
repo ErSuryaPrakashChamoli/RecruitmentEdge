@@ -21,6 +21,16 @@ final class PlanCatalog
     public const string UNLIMITED = 'unlimited';
 
     /**
+     * SaaS-6: registry keys no plan grants yet — whether a plan includes the API and webhooks is a
+     * commercial decision (docs/saas-6-decision-register.md, D-S6-O11). A version may leave them
+     * out; EntitlementService denies an absent key, so they are off until a tenant override (or a
+     * later plan version) grants them. Published versions never change.
+     *
+     * @var list<Entitlement>
+     */
+    public const array UNGRANTED = [Entitlement::ApiAccess, Entitlement::IntegrationsWebhooks];
+
+    /**
      * @return array<string, array{name: string, description: string, status: PlanStatus, versions: array<int, array<string, bool|int|string>>}>
      */
     public static function definitions(): array

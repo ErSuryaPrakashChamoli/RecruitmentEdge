@@ -159,7 +159,9 @@ No `manage`/`webhooks` scope is needed: webhooks are managed in the panel, not t
   - `assertComplete` requires *every* version in `PlanCatalog::definitions()` — including already-published v1 — to define *every* registry key.
   - `assertUnchanged` refuses any difference between a published version and its definition.
   - Adding a key therefore makes `plans:sync` throw for every existing plan.
-  - **Correction (minimal, inside SaaS-3):** require completeness only when *publishing* a version. A published version is only compared with its definition. A key absent from an old version stays denied: `EntitlementService` already fails closed.
+  - Fresh installs also publish v1 from code, so the rule "versions may omit keys added later" has to be explicit.
+  - **Correction (minimal, inside SaaS-3):** `PlanCatalog::UNGRANTED` lists the registry keys no plan grants yet (the two SaaS-6 keys, pending D-S6-O11). `assertComplete` lets a version omit exactly those keys and still requires every other key.
+  - Published versions stay byte-identical, and an absent key stays denied: `EntitlementService` already fails closed.
 - **Plan inclusion of the new keys is commercial (D-S6-O11).** Default: no plan includes them; a platform operator enables them per tenant with the existing override (`tenants:entitlement <slug> api.access true`). Fail closed, nothing invented.
 
 ## 8. SaaS-4 integration findings
@@ -418,7 +420,7 @@ None blocks implementation: each has a safe technical default, recorded in `docs
 
 ## 25. Exact implementation plan
 
-1. **SaaS-3 correction:** `PlanCatalogService` checks completeness only when publishing. Registry keys `api.access` and `integrations.webhooks` are added (no plan rows). Tests.
+1. **SaaS-3 correction:** `PlanCatalog::UNGRANTED` and the `assertComplete` exemption. Registry keys `api.access` and `integrations.webhooks` are added (no plan rows). Tests.
 2. **Schema:** one expand migration with six tenant tables, classified in `TenantSchema` (TENANT, COMPOSITE_REFERENCES, REFERENCES).
 3. **Credentials:** `ApiCredential` model and `ApiCredentialService`.
    - Creation (owner with `integrations.manage`; cap under the tenant lock; secret shown once).
