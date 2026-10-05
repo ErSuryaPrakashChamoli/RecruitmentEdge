@@ -125,9 +125,13 @@ class AccessReview extends Page implements HasTable
                     ->label('Needs attention')
                     ->queries(
                         true: fn (Builder $query) => $query->where(fn (Builder $attention) => $attention
-                            ->whereHas('employee', fn (Builder $employee) => $employee->withTrashed()->where(fn (Builder $state) => $state->whereNotNull('deleted_at')->orWhere('status', '!=', EmployeeStatus::Active->value)))
+                            // SaaS-7: qualified — the employee relation joins tenant_memberships,
+                            // which has its own status column (the filter failed with "ambiguous").
+                            ->whereHas('employee', fn (Builder $employee) => $employee->withTrashed()->where(fn (Builder $state) => $state->whereNotNull('employees.deleted_at')->orWhere('employees.status', '!=', EmployeeStatus::Active->value)))
                             ->membersOfCurrentTenant(fn (Builder $membership) => $membership->where('status', AccessState::Active->value))
-                            ->orWhereExists(fn ($handoff) => $handoff->from('ownership_handoffs')->whereColumn('ownership_handoffs.user_id', 'users.id')->where('status', OwnershipHandoff::OPEN))),
+                            // SaaS-7 (S7-06): through the scoped model — a member's open handoff in
+                            // another tenant is not this tenant's business.
+                            ->orWhereExists(OwnershipHandoff::query()->select(DB::raw(1))->whereColumn('ownership_handoffs.user_id', 'users.id')->where('status', OwnershipHandoff::OPEN))),
                         false: fn (Builder $query) => $query,
                     ),
             ])

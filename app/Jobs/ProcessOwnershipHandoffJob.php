@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\User;
 use App\Services\Identity\OwnershipHandoffService;
 use App\Services\PlatformAlertService;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,18 +36,26 @@ class ProcessOwnershipHandoffJob implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 3600;
 
+    /**
+     * SaaS-7 (S7-07): the tenant the loss of access happened in. A person who belongs to two
+     * tenants can lose access in both in the same second; the unique lock is global, so its key
+     * names the tenant or the second tenant's handoff would be dropped.
+     */
+    public readonly int $tenantId;
+
     public function __construct(
         public readonly int $userId,
         public readonly ?int $employeeId,
         public readonly string $trigger,
         public readonly string $dedupeKey,
     ) {
+        $this->tenantId = TenantContext::current()->requireId();
         $this->onQueue(config('automation.queue', 'automation'));
     }
 
     public function uniqueId(): string
     {
-        return $this->dedupeKey;
+        return "tenant:{$this->tenantId}:{$this->dedupeKey}";
     }
 
     public function handle(OwnershipHandoffService $handoffs): void

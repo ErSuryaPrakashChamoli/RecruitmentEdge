@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantPermissionRegistrar;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Role as SpatieRole;
+use Spatie\Permission\PermissionRegistrar;
 
 /**
  * Phase 8.4: the application's role model (config permission.models.role). A role is identified by
@@ -56,6 +58,37 @@ class Role extends SpatieRole
                 throw new DomainException("The {$role->name} role is protected and cannot be deleted.");
             }
         });
+
+        // SaaS-7 (S7-01): the permission map is cached per tenant — a role's change rebuilds its own
+        // tenant's map, whatever tenant the code runs in.
+        static::saved(function (self $role): void {
+            $role->forgetCachedPermissions();
+        });
+        static::deleted(function (self $role): void {
+            $role->forgetCachedPermissions();
+        });
+    }
+
+    /**
+     * SaaS-7 (S7-01): replaces spatie's listener, which invalidates the tenant the code happens to
+     * run in; booted() above invalidates the role's own tenant instead.
+     */
+    public static function bootRefreshesPermissionCache(): void {}
+
+    /**
+     * Spatie calls this after giving or revoking a role's permissions.
+     */
+    public function forgetCachedPermissions(): void
+    {
+        $registrar = app(PermissionRegistrar::class);
+
+        if ($registrar instanceof TenantPermissionRegistrar && $this->tenant_id !== null) {
+            $registrar->forgetTenant((int) $this->tenant_id);
+
+            return;
+        }
+
+        $registrar->forgetCachedPermissions();
     }
 
     protected function casts(): array

@@ -38,6 +38,7 @@ use App\Services\Integrations\IntegrationRegistry;
 use App\Services\Integrations\Video\ZoomMeetingProvider;
 use App\Services\RecruitmentAnalyticsService;
 use App\Services\SchedulerHeartbeat;
+use App\Services\Tenancy\TenantPermissionRegistrar;
 use App\Services\WorkerHeartbeat;
 use Filament\Actions\ExportAction;
 use Filament\Actions\Exports\ExportColumn;
@@ -49,6 +50,7 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Cache\CacheManager;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
@@ -78,6 +80,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Component;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 
 class AppServiceProvider extends ServiceProvider
@@ -114,6 +117,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(BillingStatusService::class);
         // Phase 8.9: one heartbeat writer per worker process (it throttles its own writes).
         $this->app->singleton(WorkerHeartbeat::class);
+        // SaaS-7 (S7-01): spatie's permission → roles map is cached per tenant (the global map
+        // exhausted 256 MB between 100 and 250 tenants). An extender, because spatie binds its
+        // registrar in its own boot(), after every register().
+        $this->app->extend(PermissionRegistrar::class, fn (PermissionRegistrar $registrar, $app): PermissionRegistrar => $registrar instanceof TenantPermissionRegistrar ? $registrar : new TenantPermissionRegistrar($app->make(CacheManager::class)));
 
         $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
             $registry = new IntegrationRegistry;
@@ -134,6 +141,19 @@ class AppServiceProvider extends ServiceProvider
         // Phase 8.4: App\Models\Role (the configured Spatie role model) — registered explicitly so
         // the policy never depends on auto-discovery for this security-critical model.
         Gate::policy(Role::class, RolePolicy::class);
+
+        // SaaS-7 (S7-01): the permissions table is global — a permission added or removed (seeders
+        // run inside a tenant) must rebuild every tenant's map, not only the current one's.
+        // (A statement closure: an event listener returning false would stop spatie's own listener.)
+        $forgetAllTenants = function (): void {
+            $registrar = app(PermissionRegistrar::class);
+
+            if ($registrar instanceof TenantPermissionRegistrar) {
+                $registrar->forgetAllTenants();
+            }
+        };
+        Permission::saved($forgetAllTenants);
+        Permission::deleted($forgetAllTenants);
 
         // Phase 8.4: a suspended or revoked login may do nothing, whatever a policy would allow.
         Gate::before(fn (mixed $user): ?bool => $user instanceof User && ! app(StaffAccessService::class)->permits($user) ? false : null);
