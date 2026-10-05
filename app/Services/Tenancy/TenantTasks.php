@@ -24,17 +24,19 @@ final class TenantTasks
     public const QUEUED = [
         'incentives:release-matured' => 'intelligence',
         'notifications:dispatch-alerts' => 'notifications',
-        'offers:expire-lapsed' => 'default',
-        'interview-slots:expire' => 'default',
+        // SaaS-7 (S7-08): off `default` (which every worker takes last and should stay empty).
+        'offers:expire-lapsed' => 'automation',
+        'interview-slots:expire' => 'automation',
         'jobs:sync-distributions' => 'integrations',
         'communications:send-reminders' => 'communications',
         'recruitment:automation:dispatch' => 'automation',
         'recruitment:automation:process' => 'automation',
         'recruitment:automation:cleanup' => 'automation',
         'ai:expire-pending-actions' => 'intelligence',
-        'identity:enforce-separations' => 'security',
+        // SaaS-7 (S7-08): hourly housekeeping waits behind password resets and codes (`security`).
+        'identity:enforce-separations' => 'notifications',
         // SaaS-2: invitation expiry (audited per invitation).
-        'invitations:expire' => 'security',
+        'invitations:expire' => 'notifications',
         'reliability:sweep' => 'communications',
         // SaaS-6: due webhook retries, stalled inbound events, integration record retention.
         'integrations:sweep' => 'integrations',
@@ -43,6 +45,23 @@ final class TenantTasks
     /**
      * @var list<string>
      */
+    /**
+     * SaaS-7 (S7-08): queues consumed by the background worker (--timeout=300); every other worker
+     * stops a job at 120 s.
+     *
+     * @var list<string>
+     */
+    public const LONG_QUEUES = ['documents', 'intelligence', 'integrations', 'exports'];
+
+    /**
+     * A queued task's timeout: below its worker's --timeout, so the worker — not the database
+     * queue's retry_after — ends a task that runs too long.
+     */
+    public static function timeoutFor(string $queue): int
+    {
+        return in_array($queue, self::LONG_QUEUES, true) ? 290 : 110;
+    }
+
     public const BACKGROUND = [
         'performance:snapshot',
         'intelligence:refresh',

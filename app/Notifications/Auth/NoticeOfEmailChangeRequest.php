@@ -4,6 +4,8 @@ namespace App\Notifications\Auth;
 
 use Filament\Auth\Notifications\NoticeOfEmailChangeRequest as FilamentNotice;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Phase 8.7 (D8.7-001/017, SEC-87-02): the email-change notice carries the new address and a
@@ -22,5 +24,13 @@ class NoticeOfEmailChangeRequest extends FilamentNotice implements ShouldBeEncry
     {
         parent::__construct($newEmail, $blockVerificationUrl);
         $this->onQueue('security');
+    }
+
+    /**
+     * SaaS-7 (S7-09): retries exhausted — logged without the link or the address.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('queue.notification_failed', ['notification' => static::class, 'error' => $exception !== null ? $exception::class : null]);
     }
 }

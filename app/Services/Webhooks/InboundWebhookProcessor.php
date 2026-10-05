@@ -9,8 +9,10 @@ use App\Models\IntegrationConnection;
 use App\Services\Api\ApiException;
 use App\Services\Integrations\Handlers\InvalidPayload;
 use App\Services\Integrations\IntegrationRegistry;
+use App\Services\Tenancy\TenantCache;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
@@ -29,6 +31,14 @@ class InboundWebhookProcessor
 
     public function process(int $eventId): string
     {
+        // SaaS-7 (C6): the tenant's per-minute processing budget — past it the event stays Received
+        // (not claimed, no attempt counted) and integrations:sweep processes it later.
+        $budget = max(1, (int) config('api.webhooks.tenant_inbound_per_minute', 120));
+
+        if (! RateLimiter::attempt(TenantCache::key('webhooks:inbound-budget'), $budget, fn (): bool => true, 60)) {
+            return 'deferred';
+        }
+
         $claimed = InboundWebhookEvent::query()->whereKey($eventId)
             ->where(fn ($query) => $query->where('status', InboundWebhookStatus::Received->value)
                 ->orWhere(fn ($stale) => $stale->where('status', InboundWebhookStatus::Processing->value)->where('claimed_until', '<', now())))

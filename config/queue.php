@@ -134,7 +134,7 @@ return [
     */
     'workers' => [
         'communications,default',
-        'security,notifications,default',
+        'security,billing,notifications,default',
         'automation,default',
         'documents,intelligence,integrations,exports,default',
     ],

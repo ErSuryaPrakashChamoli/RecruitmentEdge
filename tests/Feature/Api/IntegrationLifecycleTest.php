@@ -20,6 +20,7 @@ use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantUnavailable;
 use App\Services\Webhooks\InboundWebhookProcessor;
 use Database\Factories\IntegrationConnectionFactory;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -54,6 +55,9 @@ function pendingIntegrationWork(int $postingId): array
         'payload_hash' => str_repeat('a', 64), 'received_at' => now(),
     ]);
     Queue::swap($queue);
+    // SaaS-7: DeliverWebhook is unique per delivery; the faked dispatches above never ran, so their
+    // locks would make the real dispatches below no-ops.
+    WebhookDelivery::query()->pluck('id')->each(fn (int $id) => Cache::lock('laravel_unique_job:'.DeliverWebhook::class.':'.$id)->forceRelease());
 
     return ['delivery' => WebhookDelivery::query()->sole(), 'inbound' => $inbound, 'source' => $source];
 }

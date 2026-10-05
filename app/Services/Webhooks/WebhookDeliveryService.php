@@ -13,14 +13,19 @@ use App\Services\Entitlements\EntitlementService;
 use App\Services\Integrations\Connections\OutboundWebhookConnection;
 use App\Services\Integrations\Http\OutboundUrlGuard;
 use App\Services\Integrations\Http\UnsafeDestination;
+use App\Services\Tenancy\TenantCache;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Throwable;
 
 /**
  * SaaS-6: sends one outbound delivery.
  *
+ * 0. Fairness (SaaS-7): a failing endpoint's circuit or the tenant's per-minute budget may defer
+ *    the delivery (still due, no attempt counted) — see deferral().
  * 1. Claim: one atomic update moves a due Pending/Retrying delivery to Sending (and counts the
  *    attempt) — a duplicate job, a replay and the sweep never send the same attempt twice.
  * 2. Re-check, now: the endpoint still exists, is an outbound webhook and Active; the tenant is
@@ -43,6 +48,15 @@ class WebhookDeliveryService
 
     public function deliver(int $deliveryId): string
     {
+        if (($deferredUntil = $this->deferral($deliveryId)) !== null) {
+            WebhookDelivery::query()->whereKey($deliveryId)
+                ->whereIn('status', [WebhookDeliveryStatus::Pending->value, WebhookDeliveryStatus::Retrying->value])
+                ->where(fn ($query) => $query->whereNull('claimed_until')->orWhere('claimed_until', '<', now()))
+                ->update(['next_attempt_at' => $deferredUntil, 'updated_at' => now()]);
+
+            return 'deferred';
+        }
+
         $claimed = WebhookDelivery::query()->whereKey($deliveryId)
             ->whereIn('status', [WebhookDeliveryStatus::Pending->value, WebhookDeliveryStatus::Retrying->value])
             ->where(fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
@@ -113,6 +127,38 @@ class WebhookDeliveryService
         } catch (Throwable $e) {
             return $this->finish($delivery, false, null, null, 'Could not reach the endpoint ('.class_basename($e).').');
         }
+    }
+
+    /**
+     * SaaS-7 (C6): whether this delivery must wait, and until when — decided before anything is
+     * claimed, so a deferral costs one cheap check and no attempt:
+     * - the endpoint has failed api.webhooks.circuit_failures times in a row: one trial delivery
+     *   per cool-off (a dead or timing-out endpoint stops occupying the shared worker);
+     * - the tenant has used its api.webhooks.tenant_deliveries_per_minute budget.
+     * The delivery stays due; integrations:sweep sends it again later. Nothing is dropped.
+     */
+    private function deferral(int $deliveryId): ?Carbon
+    {
+        $delivery = WebhookDelivery::query()->whereKey($deliveryId)->first(['id', 'integration_connection_id', 'status', 'next_attempt_at']);
+
+        if ($delivery === null || ! in_array($delivery->status, [WebhookDeliveryStatus::Pending, WebhookDeliveryStatus::Retrying], true) || ($delivery->next_attempt_at !== null && $delivery->next_attempt_at->isFuture())) {
+            return null;
+        }
+
+        $health = IntegrationConnection::query()->whereKey($delivery->integration_connection_id)->first(['id', 'consecutive_failures', 'last_failure_at']);
+        $coolOff = (int) config('api.webhooks.circuit_cooloff_seconds', 300);
+
+        if ($health !== null && $health->consecutive_failures >= (int) config('api.webhooks.circuit_failures', 5) && $health->last_failure_at !== null && $health->last_failure_at->gt(now()->subSeconds($coolOff))) {
+            return $health->last_failure_at->copy()->addSeconds($coolOff);
+        }
+
+        $budget = max(1, (int) config('api.webhooks.tenant_deliveries_per_minute', 120));
+
+        if (! RateLimiter::attempt(TenantCache::key('webhooks:delivery-budget'), $budget, fn (): bool => true, 60)) {
+            return now()->addSeconds(max(1, RateLimiter::availableIn(TenantCache::key('webhooks:delivery-budget'))));
+        }
+
+        return null;
     }
 
     private function finish(WebhookDelivery $delivery, bool $succeeded, ?int $status, ?string $excerpt, ?string $error, bool $retry = true): string

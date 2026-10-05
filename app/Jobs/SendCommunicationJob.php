@@ -15,6 +15,7 @@ use App\Services\Communication\Data\OutboundMessage;
 use App\Services\Communication\DeliveryStatusService;
 use App\Services\Communication\ProviderCircuitBreaker;
 use App\Services\Communication\SendTimeGuard;
+use App\Services\Tenancy\TenantUnavailable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -149,6 +150,12 @@ class SendCommunicationJob implements ShouldBeUnique, ShouldQueue
      */
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         $communication = CandidateCommunication::query()->find($this->communicationId);
 
         if ($communication !== null && ! in_array($communication->status, [CommunicationStatus::Sent, CommunicationStatus::Delivered, CommunicationStatus::Read, CommunicationStatus::Failed], true)) {

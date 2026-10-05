@@ -33,9 +33,10 @@ class RunTenantScheduledTask implements ShouldBeUnique, ShouldQueue
 
     /**
      * Below the database queue's retry_after (330 s), so a running task is never handed to a
-     * second worker.
+     * second worker — and (SaaS-7, S7-08) below its own worker's --timeout: set per queue in the
+     * constructor (TenantTasks::timeoutFor).
      */
-    public int $timeout = 300;
+    public int $timeout = 110;
 
     public int $uniqueFor = 3600;
 
@@ -45,6 +46,7 @@ class RunTenantScheduledTask implements ShouldBeUnique, ShouldQueue
     {
         $this->tenantId = TenantContext::current()->requireId();
         $this->onQueue(TenantTasks::QUEUED[$task] ?? 'default');
+        $this->timeout = TenantTasks::timeoutFor((string) $this->queue);
     }
 
     public function uniqueId(): string

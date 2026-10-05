@@ -35,7 +35,7 @@ class QueueHealthService
      *
      * @var array<int, string>
      */
-    public const array QUEUES = ['communications', 'security', 'notifications', 'automation', 'documents', 'intelligence', 'integrations', 'exports', 'default'];
+    public const array QUEUES = ['communications', 'security', 'billing', 'notifications', 'automation', 'documents', 'intelligence', 'integrations', 'exports', 'default'];
 
     public const int OLDEST_JOB_ALERT_MINUTES = 15;
 

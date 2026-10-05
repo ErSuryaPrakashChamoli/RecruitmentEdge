@@ -11,6 +11,7 @@ use App\Services\Distribution\DistributionResult;
 use App\Services\Distribution\JobBoardRegistry;
 use App\Services\Distribution\JobDistributionService;
 use App\Services\Entitlements\EntitlementService;
+use App\Services\Tenancy\TenantUnavailable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -98,6 +99,12 @@ class PublishJobDistributionJob implements ShouldBeUniqueUntilProcessing, Should
 
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         Log::warning('Job distribution gave up', ['distribution_id' => $this->distributionId, 'operation' => $this->operation, 'error' => $exception !== null ? $exception::class : null]);
 
         if (($row = JobDistribution::query()->find($this->distributionId)) !== null && $row->status === DistributionStatus::Pending) {

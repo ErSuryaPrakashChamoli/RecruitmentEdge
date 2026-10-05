@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\Webhooks\WebhookDeliveryService;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -13,9 +14,16 @@ use Throwable;
  * runs only while its tenant may run background work (TenantQueueGuard). Retries are scheduled by
  * the service, not the queue, and the delivery is claimed atomically, so a duplicate job is a no-op.
  */
-class DeliverWebhook implements ShouldQueue
+class DeliverWebhook implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Queueable;
+
+    /**
+     * SaaS-7 (C4): one queued job per delivery — integrations:sweep re-dispatching a due delivery
+     * whose job is still waiting adds nothing (it used to multiply a backlog). Released as the job
+     * starts, so a scheduled retry can be queued from inside it.
+     */
+    public int $uniqueFor = 3600;
 
     public int $tries = 1;
 
@@ -29,6 +37,11 @@ class DeliverWebhook implements ShouldQueue
     public function __construct(public readonly int $deliveryId)
     {
         $this->onQueue('integrations');
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->deliveryId;
     }
 
     public function handle(WebhookDeliveryService $deliveries): void

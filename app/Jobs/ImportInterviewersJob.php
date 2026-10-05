@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Identity\StaffAccessService;
 use App\Services\InterviewerImportService;
 use App\Services\NotificationDispatchService;
+use App\Services\Tenancy\TenantUnavailable;
 use DomainException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -82,6 +83,12 @@ class ImportInterviewersJob implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         Storage::disk('local')->delete($this->storedPath);
 
         if (($requester = User::query()->find($this->userId)) !== null) {

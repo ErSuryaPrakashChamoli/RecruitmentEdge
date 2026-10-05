@@ -28,8 +28,9 @@ test('a role permission changed elsewhere applies from the worker\'s next job', 
 
     // The panel (another process) grants it: the row is written and the shared cache flushed —
     // nothing reaches this process's in-memory map.
+    // SaaS-7: the map is cached per tenant; the other process rotates this tenant's generation.
     DB::table('role_has_permissions')->insert(['permission_id' => $permission->id, 'role_id' => Role::findByName('recruiter')->id]);
-    Cache::store(config('permission.cache.store') === 'default' ? null : config('permission.cache.store'))->forget(config('permission.cache.key'));
+    Cache::store(config('permission.cache.store') === 'default' ? null : config('permission.cache.store'))->forever(app(PermissionRegistrar::class)->generationKey($this->tenant->id), 'rotated-by-another-process');
 
     expect($user->fresh()->can('settings.manage'))->toBeFalse();
 

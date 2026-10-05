@@ -96,7 +96,7 @@ That `schedule:work` stops starting runs on SIGTERM and waits for the runs in pr
 | Worker (compose service) | Queues, in priority order | `--timeout` | What runs there |
 |---|---|---|---|
 | `queue` | communications, default | 120 | candidate messages, `SendCandidateCommunications` |
-| `queue-priority` (Phase 8.9) | security, notifications, default | 120 | `security`: password reset, email-change verification and notice, candidate portal links, step-up OTP codes; `notifications`: in-app and platform alerts. Never behind a burst of candidate messages (ED-05). |
+| `queue-priority` (Phase 8.9) | security, billing, notifications, default | 120 | `security`: password reset, email-change verification and notice, candidate portal links, step-up OTP codes; `billing` (SaaS-7): payment-provider events (`ProcessBillingEvent`), no longer behind AI, documents and webhook volume; `notifications`: in-app and platform alerts, plus the hourly separation and invitation sweeps. Never behind a burst of candidate messages (ED-05). |
 | `queue-automation` | automation, default | 120 | automation runs, ownership handoffs |
 | `queue-background` | documents, intelligence, integrations, exports, default | 300 | `documents`: released Word offer letters converted to PDF and interviewer spreadsheets imported (Phase 8.9 — neither request waits for the work); AI, embeddings, Hiring Memory / Outcome capture; calendar and job-board APIs; Filament exports (Phase 8.9, ED-06) |
 
@@ -193,7 +193,7 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
 
 | Symptom | Likely cause | Check / fix |
 |---|---|---|
-| Nobody receives in-app alerts, password-reset mails or OTP codes | `queue-priority` down, or nothing consumes `security` / `notifications` | `docker compose ps queue-priority`; its `--queue` is `security,notifications,default` |
+| Nobody receives in-app alerts, password-reset mails or OTP codes | `queue-priority` down, or nothing consumes `security` / `notifications` | `docker compose ps queue-priority`; its `--queue` is `security,billing,notifications,default` |
 | Automation runs stay Pending | `queue-automation` worker down, or the scheduler is not running | Queue health: automation queue age; heartbeat |
 | The same job runs twice | `retry_after` below a job's runtime | `DB_QUEUE_RETRY_AFTER=330`; Queue health alert |
 | Jobs killed mid-run on every deploy | no grace period, or a shell between Docker and the worker | `stop_grace_period: 330s`; the entrypoint uses `exec setpriv` |

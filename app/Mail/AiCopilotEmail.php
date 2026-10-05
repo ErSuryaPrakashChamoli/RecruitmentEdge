@@ -9,6 +9,8 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Generic outbound email used by App\Services\AI\Communication\Providers\MailEmailProvider for
@@ -22,6 +24,17 @@ use Illuminate\Queue\SerializesModels;
 class AiCopilotEmail extends Mailable implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable, SerializesModels;
+
+    /**
+     * SaaS-7 (S7-09): a deterministic failure path — three tries with backoff, then logged
+     * without content (never an immediate retry storm against the mail server).
+     */
+    public int $tries = 3;
+
+    /**
+     * @var array<int, int>
+     */
+    public array $backoff = [10, 60];
 
     public function __construct(
         public readonly string $emailSubject,
@@ -38,5 +51,10 @@ class AiCopilotEmail extends Mailable implements ShouldBeEncrypted, ShouldQueue
     public function content(): Content
     {
         return new Content(view: 'emails.ai-copilot');
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('queue.mail_failed', ['mail' => static::class, 'error' => $exception !== null ? $exception::class : null]);
     }
 }

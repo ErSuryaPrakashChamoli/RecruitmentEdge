@@ -10,6 +10,8 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * The candidate portal's own transactional email: an invitation or password link. Uses the app's
@@ -21,6 +23,17 @@ use Illuminate\Queue\SerializesModels;
 class CandidatePortalLink extends Mailable implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable, SerializesModels;
+
+    /**
+     * SaaS-7 (S7-09): a deterministic failure path — three tries with backoff, then logged
+     * without content (never an immediate retry storm against the mail server).
+     */
+    public int $tries = 3;
+
+    /**
+     * @var array<int, int>
+     */
+    public array $backoff = [10, 60];
 
     /**
      * SaaS-5 (S1-08): the candidate deals with the organisation, not the software it uses.
@@ -46,5 +59,10 @@ class CandidatePortalLink extends Mailable implements ShouldBeEncrypted, ShouldQ
     public function content(): Content
     {
         return new Content(markdown: 'mail.candidate-portal-link');
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('queue.mail_failed', ['mail' => static::class, 'error' => $exception !== null ? $exception::class : null]);
     }
 }

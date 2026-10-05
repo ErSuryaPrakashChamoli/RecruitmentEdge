@@ -133,7 +133,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=security,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=security,billing,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -143,7 +143,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=security,notifications,default"]
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=security,billing,notifications,default"]
       interval: 60s
       timeout: 20s
       retries: 3

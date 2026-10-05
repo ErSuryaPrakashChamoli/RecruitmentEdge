@@ -50,10 +50,10 @@ test('where workers and the scheduler are expected, queue health reports a silen
     foreach (config('queue.workers') as $queues) {
         Cache::forever(WorkerHeartbeat::KEY_PREFIX.$queues, now()->toIso8601String());
     }
-    Cache::forever(WorkerHeartbeat::KEY_PREFIX.'security,notifications,default', now()->subMinutes(7)->toIso8601String());
+    Cache::forever(WorkerHeartbeat::KEY_PREFIX.'security,billing,notifications,default', now()->subMinutes(7)->toIso8601String());
     Cache::forget(SchedulerHeartbeat::LAST_TICK_KEY);
 
-    expect(array_keys($problems()))->toContain('worker-silent:security,notifications,default', 'scheduler-silent')
+    expect(array_keys($problems()))->toContain('worker-silent:security,billing,notifications,default', 'scheduler-silent')
         ->and(array_keys($problems()))->not->toContain('worker-silent:communications,default')
         ->and(app(QueueHealthService::class)->snapshot()['workers'])->toHaveCount(count(config('queue.workers')));
 });

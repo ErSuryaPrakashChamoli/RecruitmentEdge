@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Identity\OwnershipHandoffService;
 use App\Services\PlatformAlertService;
 use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantUnavailable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -70,6 +71,12 @@ class ProcessOwnershipHandoffJob implements ShouldBeUnique, ShouldQueue
      */
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         Log::error('identity.handoff_failed', ['user_id' => $this->userId, 'trigger' => $this->trigger, 'error' => $exception !== null ? $exception::class : null]);
 
         if ($user = User::query()->find($this->userId)) {

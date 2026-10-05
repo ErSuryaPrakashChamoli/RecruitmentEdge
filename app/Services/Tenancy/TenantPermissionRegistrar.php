@@ -137,7 +137,10 @@ class TenantPermissionRegistrar extends PermissionRegistrar
         }])->get();
     }
 
-    private function generationKey(int $tenantId): string
+    /**
+     * Where a tenant's generation token lives in the shared cache (another process rotates it).
+     */
+    public function generationKey(int $tenantId): string
     {
         return "{$this->baseKey}.tenant.{$tenantId}.generation";
     }

@@ -59,5 +59,13 @@ return [
         'retention_days' => 30,
         // Inbound processing attempts before an event is marked failed.
         'inbound_attempts' => 3,
+        // SaaS-7 (C6, D-S7-O11): infrastructure protection, not a commercial quota. Per tenant per
+        // minute, deliveries sent and inbound events processed; the excess waits (still due) for the
+        // next sweep — never dropped — so one tenant cannot hold the shared worker.
+        'tenant_deliveries_per_minute' => (int) env('WEBHOOK_TENANT_DELIVERIES_PER_MINUTE', 120),
+        'tenant_inbound_per_minute' => (int) env('WEBHOOK_TENANT_INBOUND_PER_MINUTE', 120),
+        // An endpoint failing this many times in a row gets one trial delivery per cool-off.
+        'circuit_failures' => 5,
+        'circuit_cooloff_seconds' => 300,
     ],
 ];

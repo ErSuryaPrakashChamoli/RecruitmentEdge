@@ -6,6 +6,7 @@ use App\Enums\AutomationExecutionStatus;
 use App\Logging\SensitiveDataRedactor;
 use App\Models\AutomationExecution;
 use App\Services\Automation\AutomationEngine;
+use App\Services\Tenancy\TenantUnavailable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -60,6 +61,12 @@ class RunAutomationExecutionJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         AutomationExecution::query()
             ->whereKey($this->executionId)
             ->whereIn('status', [AutomationExecutionStatus::Pending, AutomationExecutionStatus::Running])

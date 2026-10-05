@@ -7,6 +7,7 @@ use App\Enums\Entitlement;
 use App\Models\AiDocument;
 use App\Services\AI\Rag\DocumentIngestionService;
 use App\Services\Entitlements\SkipWithoutEntitlement;
+use App\Services\Tenancy\TenantUnavailable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -68,6 +69,12 @@ class IndexAiDocumentJob implements ShouldBeUnique, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        // SaaS-7 (S7-02): refused only because the tenant is paused — leave the work as it is, so
+        // PausedTenantWork can run it again when the tenant is usable (D-S3-15).
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         AiDocument::query()->whereKey($this->documentId)->update(['status' => AiDocumentStatus::Failed, 'error' => 'Indexing failed on every attempt — try re-indexing.']);
     }
 }

@@ -55,7 +55,8 @@ return [
         'tolerance_seconds' => 300,
         // Raw payloads are kept this long for reprocessing and reconciliation, then cleared.
         'payload_retention_days' => (int) env('BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS', 90),
-        // Queue for event processing (consumed by the background worker).
-        'queue' => 'integrations',
+        // Queue for event processing. SaaS-7 (C4): their own queue, on the priority worker — no
+        // longer behind AI, document conversion and tenant webhook volume on `integrations`.
+        'queue' => 'billing',
     ],
 ];
