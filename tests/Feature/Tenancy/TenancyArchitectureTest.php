@@ -97,6 +97,8 @@ test('crossing tenants happens only in reviewed places', function (): void {
         'app/Services/Platform/SupportAccessService.php' => 'a platform operator\'s own grants (by operator), and the expiry sweep; every use is then checked against the grant\'s tenant (SaaS-5)',
         'app/Services/Platform/PlatformDirectory.php' => 'the platform panel\'s operational metadata across tenants: platform audit, support grants (SaaS-5)',
         'app/Services/Platform/SupportWorkspace.php' => 'one grant\'s tenant, after SupportAccessService::usableGrant (SaaS-5)',
+        'app/Services/Api/ApiCredentialAuthenticator.php' => 'finds an API credential by its opaque key id, then enters the credential\'s own tenant (SaaS-6)',
+        'app/Services/Webhooks/InboundWebhookReceiver.php' => 'finds an inbound connection by its opaque public key, then enters the connection\'s own tenant (SaaS-6)',
     ];
 
     $found = collect(tenancyArchSources())
@@ -190,6 +192,7 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
         'livewire-' => 'the component page\'s own (persistent) middleware', '_boost/' => 'development tool (not in the production image)',
         'invitations' => 'the invitation\'s own tenant, found by its token hash (SaaS-2)',
         'admin/organisations' => 'the signed-in identity\'s own accessible tenants (SaaS-2 chooser)',
+        'api/v1' => 'the API: the authenticated credential\'s tenant (AuthenticateApiCredential); inbound hooks: the connection\'s tenant, found by its public key (InboundWebhookReceiver) (SaaS-6)',
         'platform' => 'the platform panel: no tenant — operators only, metadata across tenants (PlatformDirectory), a tenant\'s data only through its own support grant (SupportWorkspace) (SaaS-5)',
     ];
     $offending = [];

@@ -46,7 +46,7 @@ class ComplianceExportService
     /**
      * Columns never exported, matched by name.
      */
-    public const string EXCLUDED_COLUMNS = '/(password|token|secret|hash|remember|recovery|app_authentication|signature|embedding|api_key|credential)/i';
+    public const string EXCLUDED_COLUMNS = '/(password|token|secret|hash|remember|recovery|app_authentication|signature|embedding|api_key|credential|encrypted)/i';
 
     public function __construct(
         private readonly PlatformAuthorization $authorization,

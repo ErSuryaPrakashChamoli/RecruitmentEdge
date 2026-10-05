@@ -58,6 +58,8 @@ Schedule::command('tenants:lifecycle-sweep')->hourly()->withoutOverlapping(55)->
 Schedule::command('billing:sweep')->hourly()->withoutOverlapping(55)->onOneServer();
 Schedule::command('billing:reconcile')->dailyAt('04:00')->withoutOverlapping(120)->onOneServer();
 Schedule::command('billing:prune-events')->dailyAt('04:30')->withoutOverlapping(30)->onOneServer();
+// SaaS-6: due webhook retries, stalled inbound events, integration record retention (per tenant).
+Schedule::command('tenants:dispatch integrations:sweep')->everyFiveMinutes()->withoutOverlapping(4)->onOneServer();
 // SaaS-5: support access expiry, due tenant purges (queued, resumable), compliance export expiry.
 Schedule::command('platform:sweep')->everyFifteenMinutes()->withoutOverlapping(14)->onOneServer();
 // SaaS-2: pending invitations past their expiry become Expired (each tenant's own, audited).

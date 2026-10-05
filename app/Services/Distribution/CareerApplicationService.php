@@ -77,7 +77,7 @@ class CareerApplicationService
 
     /**
      * @param  array{full_name: string, email: string, mobile: string, current_city?: string|null, total_experience?: float|string|null, current_company?: string|null, consent_email?: bool, consent_whatsapp?: bool}  $data
-     * @param  array{channel?: string|null, source?: string|null, campaign_id?: int|null}  $attribution
+     * @param  array{channel?: string|null, source?: string|null, campaign_id?: int|null, via?: string|null}  $attribution  via: how it arrived, in words (SaaS-6: "the API", "an inbound webhook"); default "the career site"
      * @return array{outcome: 'received'|'held', application: CandidateApplication|null}
      */
     public function apply(JobPosting $posting, array $data, ?UploadedFile $resume = null, array $attribution = []): array
@@ -137,7 +137,7 @@ class CareerApplicationService
                 'status' => ApplicationStatus::Active,
                 'origin_channel' => $attribution['channel'] ?? 'career_site',
                 'job_posting_id' => $posting->id,
-                'remarks' => 'Applied online via the career site',
+                'remarks' => 'Applied online via '.($attribution['via'] ?? 'the career site'),
             ]);
 
             if (($attribution['campaign_id'] ?? null) !== null) {
@@ -155,11 +155,11 @@ class CareerApplicationService
             }
 
             if ($data['consent_email'] ?? false) {
-                $this->preferences->set($candidate, CommunicationChannel::Email, PreferenceStatus::Allowed, 'career_site_application', reason: 'Consented when applying online');
+                $this->preferences->set($candidate, CommunicationChannel::Email, PreferenceStatus::Allowed, self::consentSource($attribution), reason: 'Consented when applying online');
             }
 
             if ($data['consent_whatsapp'] ?? false) {
-                $this->preferences->set($candidate, CommunicationChannel::WhatsApp, PreferenceStatus::Allowed, 'career_site_application', reason: 'Consented when applying online');
+                $this->preferences->set($candidate, CommunicationChannel::WhatsApp, PreferenceStatus::Allowed, self::consentSource($attribution), reason: 'Consented when applying online');
             }
 
             $this->timeline->record(
@@ -229,7 +229,19 @@ class CareerApplicationService
             ...array_intersect_key($data, array_flip(['full_name', 'email', 'mobile', 'current_city', 'total_experience', 'current_company'])),
             'candidate_code' => $this->codes->next('CAND'),
             'source_id' => $source->id,
-            'source_details' => 'Career site application'.(filled($attribution['source'] ?? null) ? ' (utm_source='.$attribution['source'].')' : ''),
+            'source_details' => (($attribution['channel'] ?? 'career_site') === 'career_site' ? 'Career site application' : 'Online application via '.($attribution['via'] ?? $attribution['channel'])).(filled($attribution['source'] ?? null) ? ' (utm_source='.$attribution['source'].')' : ''),
         ]);
+    }
+
+    /**
+     * Where consent was given, as recorded on the preference.
+     *
+     * @param  array<string, mixed>  $attribution
+     */
+    private static function consentSource(array $attribution): string
+    {
+        $channel = (string) ($attribution['channel'] ?? 'career_site');
+
+        return $channel === 'career_site' ? 'career_site_application' : mb_substr($channel.'_application', 0, 40);
     }
 }

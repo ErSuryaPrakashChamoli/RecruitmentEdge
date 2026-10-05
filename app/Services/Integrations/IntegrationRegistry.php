@@ -5,6 +5,8 @@ namespace App\Services\Integrations;
 use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\IntegrationStatus;
+use App\Services\Integrations\Contracts\ConnectionType;
+use App\Services\Integrations\Contracts\InboundWebhookHandler;
 use App\Services\Integrations\Contracts\Integration;
 use DomainException;
 use Illuminate\Support\Carbon;
@@ -13,6 +15,9 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
+ * SaaS-6: also the registry of tenant connection types (webhook endpoints a tenant configures with
+ * its own secrets) and of inbound webhook handlers.
+ *
  * Every external integration the platform implements, and the honest state of each:
  * implemented (registered here) / configured (credentials present) / operational (the last
  * explicit connection test succeeded). Tests are run on demand by an administrator — never
@@ -24,6 +29,62 @@ class IntegrationRegistry
      * @var array<string, class-string<Integration>>
      */
     private array $integrations = [];
+
+    /**
+     * SaaS-6: kinds of tenant-owned connections (IntegrationConnection.type).
+     *
+     * @var array<string, class-string<ConnectionType>>
+     */
+    private array $connectionTypes = [];
+
+    /**
+     * SaaS-6: what an inbound webhook connection may do with its events.
+     *
+     * @var array<string, class-string<InboundWebhookHandler>>
+     */
+    private array $inboundHandlers = [];
+
+    /**
+     * @param  class-string<ConnectionType>  $class
+     */
+    public function registerConnectionType(string $key, string $class): void
+    {
+        $this->connectionTypes[$key] = $class;
+    }
+
+    public function connectionType(string $key): ?ConnectionType
+    {
+        return isset($this->connectionTypes[$key]) ? app($this->connectionTypes[$key]) : null;
+    }
+
+    /**
+     * @return array<string, ConnectionType>
+     */
+    public function connectionTypes(): array
+    {
+        return array_map(fn (string $class): ConnectionType => app($class), $this->connectionTypes);
+    }
+
+    /**
+     * @param  class-string<InboundWebhookHandler>  $class
+     */
+    public function registerInboundHandler(string $key, string $class): void
+    {
+        $this->inboundHandlers[$key] = $class;
+    }
+
+    public function inboundHandler(string $key): ?InboundWebhookHandler
+    {
+        return isset($this->inboundHandlers[$key]) ? app($this->inboundHandlers[$key]) : null;
+    }
+
+    /**
+     * @return array<string, InboundWebhookHandler>
+     */
+    public function inboundHandlers(): array
+    {
+        return array_map(fn (string $class): InboundWebhookHandler => app($class), $this->inboundHandlers);
+    }
 
     /**
      * @param  class-string<Integration>  $class

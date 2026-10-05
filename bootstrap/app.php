@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AddSecurityHeaders;
+use App\Http\Middleware\Api\RequireApiScope;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceStaffAccess;
 use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
@@ -9,18 +10,25 @@ use App\Http\Middleware\ResetTenantContext;
 use App\Http\Middleware\ResolveTenantForFilamentDownload;
 use App\Http\Middleware\ResolveTenantFromRoute;
 use App\Http\Middleware\UseCandidateSessionContext;
+use App\Services\Api\ApiErrorRenderer;
+use App\Services\Api\ApiException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        // SaaS-6: the tenant API, version 1 — its own middleware, no session (routes/api.php).
+        then: function (): void {
+            Route::prefix('api/v1')->name('api.v1.')->group(base_path('routes/api.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Candidate portal routes have their own sign-in page (the admin panel handles its own).
@@ -45,7 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // rows (the candidate session check, authentication, route model binding).
         $middleware->prependToPriorityList(EnsureCandidateSessionIsCurrent::class, ResolveTenantFromRoute::class);
         $middleware->prependToPriorityList(SubstituteBindings::class, ResolveTenantForFilamentDownload::class);
-        $middleware->alias(['candidate.step-up' => RequireCandidateStepUp::class]);
+        $middleware->alias(['candidate.step-up' => RequireCandidateStepUp::class, 'api.scope' => RequireApiScope::class]);
         // Phase 8.10 (P810-SEC-001): when APP_TRUSTED_HOSTS is set, only those exact host names are
         // served (Laravel skips the check in local and test runs); unset, every Host is served.
         $middleware->trustHosts(at: fn (): array => array_map(fn (string $host): string => '^'.preg_quote($host).'$', config('app.trusted_hosts')), subdomains: false);
@@ -56,4 +64,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+        // SaaS-6: every /api error has the API's error contract; refusals are not errors to report.
+        $exceptions->render(fn (Throwable $e, Request $request) => $request->is('api/*') ? ApiErrorRenderer::render($e) : null);
+        $exceptions->dontReport([ApiException::class]);
     })->create();

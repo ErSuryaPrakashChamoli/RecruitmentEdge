@@ -6,6 +6,7 @@ use App\Enums\BillingEventType;
 use App\Enums\PaymentStatus;
 use App\Models\BillingCustomer;
 use App\Services\Billing\Money;
+use App\Services\Webhooks\WebhookSignature;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -99,17 +100,9 @@ class FakeBillingProvider implements BillingProvider
     public function verifyWebhook(Request $request): bool
     {
         $secret = (string) config('billing.providers.fake.webhook_secret');
-        $header = (string) $request->headers->get(self::SIGNATURE_HEADER, '');
 
-        if ($secret === '' || preg_match('/^t=(\d{1,12}),v1=([a-f0-9]{64})$/', $header, $parts) !== 1) {
-            return false;
-        }
-
-        if (abs(now()->getTimestamp() - (int) $parts[1]) > (int) config('billing.webhooks.tolerance_seconds', 300)) {
-            return false;
-        }
-
-        return hash_equals(hash_hmac('sha256', $parts[1].'.'.$request->getContent(), $secret), $parts[2]);
+        // SaaS-6: the shared scheme (WebhookSignature) — unchanged for this adapter.
+        return $secret !== '' && WebhookSignature::verify((string) $request->headers->get(self::SIGNATURE_HEADER, ''), $request->getContent(), [$secret], (int) config('billing.webhooks.tolerance_seconds', 300), now()->getTimestamp());
     }
 
     public function webhookPayload(Request $request): array
@@ -165,7 +158,7 @@ class FakeBillingProvider implements BillingProvider
      */
     public static function signature(string $body, int $timestamp, string $secret): string
     {
-        return 't='.$timestamp.',v1='.hash_hmac('sha256', $timestamp.'.'.$body, $secret);
+        return WebhookSignature::header($body, $timestamp, [$secret]);
     }
 
     private function assertReachable(): void

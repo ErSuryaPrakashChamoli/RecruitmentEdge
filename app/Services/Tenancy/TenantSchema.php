@@ -127,6 +127,13 @@ final class TenantSchema
         'billing_invoices',
         'billing_payments',
         'billing_subscriptions',
+        // SaaS-6: the tenant API, integration connections and webhooks.
+        'api_credentials',
+        'api_idempotency_keys',
+        'integration_connections',
+        'webhook_events',
+        'webhook_deliveries',
+        'inbound_webhook_events',
         // SaaS-3: the tenant's entitlement overrides and plan assignments (commercial control plane).
         'tenant_entitlement_overrides',
         // SaaS-2: invitations into the tenant (hashed tokens).
@@ -527,6 +534,17 @@ final class TenantSchema
      * @var array<string, array<string, string>>
      */
     public const COMPOSITE_REFERENCES = [
+        // SaaS-6
+        'api_idempotency_keys' => [
+            'api_credential_id' => 'api_credentials',
+        ],
+        'webhook_deliveries' => [
+            'webhook_event_id' => 'webhook_events',
+            'integration_connection_id' => 'integration_connections',
+        ],
+        'inbound_webhook_events' => [
+            'integration_connection_id' => 'integration_connections',
+        ],
         'billing_invoices' => [
             'billing_subscription_id' => 'billing_subscriptions',
         ],

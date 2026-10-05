@@ -56,7 +56,7 @@ class AuditLog extends Model
      */
     private static ?string $defaultActorKind = null;
 
-    public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system', 'platform'];
+    public const array ACTOR_KINDS = ['user', 'candidate', 'automation', 'ai', 'scheduler', 'console', 'queue', 'system', 'platform', 'api', 'integration'];
 
     protected static function booted(): void
     {
@@ -199,15 +199,18 @@ class AuditLog extends Model
      * Run work as an actor other than the signed-in person — automation acting on its owner's
      * authority, an AI job for its requester. Nested calls keep the innermost context.
      *
+     * SaaS-6: $actor names the non-person actor (an API credential, an integration connection),
+     * recorded as actor_type / actor_id.
+     *
      * @template TResult
      *
      * @param  callable(): TResult  $callback
      * @return TResult
      */
-    public static function asActor(string $kind, ?int $onBehalfOfUserId, callable $callback): mixed
+    public static function asActor(string $kind, ?int $onBehalfOfUserId, callable $callback, ?Model $actor = null): mixed
     {
         $previous = self::$actorContext;
-        self::$actorContext = ['kind' => $kind, 'on_behalf_of' => $onBehalfOfUserId];
+        self::$actorContext = ['kind' => $kind, 'on_behalf_of' => $onBehalfOfUserId, 'actor' => $actor];
 
         try {
             return $callback();

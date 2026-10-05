@@ -36,6 +36,8 @@ final class TenantTasks
         // SaaS-2: invitation expiry (audited per invitation).
         'invitations:expire' => 'security',
         'reliability:sweep' => 'communications',
+        // SaaS-6: due webhook retries, stalled inbound events, integration record retention.
+        'integrations:sweep' => 'integrations',
     ];
 
     /**

@@ -50,6 +50,12 @@ return [
             'driver' => 'session',
             'provider' => 'candidate_accounts',
         ],
+
+        // SaaS-6: the tenant API — the member an authenticated API credential acts for
+        // (App\Http\Middleware\Api\AuthenticateApiCredential). Never a session.
+        'api' => [
+            'driver' => 'api-credential',
+        ],
     ],
 
     /*
