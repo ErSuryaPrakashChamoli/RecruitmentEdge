@@ -24,6 +24,7 @@ use App\Services\Platform\Commercial\PlanCatalog;
 use App\Services\Tenancy\TenantCache;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantDirectory;
+use App\Services\Tenancy\TenantTasks;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -156,7 +157,7 @@ test('a closed tenant gets no entitled work, no limit consumption and no backgro
     TenantContext::current()->run($tenant, function (): void {
         RunTenantScheduledTask::dispatch('offers:expire-lapsed')->onConnection('database');
     });
-    $this->artisan('queue:work', ['connection' => 'database', '--queue' => 'default', '--once' => true, '--tries' => 1])->run();
+    $this->artisan('queue:work', ['connection' => 'database', '--queue' => TenantTasks::QUEUED['offers:expire-lapsed'], '--once' => true, '--tries' => 1])->run();
 
     expect(DB::table('failed_jobs')->count())->toBe(1);
 })->with([TenantStatus::Cancelled, TenantStatus::DeletionPending, TenantStatus::Deleted]);

@@ -9,6 +9,7 @@ use App\Models\Offer;
 use App\Models\Tenant;
 use App\Services\Platform\Commercial\TenantLifecycleService;
 use App\Services\Tenancy\TenantDirectory;
+use App\Services\Tenancy\TenantTasks;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\Commercial\CommercialWorld;
@@ -43,7 +44,7 @@ function lifecycleQueueExpiry(CommercialWorld $world, string $tenant): void
 
 function lifecycleWorkOnce(): void
 {
-    test()->artisan('queue:work', ['connection' => 'database', '--queue' => 'default', '--once' => true, '--tries' => 1])->run();
+    test()->artisan('queue:work', ['connection' => 'database', '--queue' => TenantTasks::QUEUED['offers:expire-lapsed'], '--once' => true, '--tries' => 1])->run();
 }
 
 test('allowed transitions are applied with their reason and audited old → new in the tenant\'s stream', function (): void {

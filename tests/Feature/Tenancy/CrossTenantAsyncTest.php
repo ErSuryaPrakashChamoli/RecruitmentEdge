@@ -6,6 +6,7 @@ use App\Jobs\RunTenantScheduledTask;
 use App\Models\Offer;
 use App\Models\Tenant;
 use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantTasks;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -39,7 +40,7 @@ function asyncQueueIn(Tenant $tenant): void
 
 function asyncWorkOnce(): void
 {
-    test()->artisan('queue:work', ['connection' => 'database', '--queue' => 'default', '--once' => true, '--tries' => 1])->run();
+    test()->artisan('queue:work', ['connection' => 'database', '--queue' => TenantTasks::QUEUED['offers:expire-lapsed'], '--once' => true, '--tries' => 1])->run();
 }
 
 test('a job queued inside a tenant declares that tenant in its payload and in the context it carries', function (): void {
