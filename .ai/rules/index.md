@@ -8,6 +8,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/InterviewService.php,app/Filament/Resources/Interviews/**,app/Filament/Pages/InterviewWorkspace.php,app/Services/AI/Tools/ActionTools/ScheduleInterviewTool.php | .ai/rules/action-tools.md |
 | app/Services/AI/Actions/** | .ai/rules/actions.md |
 | resources/views/components/**,resources/css/filament/admin/theme.css | .ai/rules/admin.md |
+| app/Services/Api/** | .ai/rules/api.md |
 | app/Filament/** | .ai/rules/app-filament.md |
 | app/Models/*.php, app/Models/CandidateStageHistory.php, app/Models/**, app/Models/User.php, app/Models/Tenant.php, app/Models/Billing*.php, app/Models/AuditLog.php | .ai/rules/app-models.md |
 | app/Policies/** | .ai/rules/app-policies.md |
@@ -88,6 +89,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/RecruiterIncentiveCalculator.php,app/Filament/Resources/RecruiterIncentiveCalculations/** | .ai/rules/recruiter-incentive-calculations.md |
 | app/Models/RecruitmentDailyTarget.php,app/Services/RecruitmentTargetService.php,app/Filament/Resources/RecruitmentDailyTargets/**,app/Policies/RecruitmentDailyTargetPolicy.php | .ai/rules/recruitment-daily-targets-policies.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Filament/Resources/RecruitmentIncentiveRules/** | .ai/rules/recruitment-incentive-rules.md |
+| app/Http/Resources/Api/** | .ai/rules/resources-api.md |
 | app/Filament/Resources/**,app/Filament/Pages/*.php | .ai/rules/resources-filament-pages.md |
 | app/Services/OfferLetterIssuanceService.php,app/Jobs/ConvertOfferLetterJob.php,app/Models/OfferLetterConversion.php,app/Filament/Resources/Offers/** | .ai/rules/resources-offers.md |
 | routes/** | .ai/rules/routes.md |
@@ -98,6 +100,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/RecruiterIncentiveCalculator.php,app/Services/IncentiveApprovalService.php,app/Models/RecruiterIncentiveCalculation.php, app/Services/IncentiveApprovalService.php,app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveSlab.php, app/Services/RequisitionApprovalService.php,app/Services/StageTransitionService.php,app/Models/RecruitmentRejectionReason.php | .ai/rules/services-models.md |
 | app/Services/IncentiveApprovalService.php,app/Policies/RecruiterIncentiveCalculationPolicy.php | .ai/rules/services-policies.md |
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php,app/Services/InterviewService.php | .ai/rules/services-services.md |
+| app/Services/Webhooks/** | .ai/rules/services-webhooks.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |
 | app/Services/TalentPoolService.php,app/Filament/Resources/TalentPools/**,app/Filament/Resources/Candidates/Tables/CandidatesTable.php | .ai/rules/tables.md |
 | tests/**,app/Providers/AppServiceProvider.php | .ai/rules/tests-providers.md |
