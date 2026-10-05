@@ -49,6 +49,15 @@ x-app-environment: &app-environment
   DB_QUEUE_RETRY_AFTER: "330"
   # Phase 8.9: queue health reports a silent worker or a scheduler that never reported.
   QUEUE_EXPECT_PROCESSES: "true"
+  # SaaS-7 (C3, S7-03): the database cache store and its locks on their own connection, so cache
+  # writes, locks and rate-limit counters never join a business transaction.
+  DB_CACHE_CONNECTION: mysql_cache
+  DB_CACHE_LOCK_CONNECTION: mysql_cache
+  # SaaS-7 (C13): `php artisan down` is kept in the shared cache, not a container's own disk — a
+  # container recreated during a release stays down until `php artisan up`. Workers run with
+  # --force so the release drain (queue:drain-status) still empties the queues while it is down.
+  APP_MAINTENANCE_DRIVER: cache
+  APP_MAINTENANCE_STORE: database
 
 services:
   # Runs the migrations once per deploy and exits; everything else waits for it to succeed.
@@ -113,7 +122,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=communications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=communications,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -133,7 +142,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=security,billing,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=security,billing,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -153,7 +162,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=automation,default", "--tries=3", "--timeout=120", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=automation,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -173,7 +182,7 @@ services:
     <<: *app-base
     restart: unless-stopped
     stop_grace_period: 330s
-    command: ["php", "artisan", "queue:work", "--queue=documents,intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600"]
+    command: ["php", "artisan", "queue:work", "--queue=documents,intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600", "--force"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"

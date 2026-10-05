@@ -60,8 +60,10 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Events\DiagnosingHealth;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobProcessed;
@@ -169,6 +171,11 @@ class AppServiceProvider extends ServiceProvider
         // here, once; constructing it runs no query.
         $failer = $this->app->make('queue.failer');
         $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
+
+        // SaaS-7 (C13): the proxies whose forwarded client address and scheme are believed.
+        if (config('app.trusted_proxies') !== null) {
+            TrustProxies::at(config('app.trusted_proxies'));
+        }
 
         $this->configureTrustedOrigin();
         $this->configureAsyncContext();
@@ -434,6 +441,19 @@ class AppServiceProvider extends ServiceProvider
     private function configureHealthCheck(): void
     {
         Event::listen(DiagnosingHealth::class, fn () => DB::connection()->select('select 1'));
+
+        // SaaS-7 (C8): a query slower than database.slow_query_ms is logged as db.slow_query — its
+        // SQL (truncated) and duration, never its bindings (they carry the data). With the request id
+        // and tenant id from Context, a log pipeline can chart database latency per tenant.
+        $threshold = (int) config('database.slow_query_ms', 0);
+
+        if ($threshold > 0) {
+            DB::listen(function (QueryExecuted $query) use ($threshold): void {
+                if ($query->time >= $threshold) {
+                    Log::warning('db.slow_query', ['ms' => (int) round($query->time), 'connection' => $query->connectionName, 'sql' => mb_substr($query->sql, 0, 500)]);
+                }
+            });
+        }
     }
 
     /**

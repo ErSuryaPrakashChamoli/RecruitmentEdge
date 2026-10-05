@@ -39,6 +39,10 @@ return [
 
     'default' => env('DB_CONNECTION', 'sqlite'),
 
+    // SaaS-7 (C8): queries at least this slow (ms) are logged as db.slow_query (SQL only, never the
+    // bindings). 0 turns it off.
+    'slow_query_ms' => (int) env('DB_SLOW_QUERY_MS', 500),
+
     /*
     |--------------------------------------------------------------------------
     | Database Connections

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Logging\SensitiveDataRedactor;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
@@ -43,7 +44,8 @@ class WordToPdfConverter
 
             if (! $result->successful() || ! is_file($pdfPath)) {
                 Log::warning('LibreOffice could not convert an offer letter to PDF; using the PhpWord fallback.', [
-                    'error' => $result->errorOutput(),
+                    // SaaS-7 (S7-10): LibreOffice's stderr can quote paths and document text.
+                    'error' => SensitiveDataRedactor::text(mb_substr($result->errorOutput(), 0, 300)),
                 ]);
 
                 return null;
@@ -52,7 +54,7 @@ class WordToPdfConverter
             return (string) file_get_contents($pdfPath);
         } catch (Throwable $exception) {
             Log::warning('LibreOffice is unavailable for offer letter PDFs; using the PhpWord fallback.', [
-                'error' => $exception->getMessage(),
+                'error' => SensitiveDataRedactor::text(mb_substr($exception->getMessage(), 0, 300)),
             ]);
 
             return null;

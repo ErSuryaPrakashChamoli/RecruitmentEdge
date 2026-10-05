@@ -35,6 +35,11 @@ return [
         'max_per_page' => 100,
     ],
 
+    'telemetry' => [
+        // SaaS-7 (C8): one `api.request` log line per request (route, status, duration, credential id).
+        'log_requests' => (bool) env('API_LOG_REQUESTS', true),
+    ],
+
     'idempotency' => [
         // How long a key and its response are kept for replay (hours). D-S6-O13.
         'retention_hours' => 24,

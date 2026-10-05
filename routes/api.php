@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\RequisitionController;
 use App\Http\Middleware\Api\AuthenticateApiCredential;
 use App\Http\Middleware\Api\EnsureApiRequest;
+use App\Http\Middleware\Api\LogApiRequest;
 use App\Http\Middleware\Api\RequireIdempotencyKey;
 use Illuminate\Support\Facades\Route;
 
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Route;
 | No route names a tenant. Platform operations are never exposed here.
 */
 
-Route::middleware([EnsureApiRequest::class.':api', AuthenticateApiCredential::class, 'throttle:api'])->group(function (): void {
+Route::middleware([LogApiRequest::class, EnsureApiRequest::class.':api', AuthenticateApiCredential::class, 'throttle:api'])->group(function (): void {
     Route::get('me', MeController::class)->name('me');
 
     Route::middleware('api.scope:master_data:read')->group(function (): void {
@@ -52,5 +53,5 @@ Route::middleware([EnsureApiRequest::class.':api', AuthenticateApiCredential::cl
 
 // Inbound webhooks: authenticated by the connection's signature; the tenant is the connection's.
 Route::post('hooks/{publicKey}', InboundWebhookController::class)
-    ->middleware([EnsureApiRequest::class.':hook', 'throttle:api-hooks'])
+    ->middleware([LogApiRequest::class, EnsureApiRequest::class.':hook', 'throttle:api-hooks'])
     ->name('hooks.receive');

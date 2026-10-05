@@ -5,9 +5,15 @@ namespace App\Services;
 use App\Enums\AiToolCallStatus;
 use App\Enums\AutomationExecutionStatus;
 use App\Enums\CommunicationStatus;
+use App\Enums\ConnectionStatus;
+use App\Enums\InboundWebhookStatus;
+use App\Enums\WebhookDeliveryStatus;
 use App\Models\AiToolCall;
 use App\Models\AutomationExecution;
 use App\Models\CandidateCommunication;
+use App\Models\InboundWebhookEvent;
+use App\Models\IntegrationConnection;
+use App\Models\WebhookDelivery;
 use App\Services\Communication\ProviderCircuitBreaker;
 use App\Services\Tenancy\TenantContext;
 use Cron\CronExpression;
@@ -171,6 +177,25 @@ class QueueHealthService
             'messages_sending' => $count(CandidateCommunication::query()->where('status', CommunicationStatus::Sending)->where('updated_at', '<', $threshold)),
             'automation_running' => $count(AutomationExecution::query()->where('status', AutomationExecutionStatus::Running)->where('started_at', '<', $threshold)),
             'ai_actions_approved' => $count(AiToolCall::query()->where('status', AiToolCallStatus::Approved)->where('approved_at', '<', $threshold)),
+        ];
+    }
+
+    /**
+     * SaaS-7 (C8): integration delivery health — counts only (the platform scope across tenants):
+     * outbound deliveries that failed in the last hour or are waiting to retry, endpoints whose
+     * circuit is open, inbound events that failed in the last hour.
+     *
+     * @return array{deliveries_failed_last_hour: int, deliveries_retrying: int, endpoints_circuit_open: int, inbound_failed_last_hour: int}
+     */
+    public function integrations(): array
+    {
+        $count = fn (EloquentBuilder $query): int => TenantContext::current()->hasTenant() ? $query->count() : $query->withoutTenancy()->count();
+
+        return [
+            'deliveries_failed_last_hour' => $count(WebhookDelivery::query()->where('status', WebhookDeliveryStatus::Failed)->where('failed_at', '>=', now()->subHour())),
+            'deliveries_retrying' => $count(WebhookDelivery::query()->where('status', WebhookDeliveryStatus::Retrying)),
+            'endpoints_circuit_open' => $count(IntegrationConnection::query()->where('status', ConnectionStatus::Active)->where('consecutive_failures', '>=', (int) config('api.webhooks.circuit_failures', 5))),
+            'inbound_failed_last_hour' => $count(InboundWebhookEvent::query()->where('status', InboundWebhookStatus::Failed)->where('updated_at', '>=', now()->subHour())),
         ];
     }
 
@@ -368,6 +393,7 @@ class QueueHealthService
             'failed_jobs' => $this->failedJobs(),
             'stuck' => $this->stuck(),
             'paused_providers' => $this->pausedProviders(),
+            'integrations' => $this->integrations(),
             'scheduler' => ['last_tick' => $this->heartbeat->lastTick()?->toIso8601String(), 'tasks' => $this->heartbeat->tasks()],
             'workers' => collect($this->workers->lastBeats())->map(fn (?Carbon $at, string $queues): array => ['queues' => $queues, 'last_beat' => $at?->toIso8601String()])->values()->all(),
         ];

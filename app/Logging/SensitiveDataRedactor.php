@@ -25,6 +25,8 @@ class SensitiveDataRedactor
         'password', 'password_confirmation', 'token', 'access_token', 'refresh_token', 'secret', 'api_key', 'apikey', 'authorization',
         'email', 'mobile', 'phone', 'recipient', 'body', 'subject', 'offered_ctc', 'fixed_salary', 'variable_salary', 'joining_bonus',
         'current_salary', 'expected_salary', 'offer_letter_body', 'remarks',
+        // SaaS-7 (S7-10): integration secrets, signatures and raw payloads.
+        'secrets', 'client_secret', 'signature', 'payload', 'cookie', 'app_authentication_secret', 'app_authentication_recovery_codes',
     ];
 
     /**
@@ -40,6 +42,13 @@ class SensitiveDataRedactor
         '/(?<![\w\/.:-])[6-9]\d{9}(?![\w\/.:-])/' => self::MASK,
         // Phase 8.8 (D8.8-001): a candidate step-up code in a rendered email (e.g. the `log` mailer).
         '/\b(verification code is)\s*\d{4,8}\b/i' => '$1 '.self::MASK,
+        // SaaS-7 (S7-10): webhook signing secrets, API tokens (the key id stays readable), password
+        // hashes, OAuth access tokens and JWTs, wherever they appear in text.
+        '/\bwhsec_[A-Za-z0-9]{16,}\b/' => self::MASK,
+        '/\b(re_[A-Za-z0-9]{20}_)[A-Za-z0-9]{40}\b/' => '$1'.self::MASK,
+        '/\$2[aby]\$\d{2}\$[.\/A-Za-z0-9]{53}/' => self::MASK,
+        '/\bya29\.[A-Za-z0-9_\-.]+/' => self::MASK,
+        '/\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}/' => self::MASK,
     ];
 
     public static function text(?string $value): ?string

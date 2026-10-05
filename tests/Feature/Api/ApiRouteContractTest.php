@@ -3,6 +3,7 @@
 use App\Enums\WebhookEventType;
 use App\Http\Middleware\Api\AuthenticateApiCredential;
 use App\Http\Middleware\Api\EnsureApiRequest;
+use App\Http\Middleware\Api\LogApiRequest;
 use App\Http\Middleware\Api\RequireIdempotencyKey;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
@@ -40,12 +41,13 @@ test('every credential route is authenticated, throttled, scoped and stateless; 
             ->and($route->parameterNames())->not->toContain('tenant', 'tenantId', 'tenant_id');
 
         if ($route->uri() === 'api/v1/hooks/{publicKey}') {
-            expect($middleware)->toBe([EnsureApiRequest::class.':hook', 'throttle:api-hooks']);
+            expect($middleware)->toBe([LogApiRequest::class, EnsureApiRequest::class.':hook', 'throttle:api-hooks']);
 
             continue;
         }
 
-        expect(array_slice($middleware, 0, 3))->toBe([EnsureApiRequest::class.':api', AuthenticateApiCredential::class, 'throttle:api'], "{$name}: body checks, authentication, then the rate limit");
+        // SaaS-7: the request log first, so refusals by the later middleware are measured too.
+        expect(array_slice($middleware, 0, 4))->toBe([LogApiRequest::class, EnsureApiRequest::class.':api', AuthenticateApiCredential::class, 'throttle:api'], "{$name}: request log, body checks, authentication, then the rate limit");
 
         if ($route->uri() !== 'api/v1/me') {
             expect(apiRouteScope($route))->not->toBeNull("{$name} has no scope");
