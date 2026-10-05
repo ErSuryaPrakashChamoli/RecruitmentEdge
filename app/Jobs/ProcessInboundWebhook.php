@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Services\Tenancy\TenantUnavailable;
 use App\Services\Webhooks\InboundWebhookProcessor;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -16,16 +17,14 @@ class ProcessInboundWebhook implements ShouldQueue
 {
     use Queueable;
 
+    public int $tries;
+
     public int $timeout = 60;
 
     public function __construct(public readonly int $eventId)
     {
+        $this->tries = (int) config('api.webhooks.inbound_attempts', 3);
         $this->onQueue('integrations');
-    }
-
-    public function tries(): int
-    {
-        return (int) config('api.webhooks.inbound_attempts', 3);
     }
 
     /**
@@ -43,6 +42,11 @@ class ProcessInboundWebhook implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
+        // A paused tenant's job is queued again by SaaS-3 (PausedTenantWork): the event stays Received.
+        if ($exception instanceof TenantUnavailable) {
+            return;
+        }
+
         app(InboundWebhookProcessor::class)->markFailed($this->eventId, 'Processing failed ('.($exception !== null ? class_basename($exception) : 'unknown').').');
     }
 }

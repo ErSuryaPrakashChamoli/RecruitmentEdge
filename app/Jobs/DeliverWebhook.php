@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Services\Webhooks\WebhookDeliveryService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * SaaS-6: one attempt at one outbound webhook delivery (WebhookDeliveryService). A tenant job: it
@@ -17,6 +19,11 @@ class DeliverWebhook implements ShouldQueue
 
     public int $tries = 1;
 
+    /**
+     * Only used if $tries is ever raised: the service schedules the real retries.
+     */
+    public int $backoff = 60;
+
     public int $timeout = 60;
 
     public function __construct(public readonly int $deliveryId)
@@ -27,5 +34,14 @@ class DeliverWebhook implements ShouldQueue
     public function handle(WebhookDeliveryService $deliveries): void
     {
         $deliveries->deliver($this->deliveryId);
+    }
+
+    /**
+     * The delivery stays claimed until its lease ends, then integrations:sweep retries it; a paused
+     * tenant's job is queued again by SaaS-3 (PausedTenantWork) once the tenant is usable.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('webhooks.delivery_job_failed', ['delivery_id' => $this->deliveryId, 'exception' => $exception !== null ? $exception::class : null]);
     }
 }

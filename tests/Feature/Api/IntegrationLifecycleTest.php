@@ -4,6 +4,7 @@ use App\Enums\InboundWebhookStatus;
 use App\Enums\TenantStatus;
 use App\Enums\WebhookDeliveryStatus;
 use App\Jobs\DeliverWebhook;
+use App\Jobs\ProcessInboundWebhook;
 use App\Models\ApiCredential;
 use App\Models\ApiIdempotencyKey;
 use App\Models\Candidate;
@@ -91,6 +92,9 @@ test('a closed tenant\'s queued integration work is refused by the queue guard a
     TenantContext::current()->setTenant($this->tenant->fresh());
 
     expect(fn () => DeliverWebhook::dispatch($work['delivery']->id))->toThrow(TenantUnavailable::class)
+        ->and(fn () => ProcessInboundWebhook::dispatch($work['inbound']->id))->toThrow(TenantUnavailable::class)
+        // Refused work stays as it was, for SaaS-3 to queue again when the tenant is usable.
+        ->and($work['inbound']->fresh()->status)->toBe(InboundWebhookStatus::Received)
         ->and(app(InboundWebhookProcessor::class)->process($work['inbound']->id))->toBe('failed')
         ->and($work['delivery']->fresh()->status)->toBe(WebhookDeliveryStatus::Pending)
         ->and(CandidateApplication::query()->count())->toBe(0);
