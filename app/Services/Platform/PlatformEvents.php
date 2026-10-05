@@ -10,6 +10,7 @@ use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * SaaS-5: the platform's operational event feed (platform panel, Operational events) — provisioning
@@ -23,7 +24,7 @@ class PlatformEvents
     /**
      * @param  array<string, mixed>  $context
      */
-    public function record(string $type, PlatformEventSeverity $severity, string $title, ?Tenant $tenant = null, array $context = [], ?string $dedupeKey = null): PlatformEvent
+    public function record(string $type, PlatformEventSeverity $severity, string $title, ?Tenant $tenant = null, array $context = [], ?string $dedupeKey = null, bool $mailNow = false): PlatformEvent
     {
         try {
             $event = PlatformEvent::query()->create([
@@ -44,7 +45,17 @@ class PlatformEvents
         // Platform mail: queued with no tenant (a closed tenant's events must still reach operators),
         // and only once the event is committed.
         if ($severity === PlatformEventSeverity::Critical && filled(config('platform.notify_email'))) {
-            TenantContext::current()->runWithoutTenant(fn () => Mail::to((string) config('platform.notify_email'))->queue((new PlatformEventMail((int) $event->id))->afterCommit()));
+            if ($mailNow) {
+                // SaaS-7 (C8): a health problem may be the queue itself (a silent worker) — sent now,
+                // from the caller (the scheduler), never waiting on the queue it reports on.
+                try {
+                    TenantContext::current()->runWithoutTenant(fn () => Mail::to((string) config('platform.notify_email'))->sendNow(new PlatformEventMail((int) $event->id)));
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            } else {
+                TenantContext::current()->runWithoutTenant(fn () => Mail::to((string) config('platform.notify_email'))->queue((new PlatformEventMail((int) $event->id))->afterCommit()));
+            }
         }
 
         return $event;

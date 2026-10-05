@@ -10,10 +10,12 @@ use App\Models\AutomationExecution;
 use App\Models\CandidateCommunication;
 use App\Services\Communication\ProviderCircuitBreaker;
 use App\Services\Tenancy\TenantContext;
+use Cron\CronExpression;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Phase 8.7 (D8.7-012/021/028): what the queue, the workers' output and the scheduler look like
@@ -252,6 +254,18 @@ class QueueHealthService
             $problems["provider-paused:{$provider}"] = "Messages through {$provider} are paused after repeated provider failures; they will be sent when it recovers.";
         }
 
+        // SaaS-7 (C5): one task that keeps failing, or has not finished for three of its runs while
+        // the scheduler itself is alive (a stale overlap lock, an exception every time).
+        if (! isset($problems['scheduler-silent'])) {
+            foreach ($this->heartbeat->tasks() as $task) {
+                if ($task['outcome'] === 'failed') {
+                    $problems["scheduled-task-failed:{$task['task']}"] = "The scheduled task {$task['task']} failed on its last run ({$task['at']} UTC).";
+                } elseif ($task['at'] !== null && $this->missedRuns($task['expression'], $task['finished_at'])) {
+                    $problems["scheduled-task-stale:{$task['task']}"] = "The scheduled task {$task['task']} has not finished for three of its runs (last finished: ".($task['finished_at'] ?? 'never').') — is it skipped by a stale lock?';
+                }
+            }
+        }
+
         if ((int) config('queue.connections.database.retry_after') <= (int) config('queue.worker_max_timeout')) {
             $problems['retry-after'] = 'DB_QUEUE_RETRY_AFTER is not above the longest worker timeout — a running job can be handed to a second worker.';
         }
@@ -273,6 +287,68 @@ class QueueHealthService
             fn (string $key): bool => $key === 'failed-jobs' || $key === 'stuck-work' || str_starts_with($key, 'queue-backlog:'),
             ARRAY_FILTER_USE_KEY,
         );
+    }
+
+    /**
+     * SaaS-7 (C5): tenantProblems() of every tenant at once — one grouped pass over the queue
+     * tables and the stuck-work tables, instead of one full scan of each per tenant every five
+     * minutes. Same keys and messages; tenants without problems are absent. Platform scope only.
+     *
+     * @return array<int, array<string, string>>
+     */
+    public function problemsByTenant(): array
+    {
+        $problems = [];
+
+        DB::table('failed_jobs')->where('failed_at', '>=', now()->subHour())->whereNotNull('payload->tenant_id')
+            ->select('payload->tenant_id as tenant_id')->selectRaw('count(*) as failed')->groupBy('payload->tenant_id')->get()
+            ->each(function (object $row) use (&$problems): void {
+                $problems[(int) $row->tenant_id]['failed-jobs'] = "{$row->failed} job(s) failed in the last hour.";
+            });
+
+        DB::table('jobs')->where('available_at', '<', now()->subMinutes(self::OLDEST_JOB_ALERT_MINUTES)->getTimestamp())->whereNotNull('payload->tenant_id')
+            ->select('queue', 'payload->tenant_id as tenant_id')->selectRaw('min(available_at) as oldest')->groupBy('queue', 'payload->tenant_id')->get()
+            ->each(function (object $row) use (&$problems): void {
+                $minutes = max(0, intdiv(now()->getTimestamp() - (int) $row->oldest, 60));
+                $problems[(int) $row->tenant_id]["queue-backlog:{$row->queue}"] = "The oldest job on the {$row->queue} queue has waited {$minutes} minutes — is its worker running?";
+            });
+
+        $threshold = now()->subMinutes(self::STUCK_ALERT_MINUTES);
+        $stuck = [];
+        $count = function (string $kind, EloquentBuilder $query) use (&$stuck): void {
+            $query->withoutTenancy()->toBase()->select('tenant_id')->selectRaw('count(*) as stuck')->groupBy('tenant_id')->get()
+                ->each(function (object $row) use (&$stuck, $kind): void {
+                    $stuck[(int) $row->tenant_id][$kind] = (int) $row->stuck;
+                });
+        };
+
+        $count('messages_queued', CandidateCommunication::query()->where('status', CommunicationStatus::Queued)->where('queued_at', '<', $threshold));
+        $count('messages_sending', CandidateCommunication::query()->where('status', CommunicationStatus::Sending)->where('updated_at', '<', $threshold));
+        $count('automation_running', AutomationExecution::query()->where('status', AutomationExecutionStatus::Running)->where('started_at', '<', $threshold));
+        $count('ai_actions_approved', AiToolCall::query()->where('status', AiToolCallStatus::Approved)->where('approved_at', '<', $threshold));
+
+        foreach ($stuck as $tenantId => $kinds) {
+            $ordered = array_filter(array_merge(array_fill_keys(['messages_queued', 'messages_sending', 'automation_running', 'ai_actions_approved'], 0), $kinds));
+            $problems[$tenantId]['stuck-work'] = 'Work stuck for over '.self::STUCK_ALERT_MINUTES.' minutes: '.collect($ordered)->map(fn (int $n, string $kind) => str_replace('_', ' ', $kind).' '.$n)->implode(', ').'.';
+        }
+
+        ksort($problems);
+
+        return $problems;
+    }
+
+    /**
+     * Whether a task has not finished since three of its scheduled runs ago.
+     */
+    private function missedRuns(string $expression, ?string $finishedAt): bool
+    {
+        try {
+            $thirdLastRun = Carbon::instance((new CronExpression($expression))->getPreviousRunDate(now(), 2));
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $finishedAt === null || Carbon::parse($finishedAt)->lt($thirdLastRun);
     }
 
     /**

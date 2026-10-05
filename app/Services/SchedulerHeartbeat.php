@@ -21,8 +21,11 @@ class SchedulerHeartbeat
     public function record(Event $task, string $outcome): void
     {
         $now = now();
+        // SaaS-7 (C5): when it last finished, kept across skips and failures, so a task that keeps
+        // failing or keeps being skipped (a stale overlap lock) is noticed (QueueHealthService).
+        $finishedAt = $outcome === 'finished' ? $now->toIso8601String() : (Cache::get($this->keyFor($task))['finished_at'] ?? null);
 
-        Cache::forever($this->keyFor($task), ['outcome' => $outcome, 'at' => $now->toIso8601String(), 'exit_code' => $task->exitCode]);
+        Cache::forever($this->keyFor($task), ['outcome' => $outcome, 'at' => $now->toIso8601String(), 'finished_at' => $finishedAt, 'exit_code' => $task->exitCode]);
         Cache::forever(self::LAST_TICK_KEY, $now->toIso8601String());
     }
 
@@ -36,7 +39,7 @@ class SchedulerHeartbeat
     /**
      * Every scheduled task with its last recorded outcome.
      *
-     * @return array<int, array{task: string, expression: string, outcome: string|null, at: string|null}>
+     * @return array<int, array{task: string, expression: string, outcome: string|null, at: string|null, finished_at: string|null}>
      */
     public function tasks(): array
     {
@@ -48,6 +51,7 @@ class SchedulerHeartbeat
                 'expression' => $task->expression,
                 'outcome' => $last['outcome'] ?? null,
                 'at' => $last['at'] ?? null,
+                'finished_at' => $last['finished_at'] ?? null,
             ];
         })->values()->all();
     }

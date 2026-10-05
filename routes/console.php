@@ -36,7 +36,10 @@ Schedule::command('tenants:dispatch communications:send-reminders')->hourly()->w
 Schedule::command('tenants:dispatch recruitment:automation:dispatch')->everyFifteenMinutes()->withoutOverlapping(14)->onOneServer();
 Schedule::command('tenants:dispatch recruitment:automation:process')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command('tenants:dispatch recruitment:automation:cleanup')->dailyAt('02:00')->withoutOverlapping(60)->onOneServer();
-Schedule::command('tenants:run intelligence:refresh --all')->hourly()->withoutOverlapping(120)->onOneServer()->runInBackground();
+// SaaS-7 (C5): a 70-minute budget per pass, resumed by a rotating cursor — budget plus the longest
+// single tenant (INTELLIGENCE_REFRESH_TIME_BUDGET, 45 min) stays below the 120-minute overlap lock,
+// so two passes never run at once, and tenants with high ids are never starved.
+Schedule::command('tenants:run intelligence:refresh --all --budget=4200')->hourly()->withoutOverlapping(120)->onOneServer()->runInBackground();
 Schedule::command('tenants:run outcomes:evaluate --all')->dailyAt('03:00')->withoutOverlapping(180)->onOneServer()->runInBackground();
 Schedule::command('tenants:dispatch ai:expire-pending-actions')->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 // Phase 8.4: separations whose last working day has passed (identity.scheduled_enforcement).

@@ -10,6 +10,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -18,8 +19,13 @@ use Throwable;
  * active tenant (--all: the scheduler's background tasks). One tenant at a time; each tenant is
  * isolated (its failure is reported and logged, the others still run) and logged with its id
  * and duration.
+ *
+ * SaaS-7 (C5): with --all and --budget=<seconds>, no tenant is started once the budget is spent;
+ * the pass resumes after the last tenant it finished on the next run (a rotating cursor), so
+ * tenants with high ids are never starved and a long pass never outlives its overlap lock (the
+ * schedule sizes budget + the longest single tenant below the lock's expiry).
  */
-#[Signature('tenants:run {task : A task listed in TenantTasks} {--tenant=* : Tenant slug(s)} {--all : Every tenant whose status allows background work} {--with=* : An option for the task: name or name=value (e.g. --with=execute)}')]
+#[Signature('tenants:run {task : A task listed in TenantTasks} {--tenant=* : Tenant slug(s)} {--all : Every tenant whose status allows background work} {--budget= : With --all: seconds after which no further tenant is started (resumes there next run)} {--with=* : An option for the task: name or name=value (e.g. --with=execute)}')]
 #[Description('Run a scheduled tenant task inside one, several or all active tenants')]
 class TenantsRun extends Command
 {
@@ -41,13 +47,26 @@ class TenantsRun extends Command
             return self::FAILURE;
         }
 
+        $budget = $this->option('all') && filled($this->option('budget')) ? max(1, (int) $this->option('budget')) : null;
+        $cursorKey = 'tenancy:run-cursor:'.$task;
+        $startAfter = $budget !== null ? (int) Cache::get($cursorKey, 0) : 0;
+
         $tenants = $this->option('all')
-            ? $directory->forBackgroundWork()
+            ? ($startAfter > 0 ? $directory->lazyForBackgroundWork(afterId: $startAfter)->concat($directory->lazyForBackgroundWork()->takeWhile(fn (Tenant $tenant): bool => $tenant->id <= $startAfter)) : $directory->lazyForBackgroundWork())
             : Tenant::query()->whereIn('slug', $slugs)->get()->filter(fn (Tenant $tenant): bool => $tenant->allowsBackgroundWork())->values();
 
         $failures = 0;
+        $passStarted = now()->getTimestamp();
+        $finished = 0;
 
         foreach ($tenants as $tenant) {
+            if ($budget !== null && now()->getTimestamp() - $passStarted >= $budget) {
+                Log::info('tenancy.task_budget_spent', ['task' => $task, 'tenants_finished' => $finished, 'resume_after_tenant_id' => (int) Cache::get($cursorKey, 0)]);
+                $this->warn("{$task}: budget of {$budget}s spent after {$finished} tenant(s); the next run resumes there.");
+
+                return $failures === 0 ? self::SUCCESS : self::FAILURE;
+            }
+
             $started = hrtime(true);
 
             try {
@@ -59,6 +78,17 @@ class TenantsRun extends Command
                 Log::warning('tenancy.task_failed', ['task' => $task, 'tenant_id' => $tenant->id, 'exception' => $exception::class]);
                 $this->error("{$task} failed for tenant {$tenant->slug}.");
             }
+
+            $finished++;
+
+            if ($budget !== null) {
+                Cache::forever($cursorKey, (int) $tenant->id);
+            }
+        }
+
+        // A complete pass starts from the beginning next time.
+        if ($budget !== null) {
+            Cache::forget($cursorKey);
         }
 
         return $failures === 0 ? self::SUCCESS : self::FAILURE;

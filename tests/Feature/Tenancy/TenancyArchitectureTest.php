@@ -151,6 +151,7 @@ test('every cache entry or lock of tenant data is keyed under its tenant', funct
         'app/Services/Identity/CredentialService.php' => 'staff identity (global)',
         'app/Services/Metrics/MetricService.php' => 'the key comes from cacheKey(), built with TenantCache::key()',
         'app/Services/Operations/ReadinessProbe.php' => 'a throw-away key written and read back to prove the cache works (platform health, no data) (SaaS-7)',
+        'app/Console/Commands/TenantsRun.php' => 'a platform pass\'s resume cursor: the last tenant id finished (SaaS-7)',
     ];
     $offending = [];
 
