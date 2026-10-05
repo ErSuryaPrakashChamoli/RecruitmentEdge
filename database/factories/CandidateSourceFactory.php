@@ -22,7 +22,7 @@ class CandidateSourceFactory extends Factory
                 'Naukri', 'Indeed', 'LinkedIn', 'Apna', 'WorkIndia', 'Website', 'Employee Referral',
                 'Walk-in', 'WhatsApp', 'Facebook', 'Instagram', 'Agency', 'Internal Database', 'Other',
             ]),
-            'code' => strtoupper(fake()->unique()->lexify('SRC-???')),
+            'code' => strtoupper(fake()->unique()->bothify('SRC-???###')),
             'is_active' => true,
         ];
     }

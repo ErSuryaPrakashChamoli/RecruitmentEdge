@@ -20,7 +20,7 @@ class DesignationFactory extends Factory
     {
         return [
             'name' => fake()->jobTitle(),
-            'code' => strtoupper(fake()->unique()->lexify('DSG-???')),
+            'code' => strtoupper(fake()->unique()->bothify('DSG-???###')),
             'department_id' => Department::factory(),
             'is_active' => true,
         ];
