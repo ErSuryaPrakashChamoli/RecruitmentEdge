@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\HealthController;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\Api\RequireApiScope;
 use App\Http\Middleware\AssignRequestId;
@@ -28,6 +29,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // SaaS-6: the tenant API, version 1 — its own middleware, no session (routes/api.php).
         then: function (): void {
             Route::prefix('api/v1')->name('api.v1.')->group(base_path('routes/api.php'));
+
+            // SaaS-7 (C9): liveness and readiness — outside the web group (no session, no cookie).
+            Route::middleware('throttle:120,1')->group(function (): void {
+                Route::get('health/live', [HealthController::class, 'live'])->name('health.live');
+                Route::get('health/ready', [HealthController::class, 'ready'])->name('health.ready');
+            });
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {

@@ -116,6 +116,9 @@ test('a raw query on a tenant-owned table names its tenant', function (): void {
         'app/Console/Commands/StorageAudit.php' => 'read-only storage report across tenants',
         'app/Models/User.php' => 'identity plane: the employing tenant of a login',
         'app/Observers/EmployeeObserver.php' => 'closure rows are built with the employee\'s tenant_id before the insert',
+        'app/Services/Tenancy/TenantWorkProbes.php' => 'which tenants hold rows a frequent task could act on: DISTINCT tenant_id only (SaaS-7)',
+        'app/Services/Operations/EncryptedColumns.php' => 'key rotation: re-encrypts values by primary key across tenants, never reads a row otherwise (SaaS-7)',
+        'app/Services/Operations/IntegrityVerifier.php' => 'read-only post-restore check: orphaned foreign-key counts across tenants (SaaS-7)',
     ];
     $offending = [];
 
@@ -147,6 +150,7 @@ test('every cache entry or lock of tenant data is keyed under its tenant', funct
         'app/Services/Automation/Actions/Handlers/SendCommunicationAction.php' => 'lock keyed by the candidate id (global id)',
         'app/Services/Identity/CredentialService.php' => 'staff identity (global)',
         'app/Services/Metrics/MetricService.php' => 'the key comes from cacheKey(), built with TenantCache::key()',
+        'app/Services/Operations/ReadinessProbe.php' => 'a throw-away key written and read back to prove the cache works (platform health, no data) (SaaS-7)',
     ];
     $offending = [];
 
@@ -188,7 +192,7 @@ test('every route either lives under a tenant or resolves its tenant itself', fu
         'admin/multi-factor-authentication' => 'staff MFA (global identity)', 'admin/profile' => 'runs in the employing tenant (Profile::boot)',
         'filament/exports' => 'the export\'s own tenant (ResolveTenantForFilamentDownload)', 'filament/imports' => 'the import\'s own tenant (ResolveTenantForFilamentDownload)',
         'files/private' => 'the signed tenant (PrivateFileController)', 'webhooks/' => 'the provider message\'s tenant (DeliveryStatusService); the provider payment\'s tenant (BillingReferenceResolver, SaaS-4)',
-        'integrations/calendar/{provider}/callback' => 'the tenant kept with the OAuth state', 'health/queue' => 'platform health (token)',
+        'integrations/calendar/{provider}/callback' => 'the tenant kept with the OAuth state', 'health/queue' => 'platform health (token)', 'health/live' => 'platform liveness, no tenant (SaaS-7)', 'health/ready' => 'platform readiness, no tenant (SaaS-7)',
         'livewire-' => 'the component page\'s own (persistent) middleware', '_boost/' => 'development tool (not in the production image)',
         'invitations' => 'the invitation\'s own tenant, found by its token hash (SaaS-2)',
         'admin/organisations' => 'the signed-in identity\'s own accessible tenants (SaaS-2 chooser)',
