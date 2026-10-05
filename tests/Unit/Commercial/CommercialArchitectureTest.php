@@ -44,7 +44,9 @@ test('the product asks the entitlement registry, never which plan a tenant is on
     $planModels = '/\b(Plan|PlanVersion|PlanEntitlement|TenantPlanAssignment|TenantEntitlementOverride)::|\b(plan_entitlements|tenant_plan_assignments|tenant_entitlement_overrides)\b/';
     $allowed = ['app/Services/Entitlements/EntitlementService.php', 'app/Filament/Pages/PlanAndUsage.php', 'app/Services/Tenancy/TenantSchema.php',
         // SaaS-5: the platform panel's tenant list shows each tenant's plan (metadata, never a gate).
-        'app/Services/Platform/PlatformDirectory.php'];
+        'app/Services/Platform/PlatformDirectory.php',
+        // Production readiness: the post-restore check counts usable tenants without a current plan (a warning, never a gate).
+        'app/Services/Operations/IntegrityVerifier.php'];
 
     foreach (commercialSources() as $path => $source) {
         if (str_starts_with($path, 'app/Services/Platform/Commercial/') || str_starts_with($path, 'app/Models/') || in_array($path, $allowed, true)) {

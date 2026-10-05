@@ -74,6 +74,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/OfferLetterRenderer.php,app/Services/WordToPdfConverter.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/** | .ai/rules/offer-letter-templates.md |
 | app/Services/OfferService.php,app/Filament/Resources/Offers/**,app/Models/OfferStatusHistory.php | .ai/rules/offers-models.md |
 | app/Services/OfferService.php,app/Services/OfferLetterIssuanceService.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/Offers/** | .ai/rules/offers.md |
+| app/Services/Operations/**, app/Services/Operations/ProductionPreflight.php | .ai/rules/operations.md |
 | app/Services/Outcomes/**, app/Services/Outcomes/OutcomeLearningService.php | .ai/rules/outcomes.md |
 | app/Services/AiAssistantService.php,app/Filament/Pages/AiCopilot.php | .ai/rules/pages.md |
 | resources/views/careers/**,resources/views/mail/candidate-*.blade.php,resources/views/components/portal/**,resources/views/pdf/**,app/Mail/Candidate*.php | .ai/rules/pdf-mail.md |

@@ -4,6 +4,7 @@ use App\Console\Commands\OpsMigrate;
 use App\Models\AuditLog;
 use App\Models\IntegrationConnection;
 use App\Services\Operations\AuditProtection;
+use App\Services\Operations\DatabaseClock;
 use App\Services\Operations\EncryptedColumns;
 use App\Services\Operations\ProductionPreflight;
 use App\Services\Operations\ReadinessProbe;
@@ -26,23 +27,68 @@ function operationsUseKey(string $key, array $previous = []): void
     Crypt::clearResolvedInstance('encrypter');
 }
 
-function operationsSafeProduction(): void
+function operationsSafeProduction(string $environment = 'production'): void
 {
-    app()['env'] = 'production';
+    app()['env'] = $environment;
     config([
         'app.key' => 'base64:'.base64_encode(Encrypter::generateKey('AES-256-CBC')),
         'app.debug' => false,
         'app.url' => 'https://hire.example.com',
         'session.secure' => true,
+        // MySQL, as production runs it (afterEach gives the suite its own default back).
+        'database.default' => 'mysql',
+        'database.connections.mysql.password' => 'a-long-generated-password',
         'cache.default' => 'database',
         'cache.stores.database.connection' => 'mysql_cache',
-        // Locks on the business connection (whichever database this suite runs on).
-        'cache.stores.database.lock_connection' => config('database.default'),
+        'cache.stores.database.lock_connection' => 'mysql',
         'queue.default' => 'database',
         'mail.default' => 'smtp',
-        'database.connections.mysql.password' => 'a-long-generated-password',
+        'platform.notify_email' => 'platform-ops@example.com',
     ]);
 }
+
+/**
+ * The allowed origins config/cors.php reads for one CORS_ALLOWED_ORIGINS value (null: unset); the
+ * process environment is put back afterwards.
+ *
+ * @return list<string>
+ */
+function operationsCorsOriginsFor(?string $value): array
+{
+    $saved = ['server' => $_SERVER['CORS_ALLOWED_ORIGINS'] ?? null, 'env' => $_ENV['CORS_ALLOWED_ORIGINS'] ?? null, 'putenv' => getenv('CORS_ALLOWED_ORIGINS')];
+    $set = function (?string $server, ?string $env, string|false $putenv): void {
+        if ($server === null) {
+            unset($_SERVER['CORS_ALLOWED_ORIGINS']);
+        } else {
+            $_SERVER['CORS_ALLOWED_ORIGINS'] = $server;
+        }
+
+        if ($env === null) {
+            unset($_ENV['CORS_ALLOWED_ORIGINS']);
+        } else {
+            $_ENV['CORS_ALLOWED_ORIGINS'] = $env;
+        }
+
+        putenv($putenv === false ? 'CORS_ALLOWED_ORIGINS' : "CORS_ALLOWED_ORIGINS={$putenv}");
+    };
+
+    try {
+        $set($value, $value, $value ?? false);
+
+        return (require config_path('cors.php'))['allowed_origins'];
+    } finally {
+        $set($saved['server'], $saved['env'], $saved['putenv']);
+    }
+}
+
+beforeEach(function (): void {
+    $this->suiteConnection = config('database.default');
+});
+
+afterEach(function (): void {
+    // The suite's own database stays the default connection (RefreshDatabase rolls it back).
+    config(['database.default' => $this->suiteConnection]);
+});
 
 test('liveness answers without touching any dependency; readiness reports ok publicly and details only to the token', function (): void {
     config(['queue.health_token' => 'ops-token']);
@@ -81,17 +127,11 @@ test('preflight passes a safe production configuration', function (): void {
 });
 
 test('preflight blocks an unsafe production configuration', function (array $unsafe, string $check): void {
-    $default = config('database.default');
     operationsSafeProduction();
     config($unsafe);
 
-    try {
-        $problems = collect(app(ProductionPreflight::class)->problems());
-        $exitCode = $this->artisan('ops:preflight')->run();
-    } finally {
-        // The test database stays the default connection (RefreshDatabase rolls it back).
-        config(['database.default' => $default]);
-    }
+    $problems = collect(app(ProductionPreflight::class)->problems());
+    $exitCode = $this->artisan('ops:preflight')->run();
 
     expect($problems->firstWhere('check', $check))->not->toBeNull()
         ->and($problems->firstWhere('check', $check)['level'])->toBe('blocker')
@@ -108,19 +148,85 @@ test('preflight blocks an unsafe production configuration', function (array $uns
     'cache locks left to follow the cache data' => [['cache.stores.database.lock_connection' => null], 'cache_locks'],
     'sync queue' => [['queue.default' => 'sync'], 'queue_async'],
     'log mailer' => [['mail.default' => 'log'], 'mail_transport'],
-    'default database password' => [['database.default' => 'mysql', 'database.connections.mysql.password' => 'secret'], 'db_password'],
+    'default database password' => [['database.connections.mysql.password' => 'secret'], 'db_password'],
+    'SQLite as the database' => [['database.default' => 'sqlite'], 'database_driver'],
+    'an application timezone other than UTC' => [['app.timezone' => 'Asia/Kolkata'], 'app_timezone'],
+    'private files on the public disk' => [['filesystems.default' => 'public'], 'filesystem_private'],
+    'trusted hosts without the application\'s own host' => [['app.trusted_hosts' => ['other.example.com']], 'trusted_hosts_app_url'],
+    'no platform alert recipient' => [['platform.notify_email' => null], 'platform_alerts'],
+    'an invalid platform alert recipient' => [['platform.notify_email' => 'platform-ops'], 'platform_alerts'],
 ]);
 
-test('preflight warns while critical platform alerts would be mailed to nobody', function (): void {
-    operationsSafeProduction();
-    $alerts = fn (): ?array => collect(app(ProductionPreflight::class)->problems())->firstWhere('check', 'platform_alerts');
+test('staging applies the security rules but only warns on what production alone needs', function (): void {
+    operationsSafeProduction('staging');
+    config(['mail.default' => 'log', 'platform.notify_email' => null, 'app.debug' => true]);
+    $level = fn (string $check): ?string => collect(app(ProductionPreflight::class)->problems())->firstWhere('check', $check)['level'] ?? null;
 
-    config(['platform.notify_email' => null]);
-    expect($alerts())->toMatchArray(['level' => 'warning']);
-
-    config(['platform.notify_email' => 'platform-ops@example.com']);
-    expect($alerts())->toBeNull();
+    expect(app(ProductionPreflight::class)->tier())->toBe('staging')
+        ->and($level('app_debug'))->toBe('blocker')
+        ->and($level('mail_transport'))->toBe('warning')
+        ->and($level('platform_alerts'))->toBe('warning');
+    $this->artisan('ops:preflight --json')->assertFailed()->expectsOutputToContain('"rules": "staging"');
 });
+
+test('a database session away from UTC is reported, never changed; at UTC nothing is said', function (int $offset, bool $reported): void {
+    operationsSafeProduction();
+    app()->instance(DatabaseClock::class, new class($offset) extends DatabaseClock
+    {
+        public function __construct(private readonly int $offset) {}
+
+        public function utcOffsetMinutes(): ?int
+        {
+            return $this->offset;
+        }
+    });
+
+    $problem = collect(app(ProductionPreflight::class)->problems())->firstWhere('check', 'db_timezone');
+
+    expect($problem !== null)->toBe($reported);
+
+    if ($reported) {
+        expect($problem['level'])->toBe('warning')->and($problem['message'])->toContain('330 minutes');
+    }
+})->with([
+    'IST (+05:30)' => [330, true],
+    'UTC' => [0, false],
+]);
+
+test('forwarded headers believed from anyone, and API calls from any browser origin, are flagged for the operator', function (): void {
+    operationsSafeProduction();
+    config(['app.trusted_proxies' => '*', 'cors.allowed_origins' => ['*']]);
+    $levels = collect(app(ProductionPreflight::class)->problems())->pluck('level', 'check');
+
+    expect($levels['trusted_proxies_any'] ?? null)->toBe('warning')
+        ->and($levels['cors_any_origin'] ?? null)->toBe('warning');
+
+    config(['app.trusted_proxies' => '10.0.0.0/8', 'cors.allowed_origins' => ['https://ats.integrator.example']]);
+    $checks = collect(app(ProductionPreflight::class)->problems())->pluck('check');
+
+    expect($checks)->not->toContain('trusted_proxies_any')->not->toContain('cors_any_origin');
+});
+
+test('the API answers browsers only from the configured origins, and never with credentials', function (): void {
+    // Two origins: with a single one the CORS library always names it, and the browser compares.
+    config(['cors.allowed_origins' => ['https://ats.integrator.example', 'https://hr.integrator.example']]);
+    $preflight = fn (string $origin) => $this->call('OPTIONS', '/api/v1/me', server: ['HTTP_ORIGIN' => $origin, 'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'GET', 'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'authorization']);
+
+    $allowed = $preflight('https://ats.integrator.example');
+    $other = $preflight('https://evil.example');
+
+    expect($allowed->headers->get('Access-Control-Allow-Origin'))->toBe('https://ats.integrator.example')
+        ->and($allowed->headers->has('Access-Control-Allow-Credentials'))->toBeFalse()
+        ->and($other->headers->get('Access-Control-Allow-Origin'))->toBeNull();
+});
+
+test('CORS_ALLOWED_ORIGINS is a trimmed list: unset allows any origin, empty allows none', function (?string $value, array $origins): void {
+    expect(operationsCorsOriginsFor($value))->toBe($origins);
+})->with([
+    'unset' => [null, ['*']],
+    'empty' => ['', []],
+    'two origins, spaced, trailing comma' => [' https://ats.integrator.example , https://hr.integrator.example ,', ['https://ats.integrator.example', 'https://hr.integrator.example']],
+]);
 
 test('outside production the same problems are warnings, and the messages never carry a configured value', function (): void {
     config(['app.debug' => true, 'database.connections.mysql.password' => 'p4ss-in-config', 'app.key' => 'base64:short']);

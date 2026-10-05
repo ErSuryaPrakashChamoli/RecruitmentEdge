@@ -18,6 +18,10 @@ $mysql = [
     'prefix_indexes' => true,
     'strict' => true,
     'engine' => null,
+    // PR-02: the session time zone (e.g. +00:00). Unset, the server's default applies. Decide it with
+    // the production-copy rehearsal: on a database holding data, a change alters how existing
+    // TIMESTAMP values read (App\Services\Operations\DatabaseClock).
+    'timezone' => env('DB_TIMEZONE'),
     'options' => extension_loaded('pdo_mysql') ? array_filter([
         Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
     ]) : [],
