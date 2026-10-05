@@ -10,7 +10,6 @@ use App\Services\Tenancy\TenantWorkProbes;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Bus;
 
 /**
  * SaaS-1: the scheduler's entry for a tenant task. It only enumerates the tenants whose status
@@ -41,13 +40,17 @@ class TenantsDispatch extends Command
         $only = $this->option('all-tenants') ? null : $context->runWithoutTenant(fn (): ?array => $probes->tenantsFor($task));
 
         foreach ($tenants->lazyForBackgroundWork($only) as $tenant) {
-            // Bus::dispatch queues at once, inside the tenant. (A PendingDispatch returned from the
-            // callback would only be queued after run() had restored the previous context.)
-            $context->run($tenant, fn () => Bus::dispatch(new RunTenantScheduledTask($task)));
+            // Queued inside the tenant, through a PendingDispatch released within the callback (not
+            // returned from it, which would queue it after run() restored the previous context).
+            // SaaS-7: the PendingDispatch is what takes the job's unique lock — Bus::dispatch skips
+            // it, so a run still queued or running was doubled on every tick of a backed-up queue.
+            $context->run($tenant, function () use ($task): void {
+                RunTenantScheduledTask::dispatch($task);
+            });
             $queued++;
         }
 
-        $this->info("{$task}: queued for {$queued} tenant(s)".($only !== null ? ' with work to do.' : '.'));
+        $this->info("{$task}: queued for {$queued} tenant(s)".($only !== null ? ' with work to do' : '').'; a run already queued or running is not queued again.');
 
         return self::SUCCESS;
     }

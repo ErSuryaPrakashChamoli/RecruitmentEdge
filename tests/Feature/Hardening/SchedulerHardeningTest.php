@@ -6,6 +6,7 @@ use App\Enums\PlatformEventSeverity;
 use App\Jobs\RunTenantScheduledTask;
 use App\Mail\PlatformEventMail;
 use App\Models\AiToolCall;
+use App\Models\AutomationExecution;
 use App\Models\AutomationRule;
 use App\Models\CandidateCommunication;
 use App\Models\IntegrationConnection;
@@ -15,6 +16,7 @@ use App\Services\QueueHealthService;
 use App\Services\SchedulerHeartbeat;
 use App\Services\Tenancy\TenantContext;
 use App\Services\Tenancy\TenantWorkProbes;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Bus;
@@ -36,8 +38,13 @@ beforeEach(function (): void {
 /**
  * @return list<int> tenant ids queued for $task
  */
-function schedulerQueuedFor(string $task, array $options = []): array
+function schedulerQueuedFor(string $task, array $options = [], bool $earlierRunsFinished = true): array
 {
+    // A finished run has released its unique lock (the fake runs nothing).
+    if ($earlierRunsFinished) {
+        Tenant::query()->each(fn (Tenant $tenant) => TenantContext::current()->run($tenant, fn () => (new UniqueLock(Cache::store()))->release(new RunTenantScheduledTask($task))));
+    }
+
     Bus::fake([RunTenantScheduledTask::class]);
     test()->artisan('tenants:dispatch', ['task' => $task, ...$options])->assertSuccessful();
 
@@ -51,6 +58,7 @@ test('a frequent task is queued only for tenants holding something it could act 
         ->and(schedulerQueuedFor($task, ['--all-tenants' => true]))->toBe([$this->tenant->id, $this->quiet->id]);
 })->with([
     'automation process (active rule)' => ['recruitment:automation:process', fn () => AutomationRule::factory()->active()->create()],
+    'automation process (a pending run whose rule is no longer active)' => ['recruitment:automation:process', fn () => AutomationExecution::factory()->create()],
     'automation dispatch (active rule)' => ['recruitment:automation:dispatch', fn () => AutomationRule::factory()->active()->create()],
     'AI action expiry (pending action)' => ['ai:expire-pending-actions', fn () => AiToolCall::factory()->create(['status' => AiToolCallStatus::Pending->value, 'requires_confirmation' => true])],
     // A message queued a moment ago is not stuck yet: the probe is a superset of the sweep's work.
@@ -66,6 +74,11 @@ test('tasks without a probe still run for every usable tenant, and closed tenant
     expect($queued)->toBe([$this->tenant->id, $this->quiet->id])
         ->and($queued)->not->toContain($suspended->id)
         ->and(app(TenantWorkProbes::class)->tenantsFor('offers:expire-lapsed'))->toBeNull();
+});
+
+test('a tenant task still queued or running is not queued again by the next tick', function (): void {
+    expect(schedulerQueuedFor('offers:expire-lapsed'))->toBe([$this->tenant->id, $this->quiet->id])
+        ->and(schedulerQueuedFor('offers:expire-lapsed', earlierRunsFinished: false))->toBe([]);
 });
 
 test('a budgeted pass stops starting tenants once the budget is spent and resumes after the last one next time', function (): void {
@@ -85,6 +98,27 @@ test('a budgeted pass stops starting tenants once the budget is spent and resume
     $this->artisan('tenants:run', ['task' => 'outcomes:evaluate', '--all' => true, '--budget' => 3600])->assertSuccessful();
     expect($visited)->toBe([$this->tenant->id, $this->quiet->id, $third->id, $this->tenant->id])
         ->and(Cache::get('tenancy:run-cursor:outcomes:evaluate'))->toBe($this->tenant->id);
+});
+
+test('a tenant suspended after the pass read it gets no work from that pass', function (): void {
+    $visited = [];
+    $skipped = [];
+    // The suspension commits while the pass is busy with the first tenant.
+    Event::listen(MessageLogged::class, function (MessageLogged $log) use (&$visited, &$skipped): void {
+        if ($log->message === 'tenancy.task_finished') {
+            $visited[] = $log->context['tenant_id'];
+            Tenant::query()->whereKey($this->quiet->id)->update(['status' => 'suspended']);
+        }
+
+        if ($log->message === 'tenancy.task_skipped') {
+            $skipped[] = $log->context['tenant_id'];
+        }
+    });
+
+    $this->artisan('tenants:run', ['task' => 'outcomes:evaluate', '--all' => true])->assertSuccessful();
+
+    expect($visited)->toBe([$this->tenant->id])
+        ->and($skipped)->toBe([$this->quiet->id]);
 });
 
 test('the one-pass tenant health matches each tenant\'s own problems', function (): void {

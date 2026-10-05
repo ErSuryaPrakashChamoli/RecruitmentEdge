@@ -67,10 +67,21 @@ class TenantsRun extends Command
                 return $failures === 0 ? self::SUCCESS : self::FAILURE;
             }
 
+            // SaaS-7: the pass read this tenant up to a chunk (and a budget) ago. Its work runs only if
+            // the tenant still allows background work now — read with a shared lock, so a suspension
+            // or closure in flight is waited for and then honoured (SaaS-7 race test).
+            $current = Tenant::query()->whereKey($tenant->id)->sharedLock()->first();
+
+            if ($current === null || ! $current->allowsBackgroundWork()) {
+                Log::info('tenancy.task_skipped', ['task' => $task, 'tenant_id' => $tenant->id, 'reason' => 'the tenant no longer allows background work']);
+
+                continue;
+            }
+
             $started = hrtime(true);
 
             try {
-                TenantContext::current()->run($tenant, fn (): int => Artisan::call($task, $this->taskOptions(), $this->output));
+                TenantContext::current()->run($current, fn (): int => Artisan::call($task, $this->taskOptions(), $this->output));
                 Log::info('tenancy.task_finished', ['task' => $task, 'tenant_id' => $tenant->id, 'duration_ms' => (int) round((hrtime(true) - $started) / 1e6)]);
             } catch (Throwable $exception) {
                 $failures++;

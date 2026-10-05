@@ -49,8 +49,11 @@ class WebhookDeliveryService
     public function deliver(int $deliveryId): string
     {
         if (($deferredUntil = $this->deferral($deliveryId)) !== null) {
+            // Only a delivery still due is deferred: one another worker attempted meanwhile keeps the
+            // retry schedule that attempt set (SaaS-7 race test).
             WebhookDelivery::query()->whereKey($deliveryId)
                 ->whereIn('status', [WebhookDeliveryStatus::Pending->value, WebhookDeliveryStatus::Retrying->value])
+                ->where(fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))
                 ->where(fn ($query) => $query->whereNull('claimed_until')->orWhere('claimed_until', '<', now()))
                 ->update(['next_attempt_at' => $deferredUntil, 'updated_at' => now()]);
 
