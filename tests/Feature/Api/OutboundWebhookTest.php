@@ -97,7 +97,8 @@ test('an event goes, signed and thin, to each active endpoint subscribed to it â
 
         return $request->url() === 'https://hooks.example.com/a'
             && signedWith($request, IntegrationConnectionFactory::SECRET)
-            && $body['type'] === 'candidate.created' && $body['data'] === ['object' => 'candidate', 'id' => $candidate->id]
+            // MySQL's JSON type orders object keys its own way: compare the fields, not their order.
+            && $body['type'] === 'candidate.created' && count($body['data']) === 2 && $body['data']['object'] === 'candidate' && $body['data']['id'] === $candidate->id
             && $request->header('RE-Event-Id')[0] === $body['id']
             && ! str_contains($request->body(), 'priya.private');
     });
