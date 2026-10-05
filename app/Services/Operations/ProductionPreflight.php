@@ -61,8 +61,12 @@ class ProductionPreflight
             $connection = (string) (config("cache.stores.{$cacheStore}.connection") ?: $default);
             $lockConnection = (string) (config("cache.stores.{$cacheStore}.lock_connection") ?: $connection);
 
-            if ($connection === $default || $lockConnection === $default) {
-                $add('cache_connection', 'blocker', 'The database cache store must use its own connection (DB_CACHE_CONNECTION / DB_CACHE_LOCK_CONNECTION = mysql_cache): on the default connection, locks and rate-limit counters join business transactions.');
+            if ($connection === $default) {
+                $add('cache_connection', 'blocker', 'The database cache store must keep its data on its own connection (DB_CACHE_CONNECTION=mysql_cache): on the default connection, cache writes and rate-limit counters join business transactions.');
+            }
+
+            if ($lockConnection !== $default) {
+                $add('cache_locks', 'blocker', "Cache locks must stay on the business connection (DB_CACHE_LOCK_CONNECTION={$default}): on [{$lockConnection}] a lock taken inside a transaction is released before that transaction's work is visible, and survives its rollback.");
             }
         }
 

@@ -49,10 +49,13 @@ x-app-environment: &app-environment
   DB_QUEUE_RETRY_AFTER: "330"
   # Phase 8.9: queue health reports a silent worker or a scheduler that never reported.
   QUEUE_EXPECT_PROCESSES: "true"
-  # SaaS-7 (C3, S7-03): the database cache store and its locks on their own connection, so cache
-  # writes, locks and rate-limit counters never join a business transaction.
+  # SaaS-7 (C3, S7-03): cache data (rate-limit counters, permission generations, the maintenance
+  # flag) on its own connection, so it never joins a business transaction. Cache LOCKS stay on the
+  # business connection: a lock taken inside a transaction must commit, or roll back, with the work
+  # it guards (unique jobs, the applicant and daily-message locks) — on another connection it is
+  # released before that work is visible (SaaS-7 race test: duplicate applicant).
   DB_CACHE_CONNECTION: mysql_cache
-  DB_CACHE_LOCK_CONNECTION: mysql_cache
+  DB_CACHE_LOCK_CONNECTION: mysql
   # SaaS-7 (C13): `php artisan down` is kept in the shared cache, not a container's own disk — a
   # container recreated during a release stays down until `php artisan up`. Workers run with
   # --force so the release drain (queue:drain-status) still empties the queues while it is down.

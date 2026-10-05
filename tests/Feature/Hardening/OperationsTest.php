@@ -35,7 +35,8 @@ function operationsSafeProduction(): void
         'session.secure' => true,
         'cache.default' => 'database',
         'cache.stores.database.connection' => 'mysql_cache',
-        'cache.stores.database.lock_connection' => 'mysql_cache',
+        // Locks on the business connection (the test database here).
+        'cache.stores.database.lock_connection' => 'sqlite',
         'queue.default' => 'database',
         'mail.default' => 'smtp',
         'database.connections.mysql.password' => 'a-long-generated-password',
@@ -88,9 +89,9 @@ test('preflight blocks an unsafe production configuration', function (array $uns
     'plain http' => [['app.url' => 'http://hire.example.com'], 'app_url'],
     'insecure cookie' => [['session.secure' => false], 'session_secure'],
     'per-process cache' => [['cache.default' => 'array'], 'cache_shared'],
-    'cache on the business connection' => [['cache.stores.database.connection' => null], 'cache_connection'],
-    // (the default connection is the test database here)
-    'cache locks on the business connection' => [['cache.stores.database.lock_connection' => 'sqlite'], 'cache_connection'],
+    'cache data on the business connection' => [['cache.stores.database.connection' => null], 'cache_connection'],
+    'cache locks off the business connection' => [['cache.stores.database.lock_connection' => 'mysql_cache'], 'cache_locks'],
+    'cache locks left to follow the cache data' => [['cache.stores.database.lock_connection' => null], 'cache_locks'],
     'sync queue' => [['queue.default' => 'sync'], 'queue_async'],
     'log mailer' => [['mail.default' => 'log'], 'mail_transport'],
     'default database password' => [['database.default' => 'mysql', 'database.connections.mysql.password' => 'secret'], 'db_password'],

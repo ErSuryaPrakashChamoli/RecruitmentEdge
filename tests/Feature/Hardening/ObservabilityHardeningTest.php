@@ -103,13 +103,13 @@ test('logs mask webhook secrets, API tokens (not their key id), password hashes,
         ->and(SensitiveDataRedactor::context(['secrets' => ['current' => 'x'], 'client_secret' => 'y', 'payload' => '{}', 'id' => 5]))->toBe(['secrets' => '[redacted]', 'client_secret' => '[redacted]', 'payload' => '[redacted]', 'id' => 5]);
 });
 
-test('compose runs the cache on its own connection, keeps maintenance in the shared cache and lets workers drain while down; the entrypoint enforces preflight; mail has a timeout', function (): void {
+test('compose runs the cache data on its own connection and its locks on the business one, keeps maintenance in the shared cache and lets workers drain while down; the entrypoint enforces preflight; mail has a timeout', function (): void {
     $compose = Yaml::parseFile(base_path('docker-compose.yml'));
     $environment = $compose['x-app-environment'];
     $workers = collect($compose['services'])->filter(fn (array $service): bool => ($service['command'][2] ?? null) === 'queue:work');
     $entrypoint = (string) file_get_contents(base_path('docker/entrypoint.sh'));
 
-    expect($environment)->toMatchArray(['DB_CACHE_CONNECTION' => 'mysql_cache', 'DB_CACHE_LOCK_CONNECTION' => 'mysql_cache', 'APP_MAINTENANCE_DRIVER' => 'cache', 'APP_MAINTENANCE_STORE' => 'database'])
+    expect($environment)->toMatchArray(['DB_CACHE_CONNECTION' => 'mysql_cache', 'DB_CACHE_LOCK_CONNECTION' => $environment['DB_CONNECTION'], 'APP_MAINTENANCE_DRIVER' => 'cache', 'APP_MAINTENANCE_STORE' => 'database'])
         ->and($workers)->not->toBeEmpty()
         ->and($workers->every(fn (array $service): bool => in_array('--force', $service['command'], true)))->toBeTrue()
         ->and(strpos($entrypoint, 'php artisan ops:preflight'))->toBeGreaterThan((int) strpos($entrypoint, 'php artisan config:cache'))

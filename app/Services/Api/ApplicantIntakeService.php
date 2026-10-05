@@ -69,7 +69,8 @@ class ApplicantIntakeService
             throw ApiException::forbidden('forbidden', 'The credential\'s owner may not add candidates.');
         }
 
-        return DB::transaction(function () use ($principal, $jobPostingId, $data): array {
+        // SaaS-7 (S7-03): the applicant's submission lock first, then the transaction.
+        return $this->applications->oneAtATime($data, $jobPostingId, fn (): array => DB::transaction(function () use ($principal, $jobPostingId, $data): array {
             $this->lockUsableTenant($principal->tenant);
 
             /** @var ApiCredential|null $credential */
@@ -82,7 +83,7 @@ class ApplicantIntakeService
             $posting = $this->livePosting($jobPostingId, fn ($requisitions) => $requisitions->visibleTo($principal->owner));
 
             return $this->applications->apply($posting, $data, null, ['channel' => 'api', 'via' => 'the API', 'source' => $data['source'] ?? null]);
-        });
+        }));
     }
 
     /**
@@ -93,7 +94,7 @@ class ApplicantIntakeService
      */
     public function viaConnection(IntegrationConnection $connection, int $jobPostingId, array $data): array
     {
-        return DB::transaction(function () use ($connection, $jobPostingId, $data): array {
+        return $this->applications->oneAtATime($data, $jobPostingId, fn (): array => DB::transaction(function () use ($connection, $jobPostingId, $data): array {
             $tenant = $this->lockUsableTenant(Tenant::query()->findOrFail($connection->tenant_id));
 
             /** @var IntegrationConnection|null $locked */
@@ -110,7 +111,7 @@ class ApplicantIntakeService
             $posting = $this->livePosting($jobPostingId, fn ($requisitions) => $requisitions);
 
             return $this->applications->apply($posting, $data, null, ['channel' => 'webhook', 'via' => 'an inbound webhook', 'source' => $data['source'] ?? null]);
-        });
+        }));
     }
 
     private function lockUsableTenant(Tenant $tenant): Tenant

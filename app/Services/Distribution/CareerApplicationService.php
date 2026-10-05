@@ -27,6 +27,7 @@ use App\Services\NotificationDispatchService;
 use App\Services\SequenceCodeGenerator;
 use App\Services\Tenancy\TenantCache;
 use App\Services\Tenancy\TenantStorage;
+use Closure;
 use DomainException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
@@ -67,6 +68,13 @@ class CareerApplicationService
         'instagram' => 'SRC-011',
     ];
 
+    /**
+     * The submission locks this instance holds (oneAtATime), by contact-details hash.
+     *
+     * @var array<string, true>
+     */
+    private array $holding = [];
+
     public function __construct(
         private readonly CandidateDuplicateDetector $duplicates,
         private readonly SequenceCodeGenerator $codes,
@@ -95,16 +103,43 @@ class CareerApplicationService
             throw new DomainException('This position is not accepting online applications yet.');
         }
 
-        // Phase 8.9 (P89-DQ-011): submissions with the same contact details are decided one at a time,
-        // so a double submit finds the candidate the first one created and is held like any match.
-        // One still waiting after the wait gets the same neutral response (SEC-88-09).
+        return $this->oneAtATime($data, $posting->id, fn (): array => $this->applyOnce($posting, $data, $resume, $attribution, $recruiterId));
+    }
+
+    /**
+     * Phase 8.9 (P89-DQ-011): submissions with the same contact details are decided one at a time,
+     * so a double submit finds the candidate the first one created and is held like any match.
+     * One still waiting after the wait gets the same neutral response (SEC-88-09).
+     *
+     * SaaS-7 (S7-03): a caller that decides inside its own transaction (the API and inbound-webhook
+     * intake) takes this before opening it — so it waits holding no row lock, its transaction reads
+     * a snapshot taken after the previous submission committed, and the lock is released only after
+     * its own commit. apply() inside the callback does not take it again.
+     *
+     * @template TResult
+     *
+     * @param  array<string, mixed>  $data
+     * @param  Closure(): TResult  $decide
+     * @return TResult|array{outcome: 'held', application: null}
+     */
+    public function oneAtATime(array $data, int $postingId, Closure $decide): mixed
+    {
+        $identity = sha1(CandidateIdentityNormalizer::email($data['email'] ?? null).'|'.CandidateIdentityNormalizer::mobile($data['mobile'] ?? null));
+
+        if (isset($this->holding[$identity])) {
+            return $decide();
+        }
+
+        $this->holding[$identity] = true;
+
         try {
-            return Cache::lock(TenantCache::key('career-apply:').sha1(CandidateIdentityNormalizer::email($data['email'] ?? null).'|'.CandidateIdentityNormalizer::mobile($data['mobile'] ?? null)), 60)
-                ->block(10, fn (): array => $this->applyOnce($posting, $data, $resume, $attribution, $recruiterId));
+            return Cache::lock(TenantCache::key('career-apply:').$identity, 60)->block(10, $decide);
         } catch (LockTimeoutException) {
-            Log::info('careers.submission_in_flight', ['job_posting_id' => $posting->id]);
+            Log::info('careers.submission_in_flight', ['job_posting_id' => $postingId]);
 
             return ['outcome' => 'held', 'application' => null];
+        } finally {
+            unset($this->holding[$identity]);
         }
     }
 
