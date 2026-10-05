@@ -6,10 +6,14 @@ use App\Enums\TenantStatus;
 use App\Models\Tenant;
 use App\Services\Tenancy\TenantContext;
 use Closure;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
 use PDO;
+use ReflectionProperty;
 use RuntimeException;
+use Spatie\Permission\PermissionRegistrar;
 use Throwable;
 
 /**
@@ -124,6 +128,16 @@ final class Race
         config(['database.connections.race' => config('database.connections.mysql')]);
         DB::setDefaultConnection('race');
 
+        // SaaS-7: so is every other connection the parent opened (a shared cache's own
+        // `mysql_cache`): kept alive, forgotten, and opened afresh by the child on first use.
+        $manager = DB::getFacadeRoot();
+        array_push(self::$inherited, ...array_values($manager->getConnections()));
+        (new ReflectionProperty($manager, 'connections'))->setValue($manager, []);
+
+        if (config('cache.default') !== 'array') {
+            self::freshSharedCache();
+        }
+
         try {
             $contender();
             $result = ['completed' => true, 'exception' => null, 'message' => null];
@@ -135,6 +149,32 @@ final class Race
         posix_kill(posix_getpid(), SIGKILL);
 
         exit(0);
+    }
+
+    /**
+     * SaaS-7: the shared (database) cache as a new worker process sees it — cache stores, the rate
+     * limiter and spatie's permission registrar captured the parent's connections; they are rebuilt
+     * on the child's own.
+     */
+    private static function freshSharedCache(): void
+    {
+        // A store (or its locks) on the business connection uses the child's business connection.
+        foreach ((array) config('cache.stores') as $name => $store) {
+            foreach (['connection', 'lock_connection'] as $option) {
+                if (($store[$option] ?? null) === 'mysql') {
+                    config(["cache.stores.{$name}.{$option}" => 'race']);
+                }
+            }
+        }
+
+        app('cache')->forgetDriver(array_keys((array) config('cache.stores')));
+        app()->forgetInstance('cache.store');
+        app()->forgetInstance(RateLimiter::class);
+        Facade::clearResolvedInstances();
+
+        $permissions = app(PermissionRegistrar::class);
+        $permissions->initializeCache();
+        $permissions->clearPermissionsCollection();
     }
 
     /**
