@@ -64,6 +64,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Phase 8.10 (P810-SEC-001): when APP_TRUSTED_HOSTS is set, only those exact host names are
         // served (Laravel skips the check in local and test runs); unset, every Host is served.
         $middleware->trustHosts(at: fn (): array => array_map(fn (string $host): string => '^'.preg_quote($host).'$', config('app.trusted_hosts')), subdomains: false);
+        // SaaS-7 (C9): liveness and readiness answer in maintenance mode, like /up — they tell compose
+        // and a release whether this container can serve, not whether the site is open.
+        $middleware->preventRequestsDuringMaintenance(except: ['health/live', 'health/ready']);
         // Phase 8.8 (SEC-88-11): defensive headers on portal, career and staff sign-in pages.
         $middleware->web(append: [AddSecurityHeaders::class]);
     })

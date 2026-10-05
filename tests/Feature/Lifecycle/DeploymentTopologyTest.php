@@ -20,7 +20,8 @@ function deploymentCompose(): array
 test('migrations run once in their own service, and no serving container migrates on start', function (): void {
     $services = deploymentCompose()['services'];
 
-    expect($services['migrate']['command'])->toBe(['php', 'artisan', 'migrate', '--force', '--no-interaction'])
+    // SaaS-7 (C13): migrations run one at a time per database (ops:migrate).
+    expect($services['migrate']['command'])->toBe(['php', 'artisan', 'ops:migrate', '--no-interaction'])
         ->and($services['migrate']['restart'])->toBe('no');
 
     foreach (['app', 'scheduler', 'queue', 'queue-priority', 'queue-automation', 'queue-background'] as $service) {
@@ -34,7 +35,7 @@ test('the stack starts in order: migrated, healthy app, healthy workers, then th
 
     expect($services['app']['depends_on']['migrate']['condition'])->toBe('service_completed_successfully')
         ->and($services['app']['healthcheck']['test'])->toContain('php')
-        ->and(implode(' ', $services['app']['healthcheck']['test']))->toContain('/up');
+        ->and(implode(' ', $services['app']['healthcheck']['test']))->toContain('/health/ready');
 
     foreach ($workers as $worker) {
         expect($services[$worker]['depends_on']['app']['condition'])->toBe('service_healthy')

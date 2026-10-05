@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\OpsMigrate;
 use App\Models\AuditLog;
 use App\Models\IntegrationConnection;
 use App\Services\Operations\AuditProtection;
@@ -61,6 +62,18 @@ test('a failing dependency makes readiness 503 without revealing which or why to
     expect(app(ReadinessProbe::class)->run()['ok'])->toBeFalse();
 });
 
+test('liveness and readiness keep answering in maintenance mode, while the application does not', function (): void {
+    $this->app->maintenanceMode()->activate([]);
+
+    try {
+        $this->get('/health/live')->assertOk();
+        $this->get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok']);
+        $this->get('/admin/login')->assertServiceUnavailable();
+    } finally {
+        $this->app->maintenanceMode()->deactivate();
+    }
+});
+
 test('preflight passes a safe production configuration', function (): void {
     operationsSafeProduction();
 
@@ -96,6 +109,17 @@ test('preflight blocks an unsafe production configuration', function (array $uns
     'log mailer' => [['mail.default' => 'log'], 'mail_transport'],
     'default database password' => [['database.default' => 'mysql', 'database.connections.mysql.password' => 'secret'], 'db_password'],
 ]);
+
+test('preflight warns while critical platform alerts would be mailed to nobody', function (): void {
+    operationsSafeProduction();
+    $alerts = fn (): ?array => collect(app(ProductionPreflight::class)->problems())->firstWhere('check', 'platform_alerts');
+
+    config(['platform.notify_email' => null]);
+    expect($alerts())->toMatchArray(['level' => 'warning']);
+
+    config(['platform.notify_email' => 'platform-ops@example.com']);
+    expect($alerts())->toBeNull();
+});
 
 test('outside production the same problems are warnings, and the messages never carry a configured value', function (): void {
     config(['app.debug' => true, 'database.connections.mysql.password' => 'p4ss-in-config', 'app.key' => 'base64:short']);
@@ -179,4 +203,11 @@ test('the integrity check passes a sound database and names an orphaned referenc
     DB::table('webhook_deliveries')->insert(['tenant_id' => $this->tenant->id, 'webhook_event_id' => 999999, 'integration_connection_id' => 999999, 'delivery_key' => 'dlv_orphan', 'status' => 'pending', 'created_at' => now(), 'updated_at' => now()]);
 
     $this->artisan('ops:verify-integrity')->assertFailed()->expectsOutputToContain('webhook_deliveries');
+});
+
+test('ops:migrate runs the migrations itself — here none are pending — and names one lock per database', function (): void {
+    $this->artisan('ops:migrate')->assertSuccessful()->expectsOutputToContain('Nothing to migrate');
+
+    expect(OpsMigrate::lockName('hrms'))->toBe('migrate:hrms')
+        ->and(mb_strlen(OpsMigrate::lockName(str_repeat('d', 80))))->toBe(64);
 });

@@ -102,6 +102,10 @@ class ProductionPreflight
             $add('trusted_hosts', 'warning', 'APP_TRUSTED_HOSTS is not set: any Host header is served.');
         }
 
+        if (blank(config('platform.notify_email'))) {
+            $add('platform_alerts', 'warning', 'PLATFORM_NOTIFY_EMAIL is not set: critical platform events (a silent worker or scheduler, a failing scheduled task) are recorded but mailed to nobody (D-S7-O6).');
+        }
+
         if ((int) config('logging.channels.daily.max_files') === 0) {
             $add('log_retention', 'warning', 'LOG_DAILY_DAYS is 0: logs are kept forever (owner decision D-S7-O9).');
         }

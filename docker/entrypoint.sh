@@ -33,7 +33,7 @@ fi
 # else starts, and every container has RUN_MIGRATIONS=false. RUN_MIGRATIONS=true remains for a
 # single-container deployment without that ordering.
 if [ "$RUN_MIGRATIONS" = "true" ]; then
-    php artisan migrate --force --no-interaction
+    php artisan ops:migrate --no-interaction
 fi
 
 php artisan config:cache

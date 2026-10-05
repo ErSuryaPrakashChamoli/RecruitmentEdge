@@ -64,10 +64,12 @@ x-app-environment: &app-environment
 
 services:
   # Runs the migrations once per deploy and exits; everything else waits for it to succeed.
+  # SaaS-7 (C13): ops:migrate waits for any other run against the same database (MySQL named
+  # lock), so two deploys started together never apply a migration twice.
   migrate:
     <<: *app-base
     restart: "no"
-    command: ["php", "artisan", "migrate", "--force", "--no-interaction"]
+    command: ["php", "artisan", "ops:migrate", "--no-interaction"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -87,8 +89,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # SaaS-7 (C9): healthy once it can serve — database, cache and storage reachable (/health/ready
+    # answers 503 otherwise), not merely once the framework boots (/up).
     healthcheck:
-      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost/up') === false ? 1 : 0);"]
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost/health/ready') === false ? 1 : 0);"]
       interval: 30s
       timeout: 10s
       retries: 3
