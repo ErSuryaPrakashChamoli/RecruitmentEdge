@@ -31,7 +31,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/AuditLog.php,app/Models/Concerns/Auditable.php | .ai/rules/concerns.md |
 | tests/Concurrency/** | .ai/rules/concurrency.md |
 | docker-compose.yml,docs/runbooks/queue-operations.md,app/Console/Commands/QueueDrainStatus.php,app/Services/QueueHealthService.php | .ai/rules/console-commands-services.md |
-| app/Console/Commands/SweepStuckWork.php,config/communications.php | .ai/rules/console-commands.md |
+| app/Console/Commands/SweepStuckWork.php,config/communications.php, app/Console/Commands/** | .ai/rules/console-commands.md |
 | app/Http/Controllers/**,app/Providers/AppServiceProvider.php,config/filesystems.php | .ai/rules/controllers-providers.md |
 | app/Providers/AppServiceProvider.php,app/Filament/Resources/**,resources/css/filament/admin/theme.css | .ai/rules/css-filament-admin.md |
 | database/factories/TenantFactory.php | .ai/rules/database-factories.md |
@@ -103,6 +103,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/Webhooks/** | .ai/rules/services-webhooks.md |
 | app/Services/RecruiterDailyMetricsService.php,app/Models/RecruitmentManualActivity.php,app/Models/RecruitmentDailyActivity.php,app/Services/TargetResolutionService.php | .ai/rules/services.md |
 | app/Services/TalentPoolService.php,app/Filament/Resources/TalentPools/**,app/Filament/Resources/Candidates/Tables/CandidatesTable.php | .ai/rules/tables.md |
+| app/Services/Tenancy/** | .ai/rules/tenancy.md |
 | tests/**,app/Providers/AppServiceProvider.php | .ai/rules/tests-providers.md |
 | tests/** | .ai/rules/tests.md |
 | app/Services/AI/Tools/** | .ai/rules/tools.md |

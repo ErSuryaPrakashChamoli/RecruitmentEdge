@@ -29,6 +29,7 @@ Run during a quiet period. The procedure is consistent without stopping the app,
      --no-tablespaces --set-gtid-purged=OFF --default-character-set=utf8mb4 \
      -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' | gzip > recruitment_edge_$(date -u +%Y%m%dT%H%M%SZ).sql.gz
    ```
+   SaaS-7: `--triggers` also dumps the audit trail's append-only triggers (`audit:protect`). Loading them back needs a privileged user when binary logging is on; otherwise restore without them and run `php artisan audit:protect install` afterwards (step 6 of §3 checks it).
    Phase 8.10: `--no-tablespaces` is needed because, since MySQL 8.0.21, dumping tablespaces requires the PROCESS privilege, which the compose application user does not have. The application uses no general tablespaces. `--set-gtid-purged=OFF` keeps the dump restorable into a server with a different GTID state.
    For a point-in-time capability (an RPO below the backup interval), enable MySQL binary logging (`--log-bin`, `binlog_expire_logs_seconds`) and archive the binlogs. This is an infrastructure change, decided under D8.9-008/009.
 3. **Files** — immediately after the dump:
@@ -75,9 +76,10 @@ Run during a quiet period. The procedure is consistent without stopping the app,
    ```
    For a release rollback, this restore of the pre-release backup is the recovery path, not `migrate:rollback`. Several migrations cannot undo their data changes; for example, permission grants persist (`docs/phase-8-10-release-readiness.md` §4.3).
 4. **Files:** restore the matching archive into the `storage-data` volume (`tar xzf … -C /data`). Then start the app once with `FIX_STORAGE_OWNERSHIP=true`, because restored files can be root-owned.
-5. **Start on a compatible release:** `APP_IMAGE_TAG=<release at backup time or later> docker compose up -d`. The `migrate` service applies any newer migrations.
+5. **Start on a compatible release:** `APP_IMAGE_TAG=<release at backup time or later> docker compose up -d`. The `migrate` service (`ops:migrate`) applies any newer migrations.
 6. **Check before reopening:**
-   - `GET /up` → 200; `GET /health/queue` → 200;
+   - **SaaS-7:** `php artisan ops:verify-integrity` → "Integrity OK" (0 foreign keys with orphaned rows — a dump is loaded with foreign-key checks off, so MySQL itself does not prove this; 0 tenancy violations; 0 pending migrations). `php artisan audit:protect status` → installed (or install it); `php artisan ops:preflight` → no blocker.
+   - `GET /health/ready` → 200; `GET /up` → 200; `GET /health/queue` → 200;
    - Queue health: decide what to do with jobs that were queued at backup time (they will run — messages are re-checked at send time, and automation re-checks its owner);
    - spot-check a candidate's documents and an offer letter (the stored SHA-256 must match);
    - users sign in again where needed (sessions are as of the backup).

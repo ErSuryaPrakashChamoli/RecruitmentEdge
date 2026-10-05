@@ -1,12 +1,12 @@
 # Runbook: Queues, Workers, Scheduler and Recovery
 
-For whoever deploys and operates Recruitment Edge. Describes the system as shipped in Phase 8.7 (D8.7-029), revised in Phase 8.9 (ordered deploys, the `queue-priority` worker, heartbeats). Commands run from the application directory; in Docker prefix them with `docker compose exec app`.
+For whoever deploys and operates Recruitment Edge. Describes the system as shipped in Phase 8.7 (D8.7-029), revised in Phase 8.9 (ordered deploys, the `queue-priority` worker, heartbeats) and SaaS-7 (readiness, `ops:migrate`, preflight, the shared maintenance flag, scheduler probes and budgets). Commands run from the application directory; in Docker prefix them with `docker compose exec app`.
 
 ## 1. Deployment
 
 Phase 8.9 (D8.9-022, P89-OPS-004/005) ordered the stack:
-- the one-shot `migrate` service runs the migrations and exits;
-- `app` starts only after it succeeded, and is healthy when `GET /up` answers (which checks the database);
+- the one-shot `migrate` service runs the migrations and exits — SaaS-7: through `ops:migrate`, which waits for any other migration run against the same database (MySQL named lock), so two deploys started together never apply a migration twice;
+- `app` starts only after it succeeded. SaaS-7: its entrypoint first runs `ops:preflight`, and a production container with a blocker exits (`docker compose logs app` names the check). It is healthy when `GET /health/ready` answers 200 (database, cache and storage reachable);
 - the four workers start once the app is healthy;
 - the scheduler starts last, once every worker reports a heartbeat.
 
@@ -25,8 +25,8 @@ No serving container migrates on start.
    - Record the running tag and the last migration (`docker compose exec app php artisan migrate:status | tail -1`).
 2. **Stop intake:** `docker compose exec app php artisan down --retry=60`.
    - Web requests now get 503, so nobody creates new jobs.
-   - `GET /up` keeps answering 200 (Laravel exempts the health route from maintenance mode), so the app container stays healthy.
-   - The maintenance flag is per container (`APP_MAINTENANCE_DRIVER=file`). The workers are not in maintenance mode and keep draining.
+   - `GET /up`, `/health/live` and `/health/ready` keep answering (exempt from maintenance mode), so the app container stays healthy.
+   - SaaS-7: the maintenance flag is in the shared cache (`APP_MAINTENANCE_DRIVER=cache`, `APP_MAINTENANCE_STORE=database`). Every container — including one recreated during the release — stays down until `php artisan up`. The workers run with `--force`, so they keep draining.
 3. **Stop the scheduler:** `docker compose stop scheduler`.
    - On SIGTERM, `schedule:work` stops starting new runs and waits for the runs in progress.
    - Docker waits up to `stop_grace_period` (330 s).
@@ -51,15 +51,16 @@ No serving container migrates on start.
      2. `docker compose exec app php artisan up`.
 8. **Migrate and start the new release:** `APP_IMAGE_TAG=<new> docker compose up -d`.
    - Compose runs `migrate` first; watch `docker compose logs -f migrate`.
-   - On success it recreates `app`. The new container has no maintenance flag, so the site comes back.
-   - It then starts the workers once the app is healthy, and the scheduler once every worker reports a heartbeat.
+   - On success it recreates `app`. **It stays in maintenance mode** (the flag is shared); its health endpoints answer, so it becomes healthy.
+   - Compose then starts the workers once the app is healthy, and the scheduler once every worker reports a heartbeat. The new workers process jobs while the site is still closed.
+   - **If `app` exits at start,** `ops:preflight` found a blocker in the configuration: `docker compose logs app` names it. Fix the configuration. `PREFLIGHT_ENFORCE=false` is an emergency override only; record its use.
    - **If `migrate` fails,** nothing starts on the new image, and the old app stays in maintenance mode. MySQL DDL is not transactional, so a partial table can remain: read the full error (`.ai/rules/migrations.md`). Then either fix the cause and run `up -d` again, or roll back (step 11).
 9. **Caches:** each container rebuilds the config, route, view and event caches on start.
    - **Never run `optimize:clear` or `cache:clear` on a live system.** The cache store is the database, and clearing it deletes sign-in lockouts and rate limits, pending step-up codes, the provider circuit breaker, the scheduler and worker heartbeats, alert de-duplication and held delivery statuses.
    - To drop only compiled files: `php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan event:clear`.
 10. **Verify the release.**
     - **Containers:** `docker compose ps` shows every service `healthy`, and `migrate` exited 0.
-    - **Application:** `GET /up` → 200, and the sign-in page loads.
+    - **Application:** `GET /health/ready` → 200 and `GET /up` → 200 (the site itself still answers 503).
     - **Queues:**
       - `docker compose exec app php artisan queue:health-check` exits 0;
       - `GET /health/queue` (bearer `QUEUE_HEALTH_TOKEN`) → 200;
@@ -68,6 +69,7 @@ No serving container migrates on start.
       - `docker compose exec app php artisan schedule:list` lists 20 tasks;
       - the scheduler container is `healthy` (its check is `ops:heartbeat scheduler`);
       - Administration → **Queue health** shows nothing under "Needs attention".
+    - **Reopen:** `docker compose exec app php artisan up`; the sign-in page loads.
 11. **Roll back.**
     - **A release with migrations** (for example the first release of Phases 4–8.9):
       1. Restore the pre-release backup from step 7: database into an **empty** database, plus the matching files (`docs/runbooks/backup-restore.md` §3).
@@ -85,11 +87,11 @@ If production does not run this compose stack, how its workers run is unknown (D
 **Verification status.** The Docker steps above were not executed in Phase 8.10, because no container runtime was available (D8.10-005). The Laravel behaviours they rely on were verified on the development host against MySQL (`docs/phase-8-10-verification.md` §5):
 - a worker finishing its in-flight job on SIGTERM and taking no new one;
 - `queue:drain-status`;
-- `/up` staying 200 in maintenance mode while other pages return 503.
+- `/up` staying 200 in maintenance mode while other pages return 503 (SaaS-7: also `/health/live` and `/health/ready`, tested).
 
 That `schedule:work` stops starting runs on SIGTERM and waits for the runs in progress comes from the framework source (`ScheduleWorkCommand`). It was not run.
 
-**Environment** (see `.env.example` and `docs/runbooks/production-environment.md`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, `QUEUE_HEALTH_TOKEN`, `QUEUE_EXPECT_PROCESSES=true`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeats live there.
+**Environment** (see `.env.example` and `docs/runbooks/production-environment.md`): `QUEUE_CONNECTION=database`, `DB_QUEUE_RETRY_AFTER=330`, `QUEUE_WORKER_MAX_TIMEOUT=300`, `QUEUE_FAILED_RETENTION_HOURS=720`, `QUEUE_HEALTH_TOKEN`, `QUEUE_EXPECT_PROCESSES=true`. The cache store must be shared by every worker and the scheduler (the default database cache is): locks, the provider circuit breaker, alert deduplication and the heartbeats live there. SaaS-7: its data on its own connection (`DB_CACHE_CONNECTION=mysql_cache`), its locks on the business connection (`DB_CACHE_LOCK_CONNECTION=mysql`) — `ops:preflight` blocks any other arrangement (`docs/saas-7-scale-reliability.md` §2.2).
 
 ## 2. Queue topology
 
@@ -156,6 +158,9 @@ Queue health shows the counts over 30 minutes. `recruitment:automation:cleanup` 
   - `php artisan intelligence:refresh`
   - `php artisan jobs:sync-distributions`
 - One item that fails is logged and the pass continues. `intelligence:refresh`, `outcomes:evaluate` and `identity:enforce-separations` also exit non-zero when an item failed, which shows as "failed" in the heartbeat.
+- **SaaS-7 — tenant fan-out.** `tenants:dispatch <task>` queues a frequent task (automation process/dispatch, AI action expiry, reliability and integrations sweeps) only for tenants holding something it could act on; `--all-tenants` queues it for every usable tenant (for example after a data repair). A tenant task still queued or running is not queued again (unique per task and tenant, one hour).
+- **SaaS-7 — budgeted passes.** `tenants:run <task> --all --budget=<s>` starts no tenant once the budget is spent and resumes after the last finished tenant on the next run (`tenancy.task_budget_spent` in the log). A tenant suspended or closed during a pass is skipped (`tenancy.task_skipped`).
+- **SaaS-7 — failed or stale tasks.** A scheduled task that failed on its last run, or has not finished for three of its runs, is a health problem (`scheduled-task-failed:<task>`, `scheduled-task-stale:<task>`) and a critical platform event.
 
 ## 6. Provider outage
 
@@ -184,9 +189,11 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
   - a provider paused;
   - `retry_after` not above the worker timeout;
   - (Phase 8.9, where `QUEUE_EXPECT_PROCESSES=true`) a worker whose heartbeat is older than 5 minutes, or a scheduler that has never reported.
-- **These in-app alerts travel on the `notifications` queue of the `queue-priority` worker, and `queue:health-check` runs in the scheduler** — so a dead scheduler or priority worker cannot alert in-app about itself. **An external monitor must poll** `GET /up` (database-aware) and `GET /health/queue` (worker and scheduler heartbeats); which monitor and who it pages is decision D8.9-020 (operations).
+- **These in-app alerts travel on the `notifications` queue of the `queue-priority` worker, and `queue:health-check` runs in the scheduler** — so a dead scheduler or priority worker cannot alert in-app about itself. **An external monitor must poll** `GET /health/live`, `GET /health/ready` (database, cache, storage) and `GET /health/queue` (worker and scheduler heartbeats); which monitor and who it pages is decision D8.9-020 / D-S7-O6 (operations).
+- **SaaS-7 — platform events.** Platform-level problems (a silent worker or scheduler, a failed or stale scheduled task, `retry_after` risk) are recorded as critical platform events and **mailed at once** (not through a queue) to `PLATFORM_NOTIFY_EMAIL`. Unset, they reach nobody; `ops:preflight` warns.
+- **SaaS-7 — readiness details:** `GET /health/ready` answers `{"status":"ok"}` or `{"status":"unavailable"}` (503) publicly; with `Authorization: Bearer <QUEUE_HEALTH_TOKEN>` it also names the failing check.
 - **External monitoring:** `GET /health/queue` with `Authorization: Bearer <QUEUE_HEALTH_TOKEN>` returns JSON (queues, failed jobs, stuck counts, heartbeat) — **200** when healthy, **503** when something needs attention. It contains counts and job class names only.
-- **Logs** are redacted centrally, written daily (`laravel-YYYY-MM-DD.log`, nothing deleted until the retention decision R-13 sets `LOG_DAILY_DAYS`), level `info` in production. Useful keys: `platform.alert`, `communications.circuit_opened`, `communications.held_while_provider_paused`, `queue.listener_failed`, `identity.handoff_failed`, `queue.job_processed` (every job: class, queue, attempt, duration), `intelligence.refresh_deferred` (requisitions left for the next hourly run). Each line of a job carries `job` (uuid, class, queue, attempt) and the `request_id` of what queued it. The Apache access log has no query strings (signed links) and carries the same request id.
+- **Logs** are redacted centrally, written daily (`laravel-YYYY-MM-DD.log`, nothing deleted until the retention decision R-13 sets `LOG_DAILY_DAYS`), level `info` in production. Useful keys: `api.request` (SaaS-7: route, status, duration, credential id — never the token), `db.slow_query` (SaaS-7: SQL slower than `DB_SLOW_QUERY_MS`, never the bindings), `ops.preflight`, `tenancy.task_finished` / `tenancy.task_skipped` / `tenancy.task_budget_spent`, `platform.alert`, `communications.circuit_opened`, `communications.held_while_provider_paused`, `queue.listener_failed`, `identity.handoff_failed`, `queue.job_processed` (every job: class, queue, attempt, duration), `intelligence.refresh_deferred` (requisitions left for the next hourly run). Each line of a job carries `job` (uuid, class, queue, attempt) and the `request_id` of what queued it. The Apache access log has no query strings (signed links) and carries the same request id.
 - **Tracing:** every audit row, automation run and message carries a request id (`cmd:…` for commands, `job:…` for jobs without a caller). Filter the audit log by it to follow one action through its queued effects; the audit log's Actor column shows automation, AI, scheduler, console or queue.
 
 ## 9. Troubleshooting
@@ -201,4 +208,4 @@ When someone loses access, `ProcessOwnershipHandoffJob` (automation queue) pause
 | Messages "Blocked" that used to send | send-time check: opt-out, closed application, moved interview, withdrawn offer, joined candidate or archived template | the reason is on the message and in the audit (`communication_suppressed`) |
 | A delayed automation run "Skipped" | record left the rule's scope, owner can no longer see it, or owner lost an action's permission | the reason is on the execution; `automation_skipped_authority` / `automation_action_skipped_authority` audit |
 | Risk register not refreshed | `intelligence:refresh` still running, its lock held, or requisitions deferred by its time budget (`intelligence.refresh_deferred` in the log; `INTELLIGENCE_REFRESH_TIME_BUDGET`, 2700 s) | wait; the next hourly run takes the deferred, stalest requisitions first; deferred requisitions keep their open risks |
-| A container keeps restarting / shows `unhealthy` | app: `/up` fails (database unreachable); worker or scheduler: no heartbeat (crashed or hung) | `docker compose logs <service>`; `docker compose exec app php artisan ops:heartbeat worker --queues=…`. Compose restarts a container that exits, **not** one that is only `unhealthy` — restart it (`docker compose restart <service>`); see `incident-recovery.md` §4 |
+| A container keeps restarting / shows `unhealthy` | app: exits at start (an `ops:preflight` blocker — see its log) or `/health/ready` fails (database, cache or storage unreachable); worker or scheduler: no heartbeat (crashed or hung) | `docker compose logs <service>`; `docker compose exec app php artisan ops:heartbeat worker --queues=…`. Compose restarts a container that exits, **not** one that is only `unhealthy` — restart it (`docker compose restart <service>`); see `incident-recovery.md` §4 |
