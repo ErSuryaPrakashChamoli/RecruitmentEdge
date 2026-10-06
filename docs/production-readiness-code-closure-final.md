@@ -13,7 +13,7 @@
 
 ## 1. Outcome
 
-**PRODUCTION READINESS CODE CLOSURE: COMPLETE** — every objective of the phase is done (§2). This depends on the complete regression (§5), which runs after the last code change.
+**PRODUCTION READINESS CODE CLOSURE: COMPLETE** — every objective of the phase is done (§2), and the complete regression after the last code change is green (§5).
 
 **PRODUCTION: NO-GO.** No infrastructure, production-data, owner or external-test blocker was closed or could be closed from this repository.
 
@@ -34,7 +34,8 @@
 | Commit | Content |
 |---|---|
 | `95f85d5` | `chore: close repository production readiness gaps` — code, configuration, tests, project rules. **The last code change** |
-| (next) | `docs:` — runbooks, release checklist, closure records, final-report update |
+| `cf9082c` | `docs: production readiness runbooks, release checklist and closure records` — **the tested commit** (§5) |
+| (this commit) | `docs:` — the regression results in this report and the final report; no code or test change |
 
 ## 4. Evidence gathered before the complete regression
 
@@ -67,16 +68,35 @@
 
 ## 5. Complete regression
 
-**PENDING.** It runs after the last code change, on a clean tree, from 00:05 UTC. That keeps it outside 18:30–24:00 UTC, when 10 date-sensitive tests fail by design.
+**Run:**
+- **Tested commit:** `cf9082c`. It contains the last code change, `95f85d5`.
+- **Tree:** HEAD `cf9082c` with a clean tree (0 changed files) at both the start and the end of the run.
+- **Time:** 2026-10-06 00:05 to 01:06 UTC, outside the 18:30–24:00 UTC window of the 10 date-sensitive tests.
+- **Databases:** MySQL 8.4.11; SQLite in memory. The `hrms_prr_*` test databases were dropped afterwards.
 
-**What it runs:**
-- full SQLite;
-- full MySQL 8.4.11;
-- full concurrency (MySQL);
-- the SaaS-1…7, architecture and security subsets on both databases;
-- the SaaS-7 races alone.
+| Suite | SQLite | MySQL |
+|---|---|---|
+| **Full suite** | **2,793 / 2,793** (47,705 assertions) | **2,792 passed, 1 skipped, 0 failed / 2,793** (47,695 assertions) |
+| SaaS-1 (tenancy) | 105 / 105 | 105 / 105 |
+| SaaS-2 (identity) | 101 / 101 | 101 / 101 |
+| SaaS-3 (commercial) | 86 / 86 | 86 / 86 |
+| SaaS-4 (billing) | 90 / 90 | 90 / 90 |
+| SaaS-5 (platform) | 58 / 58 | 58 / 58 |
+| SaaS-6 (API, integrations) | 109 / 109 | 109 / 109 |
+| SaaS-7 (hardening, now with the post-restore integrity tests) | 87 / 87 | 86 passed, 1 skipped |
+| Architecture | 36 / 36 | 36 / 36 |
+| Security | 454 / 454 | 453 passed, 1 skipped |
+| **Concurrency (MySQL, all phases)** | — | **74 / 74**; SaaS-7 races alone 13 / 13 |
+| Mutation (new controls) | 28 / 28 (§4) | — |
+| Mutation (SaaS-7 controls) | CARRIED FORWARD FROM SaaS-7 (44 / 44 logic, 12 / 12 lock) | |
+| Browser | NOT APPLICABLE (no browser test suite) | |
 
-**It records** HEAD and the dirty-tree count at the start and the end. Results replace this section; none is claimed before it has run.
+**The single MySQL skip** is the audit-trigger test, which runs on SQLite only: `CREATE TRIGGER` commits the test's wrapping transaction on MySQL. The MySQL audit race covers it. The same test is the one skip counted in the SaaS-7 and security subsets.
+
+**Compared with the release-candidate run on `54e551b`:**
+- 27 more tests: 2,766 → 2,793;
+- SaaS-7 subset 62 → 87, security subset 427 → 454 — the new integrity, preflight, CORS and PR-03 tests;
+- no test removed.
 
 ## 6. Status summary
 
@@ -92,4 +112,5 @@
 | Browser | NOT APPLICABLE (no browser test suite) |
 | Production copy, backup, monitoring, CI/CD, container, load test | BLOCKED |
 | Pen test | PENDING |
+| Full regression | SQLite 2,793 / 2,793; MySQL 2,792 passed, 1 skipped, 0 failed; concurrency 74 / 74 (`cf9082c`) |
 | **Final decision** | **NO-GO** |

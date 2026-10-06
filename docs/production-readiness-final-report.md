@@ -71,6 +71,15 @@ The one MySQL skip is the trigger test, which runs on SQLite only: on MySQL, `CR
 
 Mutation, tenancy and migration results were not re-run in this phase. They were produced in SaaS-7 on the same application and test code: `54e551b` changes neither since the mutation re-check, and the rehearsals' code differs only by `68f5b4b` and test-only commits (`docs/saas-7-migration-plan.md` §4).
 
+**Code-closure regression.** After the code closure, the complete regression was re-run on `cf9082c`, which contains the last code change `95f85d5`. HEAD was unchanged and the tree clean during the run, from 2026-10-06 00:05 to 01:06 UTC.
+
+| Suite | SQLite | MySQL |
+|---|---|---|
+| Full suite | **2,793 / 2,793** | **2,792 passed, 1 skipped, 0 failed** |
+| Concurrency | — | **74 / 74** |
+
+Every SaaS, architecture and security subset passed on both databases (`docs/production-readiness-code-closure-final.md` §5). Mutation: the closure's 28 / 28 were re-run; the SaaS-7 results are CARRIED FORWARD FROM SaaS-7. This is the evidence for the candidate. It is not a release gate for a commit that has not been chosen (§36 row 19).
+
 ## 4. Commit ancestry
 
 | Commit | Role | Relationship |
