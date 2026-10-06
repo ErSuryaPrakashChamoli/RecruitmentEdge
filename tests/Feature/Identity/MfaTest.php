@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Identity\MfaService;
 use Database\Seeders\RolePermissionSeeder;
 use Filament\Facades\Filament;
+use Filament\Livewire\DatabaseNotifications;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -49,6 +50,14 @@ test('a privileged user who has not enrolled is sent to enrolment before any pan
     mfaEnrol($this->manager);
 
     $this->actingAs($this->manager->fresh())->get('/admin/acme')->assertOk();
+});
+
+test('the enrolment page opens outside any tenant, without the tenant-owned notifications', function (): void {
+    $this->actingAs($this->manager)->get(Filament::getPanel('admin')->getSetUpRequiredMultiFactorAuthenticationUrl())
+        ->assertOk()
+        ->assertDontSeeLivewire(DatabaseNotifications::class);
+
+    $this->actingAs($this->recruiter)->get('/admin/acme')->assertSeeLivewire(DatabaseNotifications::class);
 });
 
 test('the sign-in challenge is enforced once enrolled', function (): void {

@@ -14,6 +14,7 @@ use App\Http\Middleware\EnsureStaffMfa;
 use App\Http\Middleware\SetTenantContextFromPanel;
 use App\Http\Middleware\UseCandidateSessionContext;
 use App\Models\Tenant;
+use App\Services\Tenancy\TenantContext;
 use Filament\Actions\Action;
 use Filament\Enums\ThemeMode;
 use Filament\Facades\Filament;
@@ -84,7 +85,9 @@ class AdminPanelProvider extends PanelProvider
             ->multiFactorAuthentication([StaffAppAuthentication::make()->recoverable()->regenerableRecoveryCodes()], isRequired: true)
             ->multiFactorAuthenticationRequiredMiddlewareName(EnsureStaffMfa::class)
             ->profile(Profile::class, isSimple: false)
-            ->databaseNotifications()
+            // SaaS-1: notifications are tenant-owned, so the tenant-less simple pages (MFA enrolment)
+            // show no bell; their user menu, with sign-out, stays.
+            ->databaseNotifications(fn (): bool => TenantContext::current()->hasTenant())
             ->databaseNotificationsPolling('30s')
             ->renderHook(
                 PanelsRenderHook::BODY_END,

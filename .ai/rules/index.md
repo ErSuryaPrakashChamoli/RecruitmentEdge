@@ -15,6 +15,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/TargetResolutionService.php,app/Models/RecruitmentDailyTarget.php, app/Services/CandidateTimelineService.php,app/Models/CandidateTimelineEvent.php | .ai/rules/app-services-models.md |
 | app/Services/OfferService.php,app/Services/InterviewService.php, app/Services/ReferralService.php,app/Services/RecruiterIncentiveCalculator.php | .ai/rules/app-services-services.md |
 | app/Services/RecruitmentAnalyticsService.php, app/Services/InterviewService.php, app/Services/RecruitmentSlaService.php, app/Services/OfferService.php, app/Services/StageTransitionService.php, app/Services/RecruitmentActivityService.php, app/Services/** | .ai/rules/app-services.md |
+| app/Providers/Filament/AdminPanelProvider.php,app/Filament/Pages/Auth/** | .ai/rules/auth.md |
 | app/Services/NotificationDispatchService.php,app/Services/Automation/**,app/Services/RecruiterActionService.php | .ai/rules/automation-services.md |
 | app/Services/Automation/** | .ai/rules/automation.md |
 | app/Services/Billing/Providers/** | .ai/rules/billing-providers.md |
