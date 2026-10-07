@@ -1,0 +1,248 @@
+* [33m589c2f0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/production-readiness[m[33m, [m[1;33mtag: [m[1;33mbackup-production-readiness-2026-10-06[m[33m, [m[1;31morigin/feature/production-readiness[m[33m)[m last final on oct 6
+* [33m41f1b96[m docs: production bring-up stage 2B production facts (access not available)
+* [33mffe7f12[m docs: production bring-up stage 2A release-line evidence (facts required)
+* [33meb2da42[m docs: production bring-up stage 2 owner decision sheet (all open)
+* [33m0630542[m docs: production bring-up stage 1 plan (blocked on owner decisions)
+* [33mf036b77[m docs: production readiness code closure regression results (NO-GO)
+* [33mcf9082c[m docs: production readiness runbooks, release checklist and closure records
+* [33m95f85d5[m chore: close repository production readiness gaps
+* [33m2a5e378[m docs: production readiness discovery and release report (NO-GO)
+* [33m54e551b[m[33m ([m[1;32mfeature/saas-7-scale-reliability[m[33m)[m feat: implement saas-7 scale reliability
+* [33mc395827[m test: master-data factory codes from a pool that cannot collide in a long run
+* [33mb749ae1[m test: SaaS-7 hardening tests run on MySQL as well as SQLite
+* [33m490aaa9[m saas-7: tenant-led indexes proven by EXPLAIN on two large tenants
+* [33m14d1759[m test: MySQL races for SaaS-7 scale and reliability (13)
+* [33m233c831[m saas-7: ops:migrate; liveness and readiness answer through maintenance; alert recipient checked
+* [33m68f5b4b[m saas-7: the permission map also rotates when its change rolls back
+* [33m9c10286[m test: tenant-task workers listen on the task's own queue
+* [33m1f4eca6[m saas-7: tenant tasks really unique; passes re-check each tenant; deferral keeps the retry schedule
+* [33m32c4fec[m saas-7: cache locks commit with their work; the applicant lock comes before the intake transaction
+* [33mf8f32cc[m saas-7: observability, redaction, deployment safety
+* [33m38ae10a[m saas-7: queue failure paths, paused-tenant resume, per-tenant integration fairness
+* [33m8c8b21a[m saas-7: scheduler fan-out only to tenants with work; one-pass health; budgeted passes
+* [33m4d2030d[m saas-7: preflight, liveness/readiness, audit triggers, re-encryption, integrity check
+* [33me674b5e[m saas-7: tenant-scoped permission cache; two tenancy crossings fixed
+* [33mec3fd30[m docs: saas-7 discovery report
+* [33me57ddaa[m[33m ([m[1;32mfeature/saas-6-api-integrations[m[33m)[m feat: implement saas-6 api integrations
+* [33maf9b91c[m saas-6: compare outbound payload fields independently of JSON key order
+* [33mcd5ccaa[m saas-6: integration jobs and schedule meet the reliability contracts
+* [33m5aa8aed[m saas-6: MySQL races for the API and webhooks
+* [33m5e4b13e[m saas-6: tenant API, credentials, connections and webhooks
+* [33m483e711[m saas-6: entitlement keys api.access and integrations.webhooks, granted by no plan
+* [33m0715d1e[m docs: saas-6 discovery report
+* [33m3551400[m[33m ([m[1;32mfeature/saas-5-platform-control[m[33m)[m feat: implement saas-5 platform administration
+* [33m9a3d04b[m[33m ([m[1;32mfeature/saas-4-billing[m[33m)[m feat: implement saas-4 billing lifecycle
+* [33me417be1[m saas-4: MySQL billing races; state machine refusal test
+* [33m5ac816b[m saas-4: provider-neutral billing domain, subscriptions, invoices, payments, webhooks
+* [33mdc45bee[m[33m ([m[1;32mfeature/saas-3-provisioning-entitlements[m[33m)[m feat: implement saas-3 provisioning and entitlements
+* [33mfca2357[m saas-3: refuse AI where it is asked for when the plan excludes it
+* [33mc788f1b[m saas-3: MySQL commercial races; provisioning fingerprint compared without key order
+* [33m2b9f418[m saas-3: provisioning, lifecycle, catalog, security, performance and architecture tests
+* [33m7c0b92a[m saas-3: plan catalog, entitlement registry and server-side enforcement
+* [33m869d89a[m[33m ([m[1;32mfeature/saas-2-identity-access[m[33m)[m feat: implement saas-2 identity and access
+* [33m8acb32c[m saas-2: acceptance hardening, verifier checks, performance tests, rules
+* [33m2416424[m saas-2: neutral password reset, tenant MFA policy, platform plane, races
+* [33m1f1540f[m saas-2: invitations are the only way into a tenant; secure tenant switching
+* [33md7c38a4[m saas-2: tenant memberships hold the employee link and access state
+* [33m0e8d865[m[33m ([m[1;32mfeature/saas-1-tenant-foundation[m[33m)[m fix: stabilize mysql json comparison baseline
+* [33m4c5207f[m saas-1: final verification numbers in the security review
+* [33m72cbe39[m saas-1: per-person identity checks stay constant-query; identity-wide MFA test
+* [33mdc56cda[m saas-1: MySQL-verified fixes, staff listings per tenant, operator commands, docs and rules
+* [33mb215327[m saas-1: cross-tenant security suite, architecture guards and the fixes they found
+* [33m403102e[m saas-1: tenant foundation — every tenant-owned row, query, job, cache key, file and AI call bound to one tenant
+* [33m3fb40d6[m[33m ([m[1;32mfeature/sep_25_hrm[m[33m)[m docs: Phase 8.11 release record — strategy for approval, gates and exact blockers
+* [33m226bc7d[m docs: RMS final release candidate — Phase 8.10 final release readiness
+* [33m10fe3d9[m test: the hiring lifecycle end to end, once, through the real services
+* [33m049799c[m security: no one approves, adjusts or pays their own incentive (P810-SEC-008)
+* [33mf0a018a[m security: profile and employee photos accept raster images only (P810-SEC-002)
+* [33m008f2d3[m security: application-picker labels resolve within the user's scope (P810-SEC-006)
+* [33md6b8b07[m ai: compare_candidates uses only applications the user may see (P810-AI-11)
+* [33m0fff14e[m ai: AI output never renders images (P810-AI-03)
+* [33m30f252d[m ai: the approval card shows every parameter the action will run with (P810-AI-01)
+* [33md87a607[m docs: Phase 8.10 Workstreams C and D — security and data-integrity results
+* [33m198bbf3[m integrity: manual incentive calculation re-reads the application with RowLock::fresh (P810-DI-01)
+* [33m612c7a9[m integrity: a joining follows an accepted offer; Mark Joined needs it (P810-DI-04)
+* [33m1a40e6c[m integrity: the referral bonus follows the joining record, not the stage (P810-DI-02)
+* [33m2404763[m integrity: manual incentive calculation needs the lifecycle event and prices once (P810-DI-01)
+* [33m88df53a[m security: candidate picks and attachments are bounded by the user's scope (P810-SEC-004)
+* [33m6ead373[m security: emailed links take their host from APP_URL, never the request (P810-SEC-001)
+* [33mc31028e[m docs: Phase 8.10 Workstream A continuation — Release A/B split, drain, production facts, runner gate
+* [33m46b35d1[m rules: release drain order and rollback-by-restore; MySQL reserved-word aliases
+* [33m51e4b42[m runbook: a release drains intake, scheduler and workers before backup and migrate (P810-OP-03)
+* [33mf40c667[m ops: queue:drain-status, a read-only deploy drain check (P810-OP-03)
+* [33m4c15e99[m docs: Phase 8.10 Workstream A evidence — release readiness, verification log, decision updates
+* [33m38ceee2[m runbook: backup/restore procedure corrected from the Phase 8.10 restore test (P89-OPS-001, A1)
+* [33mae48029[m deps: security patch updates laravel/framework 13.30.1, league/commonmark 2.10.3 (D8.10-020, P810-SEC-015)
+* [33mb487ac6[m docs: Phase 8.10 Workstream A log — A3 status, stop at decision boundary (P810-SEC-015, D8.10-020)
+* [33mbd32662[m build: PHP 8.5 runtime pinned by digest; install only extensions the image lacks (P810-OP-01)
+* [33m358edbf[m docs: Phase 8.10 discovery — report, security review, decision register, backlog reconciliation
+* [33m5d522df[m docs: Phase 8.9 freeze record — FROZEN under the owner's final freeze gate
+* [33m4b91851[m docs: identify the unsaved one-off runs in Phase 8.9 performance §9
+* [33m7007ddf[m docs: Phase 8.9 documentation remediation (benchmark provenance and wording)
+* [33m4e87e03[m docs: Phase 8.9 implementation, security re-review, performance acceptance, operational dispositions, decision record, runbooks, backlog and freeze gate (not frozen)
+* [33m1acd789[m metrics: count source-to-join while paging the period's joinings (P89-PERF-028 family)
+* [33m9bc7067[m rules: in-place median helpers for large metric populations
+* [33m06b105a[m performance: covering index for the candidate scope's visible set (P89-PERF-002, ED-02)
+* [33m05f6863[m metrics: medians and means over plain lists, sorted in place, for time in stage and SLA legs (P89-PERF-028/029)
+* [33md6eee3c[m alerts: page the SLA sweep on current_stage alone and check status per page (P89-PERF-004)
+* [33m74b7295[m alerts: page the SLA sweep over applications by id, computing entry times per page (P89-PERF-004)
+* [33m762a136[m rules: deferred dashboard widgets load on page load, in one bundle
+* [33mad43ea9[m dashboard: start the deferred widgets on page load, not when scrolled into view (P89-PERF-015)
+* [33m5755482[m rules: finish hand-started commands and jobs in tests; outcome record deadlock retry
+* [33m3aaf246[m tests: the actor-kind guard throws instead of asserting, so no-assertion tests stay valid
+* [33mcc6da61[m outcomes: run a first-time outcome record again when MySQL picks it as a deadlock victim (P89-PERF-021)
+* [33m130b440[m tests: fail a feature test that leaves the audit actor kind set
+* [33ma746d47[m tests: raise JobAttempted after a hand-built job, as the queue does
+* [33m2c1e014[m observability: restore the audit actor kind when a command or job ends, however it ends
+* [33md3e6c66[m rules: talent-pool request cap; bounded reliability sweep
+* [33m9a53ef4[m ops: say what Compose does with an unhealthy container; document the sweep bound
+* [33m487f30b[m talent pools: one request adds or moves at most 500 candidates (P89-PERF-024, PF-88-05)
+* [33m447ee7c[m portal: alert recruiters about an uploaded document from the notifications queue (P89-PERF-024, E-14 / PF-88-09)
+* [33mcbc5475[m reliability: one sweep re-queues a bounded number of held messages, oldest first (P89-PERF-007, ED-04)
+* [33m1dd4125[m tests: reset Livewire's process-wide lazy-loading switch between dashboard tests
+* [33m625eabf[m offers: downloading during the Word→PDF conversion notifies instead of a type error (P89-PERF-024)
+* [33md18bdf9[m rules: record Phase 8.9 locking, queue topology, async documents, dashboard loading, memos, search, metrics, storage and deployment rules
+* [33md8f9e3e[m tests: keep the signed private-file URL builder on the faked local disk (P89-DQ-016)
+* [33m5086ffc[m careers: decide submissions with the same contact details one at a time (P89-DQ-011)
+* [33m776325f[m applications: move and reassign decide on the locked application; a duplicate is refused readably (P89-DQ-009)
+* [33md9ac3a9[m automation: cancel and finish only win against the state they expect, in one conditional write (P89-DQ-010)
+* [33m4ea4a4f[m performance snapshots: the write refuses a month frozen since it was read (P89-DQ-012)
+* [33m9ef9c1b[m ops: prune expired cache rows, reset tokens and old finished batches daily — technical housekeeping, not retention (P89-OPS-009, ED-08)
+* [33m95b2f58[m tests: fake the local and public disks for every feature test (P89-DQ-016)
+* [33m1a321c9[m storage: read-only storage:audit — size per area, unreferenced files, records with missing files (D8.9-017)
+* [33m69b96ca[m incentives: effective amounts from a preloaded adjustment total, not a query per row (P89-PERF-022)
+* [33mab747a4[m dashboard: paint the day's numbers first, load the rest in one bundled request; position health once per request (P89-PERF-015, ED-09)
+* [33ma0e58ec[m interviewers: import spreadsheets on the documents queue, re-checking the requester (P89-PERF-024)
+* [33m50f434f[m offers: convert released Word letters to PDF on the documents queue, never in the request (P89-PERF-024)
+* [33m40b3e3f[m observability: per-process worker heartbeat writer (no shared static state)
+* [33m1aecb33[m deployment: ordered, health-checked compose stack; once-per-volume ownership fix; runbooks (P89-OPS-001/004/005/008/010/011)
+* [33m88c10b8[m security + observability: build context, root password, throttles, Zoom token, sessions, logs, heartbeats (P89-SEC-005..010, P89-OPS-002/006/007)
+* [33m3797c71[m identity: serialise last-CHRO protection on the CHRO role row (P89-SEC-004)
+* [33m094bd04[m communications: re-check the staff sender's authority at send time (P89-SEC-011)
+* [33ma5984ab[m automation: decide the daily limit when a run is due, prune limit skips in batches (P89-PERF-008, P89-DQ-014)
+* [33m8705b86[m scheduler: stream the alert sweep, budget the intelligence refresh, stream outcome learning (P89-PERF-004/005/014/023, P89-DQ-015)
+* [33m4607de3[m queues: security mail and alerts on their own worker, exports on a named queue, fresh worker permissions (ED-05/06/11, P89-SEC-002/003, P89-PERF-006/017)
+* [33m217b116[m performance: candidate scope semi-join, exact identifier search, audit and pipeline paths, justified indexes (P89-PERF-002/003/010/011/013)
+* [33mad2a428[m performance: remember each employee's subtree per request/job (P89-PERF-012, ED-01)
+* [33m5c39c0d[m metrics: remove unbounded materialization from four governed metrics and distribution analytics (P89-PERF-027/028/029)
+* [33mb55683e[m integrity: decide every lifecycle and incentive transition on the locked, latest row (P89-DQ-001..006, PERF-021)
+* [33md939533[m security: scope recruitment targets to the hierarchy and route every write through RecruitmentTargetService (P89-SEC-001)
+* [33mecd2b91[m docs: Phase 8.9 discovery — scale, performance, observability and operational readiness
+* [33mdce11d9[m Phase 8.8 — Authentication Foundation: decisions, documentation and freeze
+* [33m05a9fd3[m security: decisioned Phase 8.8 remediation (SEC-88-03/04/06/11/12/13/15/17)
+* [33m460c394[m test: pin the joining date in OutcomeReobservationTest (flaky fixture)
+* [33m9bdd6bc[m security: time-box the failed candidate sign-in audit (D8.8-001)
+* [33m9315879[m security: implement approved candidate authentication model (D8.8-001)
+* [33m55fefd3[m security: contain anonymous candidate mutation and enumeration
+* [33ma98b0c2[m Phase 8.7 — freeze
+* [33mf2c0691[m Phase 8.7 — documentation, runbook and project rules
+* [33m991617f[m Phase 8.7 — tests: sweeper idempotency and knowledge reindex state check
+* [33m5c92f79[m Phase 8.7 — fixes found by the browser smoke
+* [33me1c9144[m Phase 8.7 — redact exception text stored on automation runs and messages
+* [33m4397ec8[m Phase 8.7 — data-quality fixes: portal timeline, portal link, automation redo, early webhooks
+* [33m5461c73[m Phase 8.7 — metric governance guard and raw-counter inventory (D8.7-025 a)
+* [33mb3c435b[m Phase 8.7 — queue health page, monitoring endpoint and platform alerts
+* [33me974ebf[m Phase 8.7 — worker topology, graceful shutdown and retry_after alignment
+* [33m627b939[m Phase 8.7 — scheduler overlap guards, fault isolation and heartbeat
+* [33meaa5e5c[m Phase 8.7 — transition locking, state-aware integration jobs, atomic capture
+* [33m2468e83[m Phase 8.7 — automation and escalation authority at execution time
+* [33mb30455d[m Phase 8.7 — communication send-time safeguards, circuit breaker, resend, sweeps
+* [33m5a34271[m Test-only: pin the clock in the interview turn-up metric test
+* [33mcfacce0[m Phase 8.7 — correlation ids and asynchronous actor context
+* [33mfd564e3[m Phase 8.7 — central log redaction and the failed-job lifecycle
+* [33mb4021ee[m Phase 8.7 — queue payload privacy
+* [33mf127dd7[m Phase 8.7 — Risk Radar evaluates every open requisition before resolving
+* [33mfa4e858[m Phase 8.6 — documentation and freeze
+* [33m14e7416[m Phase 8.6 — fast as-of setting lookup for the SLA metric
+* [33mb8adf6e[m Phase 8.6 — project rules for data governance
+* [33m05fd14f[m Phase 8.6 — mark archived master data on existing records
+* [33m403fef4[m Phase 8.6 — configuration fingerprint and read-only governance audit
+* [33m3e51819[m Phase 8.6 — strict authorization and a fail-closed gate
+* [33mbc52957[m Phase 8.6 — automation and communication configuration governance
+* [33mfaa6b9e[m Phase 8.6 — pipeline template versions and governed re-application
+* [33ma6aaffa[m Tests: fix two order/date-dependent flaky tests
+* [33mf0cdb8f[m Phase 8.6 — incentive pricing snapshots, use-lock, ranges and freeze catch-up
+* [33m69e7d2e[m Phase 8.6 — settings history and as-of SLA targets
+* [33mcc5ac9e[m Phase 8.6 — issued offer letters and template versions
+* [33m44adbfe[m Phase 8.6 — audit foundation and master-data lifecycle
+* [33m88fbcf6[m Phase 8.7 — discovery only (queue, automation and communications reliability)
+* [33m42156f2[m Phase 8.6 — discovery and decision record
+* [33mdcff76e[m Security: close Filament's missing-policy-method delete bypass
+* [33m05c922a[m Phase 8.5 — documentation and freeze
+* [33m7d2dff4[m Phase 8.5 — frozen performance months, metric indexes, architecture guards
+* [33m21815d3[m Phase 8.5 — Outcome Loop re-observation after a cancelled separation (DF-11)
+* [33m2eb8b1a[m Phase 8.5 — compensation behind compensation.view (SEC-2, D22)
+* [33m8b2c62a[m Phase 8.5 — recruiter activity authority (SEC-4)
+* [33mc751248[m Phase 8.5 — dashboard, reports, Copilot and alerts read the governed metrics
+* [33m61e3482[m Phase 8.5 — metric registry, contracts, primitives and canonical metrics
+* [33m8972f32[m Phase 8.5 — stage-history event vocabulary (DF-9)
+* [33m1d17563[m Phase 8.5 — discovery and locked decision record
+* [33ma38a8d9[m Phase 8.4 — documentation and release freeze
+* [33mc229f9d[m Phase 8.4 — tests, security, browser and performance hardening
+* [33ma6ae128[m Phase 8.4 — metric fixes (D12)
+* [33mc5f3db0[m Phase 8.4 — access review, admin UI, reconciliation and identity audit
+* [33me10a045[m Phase 8.4 — ownership handoff, automation authority and notification routing
+* [33mfc15bf1[m Phase 8.4 — provisioning, rehire and separation cancellation
+* [33mbb23533[m Phase 8.4 — MFA
+* [33m4071ae3[m Phase 8.4 — credentials, sessions and identity audit
+* [33mdb33ff9[m Phase 8.4 — AI identity security
+* [33mb527c6e[m Phase 8.4 — hierarchy integrity
+* [33md9b1147[m Phase 8.4 — authority guardrails
+* [33m04723ef[m Phase 8.4 — separation revocation and employment lifecycle
+* [33m8a4dfc4[m Phase 8.4 — access-state foundation
+* [33m6109823[m Phase 8.3 — documentation and release freeze
+* [33m6903ff3[m Phase 8.3 — tests, security and browser hardening
+* [33m68541f0[m Phase 8.3 — outcome evaluation hardening
+* [33ma97790d[m Phase 8.3 — lifecycle audit
+* [33me152e44[m Phase 8.3 — queue and deployment reliability
+* [33mbf2c94f[m Phase 8.3 — joining anchor for filled openings and Hiring Memory
+* [33m367a553[m Phase 8.3 — idempotency and automation reliability
+* [33m23c3956[m Phase 8.3 — rejection and dropout cascades; after-commit events
+* [33m3a83119[m Phase 8.3 — joining and employee conversion integrity
+* [33mcab1951[m Phase 8.3 — offer lifecycle integrity
+* [33mf5c8f36[m Phase 8.3 — interview lifecycle integrity
+* [33m288ef03[m Phase 8.3 — application lifecycle integrity
+* [33md3e0a9e[m Phase 8.3 — lifecycle service boundaries
+* [33m7c4e945[m Phase 8.2 — documentation and release freeze
+* [33m97b50d3[m Phase 8.2 — tests, browser coverage and final hardening
+* [33m51f6fa7[m Phase 8.2 — backfill, permissions, hierarchy and security hardening
+* [33me3530a4[m Phase 8.2 — AI outcome analysis and privacy integration
+* [33mccdf13f[m Phase 8.2 — Hiring Memory, Role DNA and Talent Signal integration
+* [33me8ca784[m Phase 8.2 — outcome analytics and dashboard
+* [33mb0ae95d[m Phase 8.2 — separation view page
+* [33mcc2ab92[m Phase 8.2 — separation and status observations
+* [33m819112a[m Phase 8.2 — joining events and hiring snapshot
+* [33m65d4969[m Phase 8.2 — outcome observation and calculation engine
+* [33m258e2e2[m Phase 8.2 — outcome taxonomy and data model
+* [33m986e7b8[m Phase 8.1 — documentation and final hardening
+* [33m361abfe[m Phase 8.1 — contract, security and hierarchy tests
+* [33mb482742[m Phase 8.1 — AI conversation permission and hierarchy hardening
+* [33m2fc3b43[m Phase 8.1 — RAG, jobs and logging hardening
+* [33mae0d45e[m Phase 8.1 — communication and conversation privacy
+* [33med80ccb[m Phase 8.1 — provider egress guard
+* [33m476c5d7[m Phase 8.1 — AI tool output sanitization and projections
+* [33mcbf2d04[m Phase 8.1 — AI projector and safe references
+* [33m4fc57e5[m phases 4-7: shared integration points
+* [33m38b3ab6[m phase-7: final hardening and documentation
+* [33m0a3fec4[m phase-7: provider failure handling
+* [33me2727d4[m phase-7: edge intelligence
+* [33m27f4561[m phase-6: automation and action os
+* [33m83f3531[m phase-5: communication and distribution
+* [33mf50ea39[m phase-4.1: recruitment hardening
+* [33mbeafaa9[m phase-4: configurable recruitment foundation
+[31m|[m * [33m599f0c5[m[33m ([m[1;32mhotfix/p810-production-authorization[m[33m)[m Security hotfix (production line): explicit CandidateJoiningPolicy::create (SEC-86-I-01)
+[31m|[m * [33m2fab3fd[m[33m ([m[1;32mhotfix/filament-delete-authorization[m[33m)[m Security hotfix: close Filament's missing-policy-method delete bypass
+[31m|[m[31m/[m  
+* [33m9cba8e3[m[33m ([m[1;31morigin/test[m[33m, [m[1;31morigin/production[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/feature/sep_22_requistion[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mtest[m[33m, [m[1;32mproduction[m[33m, [m[1;32mmain[m[33m, [m[1;32mfeature/sep_22_requistion[m[33m)[m mobile no add on application detail
+* [33m1e2518e[m[33m ([m[1;32mfeature/sep_22_requistions[m[33m, [m[1;32mfeature/sep_21_update_without_demo[m[33m, [m[1;32mfeature/sep_21_branch_setup[m[33m)[m Explain empty requisition list, fix dashboard trend and source chart, cast manual activity metric
+[32m|[m * [33m5c9ce85[m[33m ([m[1;31morigin/feature/sep_21_demo[m[33m, [m[1;32mfeature/sep_21_demo[m[33m)[m demo added
+[32m|[m * [33m8748660[m updated on logo
+[32m|[m[32m/[m  
+* [33m897008f[m[33m ([m[1;32mfeature/sep_12_fixes[m[33m)[m update with main
+* [33m94317cd[m Close gaps against Recruitment Edge product walkthrough
+* [33m3d93626[m fix
+* [33mcfbab3c[m[33m ([m[1;32mfeature/sep_8_check[m[33m, [m[1;32mfeature/sep_2_dockerfile[m[33m)[m add docker file
+* [33m41bfd75[m updated dockerfile
+* [33maaf6c66[m[33m ([m[1;32mfeature/aug_28_stage_1[m[33m)[m phase  1 hrms completed
+* [33m989acad[m first push
+* [33mb6222cb[m first commit
