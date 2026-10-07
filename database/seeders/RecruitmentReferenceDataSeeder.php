@@ -30,6 +30,14 @@ use Illuminate\Database\Seeder;
  */
 class RecruitmentReferenceDataSeeder extends Seeder
 {
+    /**
+     * @param  bool  $activateEmailTemplates  Whether new starter email templates start Active (sent
+     *                                        automatically) or Draft. ProductionBaselineSeeder passes
+     *                                        false, so seeding a live install never starts emailing
+     *                                        candidates before an administrator activates a template.
+     */
+    public function __construct(private readonly bool $activateEmailTemplates = true) {}
+
     public function run(): void
     {
         $sources = [
@@ -141,9 +149,10 @@ class RecruitmentReferenceDataSeeder extends Seeder
 
     /**
      * Phase 5 starter templates, keyed by the purposes event-driven communications look up.
-     * Email templates start Active (the app's own mail transport); SMS and WhatsApp start as
-     * Draft, since they need a configured provider — and WhatsApp a provider-approved template
-     * name — before an administrator activates them. Idempotent; never overwrites edits.
+     * Email templates start Active (the app's own mail transport) unless $activateEmailTemplates
+     * is false; SMS and WhatsApp start as Draft, since they need a configured provider — and
+     * WhatsApp a provider-approved template name — before an administrator activates them.
+     * Idempotent; never overwrites edits.
      */
     private function seedCommunicationTemplates(): void
     {
@@ -164,7 +173,7 @@ class RecruitmentReferenceDataSeeder extends Seeder
 
         foreach ($templates as [$key, $name, $subject, $body]) {
             if (! CommunicationTemplate::query()->where(['key' => $key, 'channel' => CommunicationChannel::Email, 'language' => 'en'])->exists()) {
-                $service->create(['key' => $key, 'name' => $name, 'channel' => CommunicationChannel::Email, 'subject' => $subject, 'body' => $body, 'status' => TemplateStatus::Active]);
+                $service->create(['key' => $key, 'name' => $name, 'channel' => CommunicationChannel::Email, 'subject' => $subject, 'body' => $body, 'status' => $this->activateEmailTemplates ? TemplateStatus::Active : TemplateStatus::Draft]);
             }
 
             foreach ([CommunicationChannel::Sms, CommunicationChannel::WhatsApp] as $channel) {

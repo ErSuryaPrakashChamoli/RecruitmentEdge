@@ -97,6 +97,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | routes/** | .ai/rules/routes.md |
 | app/Filament/Resources/Interviews/Schemas/InterviewForm.php,app/Models/Interviewer.php,app/Services/InterviewerImportService.php | .ai/rules/schemas-models-services.md |
 | app/Filament/Resources/**/Schemas/*.php | .ai/rules/schemas.md |
+| database/seeders/** | .ai/rules/seeders.md |
 | app/Services/Automation/AutomationRuleService.php,app/Services/Communication/CommunicationTemplateService.php | .ai/rules/services-communication.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveRule.php,app/Models/RecruitmentIncentiveSlab.php,app/Models/RecruiterIncentiveCalculation.php | .ai/rules/services-models-models-models.md |
 | app/Services/RecruiterIncentiveCalculator.php,app/Services/IncentiveApprovalService.php,app/Models/RecruiterIncentiveCalculation.php, app/Services/IncentiveApprovalService.php,app/Services/RecruiterIncentiveCalculator.php,app/Models/RecruitmentIncentiveSlab.php, app/Services/RequisitionApprovalService.php,app/Services/StageTransitionService.php,app/Models/RecruitmentRejectionReason.php | .ai/rules/services-models.md |

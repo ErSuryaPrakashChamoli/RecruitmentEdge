@@ -17,7 +17,7 @@ class RolePermissionSeeder extends Seeder
     /**
      * @var array<int, string>
      */
-    private const array PERMISSIONS = [
+    public const array PERMISSIONS = [
         'hierarchy.view-all',
         'hierarchy.reassign',
         'requisitions.viewAny',
@@ -318,13 +318,24 @@ class RolePermissionSeeder extends Seeder
         'recruiter' => ['compensation.view'],
     ];
 
+    /**
+     * The permissions each default role starts with, keyed by role key ('*' resolved to every
+     * permission). ProductionBaselineSeeder gives these to a default role it has to create.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function defaultRolePermissions(): array
+    {
+        return array_map(fn (array $permissions): array => $permissions === ['*'] ? self::PERMISSIONS : $permissions, self::ROLE_PERMISSIONS);
+    }
+
     public function run(): void
     {
         foreach (self::PERMISSIONS as $permission) {
             Permission::findOrCreate($permission);
         }
 
-        foreach (self::ROLE_PERMISSIONS as $roleName => $permissions) {
+        foreach (self::defaultRolePermissions() as $roleName => $permissions) {
             $role = Role::findOrCreate($roleName);
 
             // Phase 8.4: seeded roles are identified by an immutable key; CHRO is protected.
@@ -332,7 +343,7 @@ class RolePermissionSeeder extends Seeder
                 $role->forceFill(['key' => $roleName, 'is_protected' => in_array($roleName, config('identity.protected_roles'), true)])->save();
             }
 
-            $role->syncPermissions($permissions === ['*'] ? self::PERMISSIONS : $permissions);
+            $role->syncPermissions($permissions);
         }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
