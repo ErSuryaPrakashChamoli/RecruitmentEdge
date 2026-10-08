@@ -6,11 +6,14 @@ use App\Enums\AiRiskLevel;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\HierarchyService;
 
 class GetRequisitionTool implements AiTool
 {
+    use ProjectsForAi;
+
     public function __construct(private readonly HierarchyService $hierarchy) {}
 
     public function name(): string
@@ -60,7 +63,7 @@ class GetRequisitionTool implements AiTool
 
         return ToolResult::ok(
             data: [
-                'requisition' => $requisition->toArray(),
+                'requisition' => $this->projector()->requisitionDetail($requisition),
                 'remaining_openings' => $requisition->remainingOpenings(),
                 'ageing_days' => $requisition->ageingInDays(),
             ],

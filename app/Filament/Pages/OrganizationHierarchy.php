@@ -2,13 +2,16 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\EmployeeStatus;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Resources\RecruiterPerformanceSnapshots\RecruiterPerformanceSnapshotResource;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Identity\HierarchyIntegrityService;
 use BackedEnum;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
@@ -96,12 +99,19 @@ class OrganizationHierarchy extends Page
             ->visible(fn (): bool => $this->canReassign())
             ->schema(function (array $arguments) {
                 $employee = Employee::query()->findOrFail($arguments['employeeId']);
+                /** @var User $user */
+                $user = Filament::auth()->user();
+                $visible = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
 
+                // Phase 8.4: only current employees inside the actor's hierarchy, never someone in
+                // the moved employee's own reporting line (HierarchyIntegrityService re-checks).
                 return [
                     Select::make('reports_to_id')
                         ->label('New Manager')
                         ->options(Employee::query()
-                            ->where('id', '!=', $employee->id)
+                            ->where('status', EmployeeStatus::Active->value)
+                            ->whereNotIn('id', app(HierarchyService::class)->descendantIdsOf($employee->id))
+                            ->when($visible !== null, fn ($query) => $query->whereIn('id', $visible))
                             ->get()
                             ->mapWithKeys(fn (Employee $e) => [$e->id => $e->fullName()]))
                         ->searchable()
@@ -113,7 +123,16 @@ class OrganizationHierarchy extends Page
                 abort_unless($this->canReassign(), 403);
 
                 $employee = Employee::query()->findOrFail($arguments['employeeId']);
-                $employee->update(['reports_to_id' => $data['reports_to_id']]);
+                /** @var User $user */
+                $user = Filament::auth()->user();
+
+                try {
+                    app(HierarchyIntegrityService::class)->reassign($employee, (int) $data['reports_to_id'], $user);
+                } catch (DomainException $e) {
+                    Notification::make()->title('Manager could not be reassigned')->body($e->getMessage())->danger()->send();
+
+                    return;
+                }
 
                 Notification::make()->title('Manager reassigned')->success()->send();
             });

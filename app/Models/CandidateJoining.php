@@ -5,12 +5,15 @@ namespace App\Models;
 use App\Enums\DocumentStatus;
 use App\Enums\JoiningStatus;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\CandidateJoiningFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'candidate_application_id',
@@ -26,7 +29,23 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class CandidateJoining extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes;
+
+    /**
+     * Phase 8.3: status, dates of record, offer and application change only through
+     * CandidateJoiningService (the joining record is the completed-hire anchor).
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['status', 'actual_doj', 'confirmed_at', 'offer_id', 'candidate_application_id', 'dropout_reason_id'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'CandidateJoiningService';
+    }
 
     /** @use HasFactory<CandidateJoiningFactory> */
     use HasFactory;
@@ -44,10 +63,17 @@ class CandidateJoining extends Model
 
     /**
      * Section 17's traffic-light risk indicator, driven by the configurable
-     * `joining_risk_followup_days` setting rather than a hard-coded threshold.
+     * `joining_risk_followup_days` setting rather than a hard-coded threshold: green, yellow, red,
+     * or closed (a cancelled joining).
      */
     public function riskLevel(): string
     {
+        // Phase 8.5 (DF-8): a cancelled joining is closed — it no longer falls through to the date
+        // rules and shows as an overdue (red) or approaching (yellow) joining.
+        if ($this->status === JoiningStatus::Cancelled) {
+            return 'closed';
+        }
+
         if ($this->status === JoiningStatus::Joined) {
             return 'green';
         }
@@ -92,7 +118,7 @@ class CandidateJoining extends Model
      */
     public function dropoutReason(): BelongsTo
     {
-        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id');
+        return $this->belongsTo(RecruitmentRejectionReason::class, 'dropout_reason_id')->withTrashed();
     }
 
     /**
@@ -101,6 +127,16 @@ class CandidateJoining extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * The Outcome Loop snapshot frozen when this joining was marked Joined (Phase 8.2).
+     *
+     * @return HasOne<HiringOutcomeSnapshot, $this>
+     */
+    public function outcomeSnapshot(): HasOne
+    {
+        return $this->hasOne(HiringOutcomeSnapshot::class, 'candidate_joining_id');
     }
 
     /**

@@ -2,9 +2,13 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\CandidateJoining;
+use App\Services\Metrics\MetricResult;
 use App\Services\RecruitmentAnalyticsService;
+use Filament\Facades\Filament;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
@@ -18,11 +22,7 @@ use Illuminate\Support\Collection;
  */
 class OfferJoiningAnalyticsWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.offer-joining-analytics';
 
@@ -40,6 +40,21 @@ class OfferJoiningAnalyticsWidget extends Widget
         [$start, $end] = $this->resolvePeriod();
 
         return app(RecruitmentAnalyticsService::class)->joiningAnalytics($start, $end, $this->filteredUser());
+    }
+
+    public function getMetric(string $key): MetricResult
+    {
+        [$start, $end] = $this->resolvePeriod();
+
+        return app(RecruitmentAnalyticsService::class)->metric($key, $start, $end, $this->filteredUser());
+    }
+
+    /**
+     * Phase 8.5 (D22, SEC-2): compensation figures are shown only to viewers allowed to see pay.
+     */
+    public function canSeeCompensation(): bool
+    {
+        return (bool) Filament::auth()->user()?->can('compensation.view');
     }
 
     /**

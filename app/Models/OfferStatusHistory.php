@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\OfferStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +17,8 @@ use LogicException;
 #[Fillable(['offer_id', 'from_status', 'to_status', 'changed_by', 'remarks'])]
 class OfferStatusHistory extends Model
 {
+    use BelongsToTenant;
+
     public const ?string UPDATED_AT = null;
 
     protected static function booted(): void

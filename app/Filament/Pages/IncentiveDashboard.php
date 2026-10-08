@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Filament\Resources\RecruitmentIncentiveRules\RecruitmentIncentiveRuleResource;
 use App\Filament\Widgets\IncentiveDashboardStats;
@@ -83,6 +84,11 @@ class IncentiveDashboard extends Page
                     ->options(fn (): array => app(IncentiveStatementService::class)->monthOptions())
                     ->default(now()->format('Y-m'))
                     ->required(),
+                Select::make('beneficiary_type')
+                    ->label('Statement')
+                    ->options(IncentiveBeneficiary::options())
+                    ->default(IncentiveBeneficiary::Recruiter->value)
+                    ->required(),
             ])
             ->action(function (array $data): mixed {
                 /** @var User $user */
@@ -96,7 +102,7 @@ class IncentiveDashboard extends Page
                     throw new Halt;
                 }
 
-                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']));
+                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']), IncentiveBeneficiary::from($data['beneficiary_type'] ?? IncentiveBeneficiary::Recruiter->value));
             });
     }
 
@@ -113,6 +119,7 @@ class IncentiveDashboard extends Page
         }
 
         return RecruiterIncentiveCalculation::query()
+            ->forRecruiters()
             ->where('employee_id', $user->employee_id)
             ->whereDate('period_start', now()->startOfMonth())
             ->with(['incentiveRule.slabs', 'incentiveSlab', 'adjustments', 'employee', 'candidate', 'candidateApplication'])
@@ -270,6 +277,7 @@ class IncentiveDashboard extends Page
     private function calculationsByRecruiterFor(Carbon $periodStart, Collection $recruiterIds): Collection
     {
         return RecruiterIncentiveCalculation::query()
+            ->forRecruiters()
             ->whereIn('employee_id', $recruiterIds)
             ->whereDate('period_start', $periodStart)
             ->with(['adjustments', 'incentiveRule', 'candidate'])

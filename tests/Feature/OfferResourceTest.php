@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ApplicationStatus;
+use App\Enums\CandidateStage;
 use App\Enums\OfferStatus;
 use App\Filament\Resources\Offers\OfferResource;
 use App\Filament\Resources\Offers\Pages\CreateOffer;
@@ -65,7 +66,7 @@ test('a user with offers.release can release an offer from the table', function 
 
 test('a service rule violation while releasing shows a notification instead of an error page', function (): void {
     actingAsOfferUser($this->recruiter, 'manager');
-    $this->application->forceFill(['status' => ApplicationStatus::Rejected])->save();
+    lifecycleFixture(fn () => $this->application->forceFill(['status' => ApplicationStatus::Rejected])->save());
 
     Livewire::test(ListOffers::class)
         ->callAction(TestAction::make('releaseOffer')->table($this->offer))
@@ -88,10 +89,11 @@ test('the offer letter PDF can be downloaded from the table and the edit page', 
 
 test('creating an offer from the panel writes its initial status history row', function (): void {
     actingAsOfferUser($this->recruiter, 'recruiter');
+    $selected = CandidateApplication::factory()->create(['recruiter_id' => $this->recruiter->id, 'current_stage' => CandidateStage::Selected]);
 
     Livewire::test(CreateOffer::class)
         ->fillForm([
-            'candidate_application_id' => $this->application->id,
+            'candidate_application_id' => $selected->id,
             'offer_date' => now()->toDateString(),
             'offered_ctc' => 750000,
         ])
@@ -135,15 +137,16 @@ test('an out-of-scope application is neither pre-selected nor accepted on the of
 });
 
 test('the offer form application picker searches by candidate name within the hierarchy', function (): void {
-    $this->application->candidate->update(['full_name' => 'Pickable Offer Candidate']);
-    CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id])
+    $selected = CandidateApplication::factory()->create(['recruiter_id' => $this->recruiter->id, 'current_stage' => CandidateStage::Selected]);
+    $selected->candidate->update(['full_name' => 'Pickable Offer Candidate']);
+    CandidateApplication::factory()->create(['recruiter_id' => Employee::factory()->create()->id, 'current_stage' => CandidateStage::Selected])
         ->candidate->update(['full_name' => 'Pickable Outsider Candidate']);
     actingAsOfferUser($this->recruiter, 'recruiter');
 
     $picker = Livewire::test(CreateOffer::class)->instance()->form->getFlatFields()['candidate_application_id'];
 
     expect($picker->getSearchResults('Pickable'))->toHaveCount(1)
-        ->toHaveKey($this->application->id);
+        ->toHaveKey($selected->id);
 });
 
 test('the offer status history relation manager lists the trail read-only', function (): void {

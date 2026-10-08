@@ -2,9 +2,22 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Auth\StaffAppAuthentication;
+use App\Filament\Pages\Auth\ChooseTenant;
+use App\Filament\Pages\Auth\StaffLogin;
+use App\Filament\Pages\Auth\StaffRequestPasswordReset;
 use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Profile;
+use App\Http\Middleware\AddSecurityHeaders;
+use App\Http\Middleware\EnforceStaffAccess;
+use App\Http\Middleware\EnsureStaffMfa;
+use App\Http\Middleware\SetTenantContextFromPanel;
+use App\Http\Middleware\UseCandidateSessionContext;
+use App\Models\Tenant;
+use App\Services\Tenancy\TenantContext;
+use Filament\Actions\Action;
 use Filament\Enums\ThemeMode;
+use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -20,6 +33,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -38,13 +52,51 @@ class AdminPanelProvider extends PanelProvider
             ->font('Instrument Sans')
             ->defaultThemeMode(ThemeMode::Light)
             ->sidebarCollapsibleOnDesktop()
-            ->login()
+            // SaaS-1: Filament's native tenancy — every panel page lives under /admin/{tenant slug}.
+            // IdentifyTenant checks User::canAccessTenant() (membership, usable tenant, a role);
+            // SetTenantContextFromPanel (persistent, so Livewire updates too) turns the selection
+            // into the TenantContext that models, roles, jobs and caches enforce on their own.
+            ->tenant(Tenant::class, slugAttribute: 'slug', ownershipRelationship: 'tenant')
+            ->tenantMiddleware([SetTenantContextFromPanel::class], isPersistent: true)
+            // SaaS-2: the switcher lists only tenants the person may enter (User::getTenants); the
+            // chooser also sets the default. Tenant-less, but signed in (and MFA-checked).
+            ->tenantMenuItems([
+                Action::make('chooseOrganisation')
+                    ->label('All organisations')
+                    ->icon('heroicon-o-building-office-2')
+                    ->url(fn (): string => ChooseTenant::getUrl())
+                    ->visible(fn (): bool => (Filament::auth()->user()?->accessibleTenants()->count() ?? 0) > 1),
+            ])
+            ->authenticatedRoutes(function (): void {
+                Route::get('/organisations', ChooseTenant::class)->middleware(EnsureStaffMfa::class)->name('choose-tenant');
+            })
+            // Phase 8.4: per-account lockout on top of Filament's per-IP throttle; staff password
+            // reset (single-use, expiring broker tokens); email changes apply only once verified.
+            // Phase 8.6 (D8.6-027): a Filament action without an explicit policy method throws in
+            // local and test runs, so a missing rule is caught before release. In production a
+            // missing method is denied by AppServiceProvider's Gate::before (fail closed, no error).
+            ->strictAuthorization(fn (): bool => app()->environment(['local', 'testing']))
+            ->login(StaffLogin::class)
+            // SaaS-2: the request page answers the same for every address (no enumeration).
+            ->passwordReset(StaffRequestPasswordReset::class)
+            ->emailChangeVerification()
+            // Phase 8.4: authenticator-app MFA with recovery codes, required per person (roles and
+            // permissions in config/identity.php) by EnsureStaffMfa.
+            ->multiFactorAuthentication([StaffAppAuthentication::make()->recoverable()->regenerableRecoveryCodes()], isRequired: true)
+            ->multiFactorAuthenticationRequiredMiddlewareName(EnsureStaffMfa::class)
             ->profile(Profile::class, isSimple: false)
-            ->databaseNotifications()
+            // SaaS-1: notifications are tenant-owned, so the tenant-less simple pages (MFA enrolment)
+            // show no bell; their user menu, with sign-out, stays.
+            ->databaseNotifications(fn (): bool => TenantContext::current()->hasTenant())
             ->databaseNotificationsPolling('30s')
             ->renderHook(
                 PanelsRenderHook::BODY_END,
                 fn (): string => Blade::render('<livewire:command-palette />'),
+            )
+            // SaaS-3: a trial tenant sees when its trial ends.
+            ->renderHook(
+                PanelsRenderHook::BODY_START,
+                fn (): string => view('filament.components.trial-banner')->render(),
             )
             ->renderHook(
                 PanelsRenderHook::HEAD_START,
@@ -61,6 +113,11 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Overview',
                 'Recruitment',
+                'Candidate Experience',
+                'Communication',
+                'Distribution',
+                'Automation',
+                'EDGE Intelligence',
                 'Performance',
                 'Incentives',
                 'Reports',
@@ -77,6 +134,8 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
             ])
             ->middleware([
+                // Phase 8.8 (D8.8-001): the panel always uses the staff session cookie and guard.
+                UseCandidateSessionContext::class,
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
@@ -86,9 +145,14 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                // Phase 8.8 (SEC-88-11): the sign-in and password-reset pages get defensive headers.
+                AddSecurityHeaders::class,
             ])
+            // Phase 8.4: persistent, so Livewire updates are re-checked too — a suspended or revoked
+            // login, or a session from before a revocation, is signed out on its next request.
             ->authMiddleware([
+                EnforceStaffAccess::class,
                 Authenticate::class,
-            ]);
+            ], isPersistent: true);
     }
 }

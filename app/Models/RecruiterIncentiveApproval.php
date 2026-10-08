@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\IncentiveCalculationStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['recruiter_incentive_calculation_id', 'from_status', 'to_status', 'changed_by', 'remarks'])]
 class RecruiterIncentiveApproval extends Model
 {
+    use BelongsToTenant;
+
     public const ?string UPDATED_AT = null;
 
     protected function casts(): array

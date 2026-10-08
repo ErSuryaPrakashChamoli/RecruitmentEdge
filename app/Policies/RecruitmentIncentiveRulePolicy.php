@@ -31,8 +31,20 @@ class RecruitmentIncentiveRulePolicy
         return $user->can('incentives.configureRules');
     }
 
+    /**
+     * Phase 8.6 (D8.6-015): a rule that has priced incentives is ended (effective_to), not deleted.
+     */
     public function delete(User $user, RecruitmentIncentiveRule $recruitmentIncentiveRule): bool
     {
-        return $user->can('incentives.configureRules');
+        return $user->can('incentives.configureRules') && ! $recruitmentIncentiveRule->isUsed();
+    }
+
+    /**
+     * Bulk actions (Phase 8.6 discovery security guard): explicit, never Filament's missing-method
+     * fallback. Each selected record is still checked against the per-record rule.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return false;
     }
 }

@@ -5,17 +5,22 @@ namespace App\Filament\Resources\RecruitmentRequisitions\Tables;
 use App\Enums\Priority;
 use App\Enums\RequisitionStatus;
 use App\Filament\Resources\RecruitmentRequisitions\Actions\RequisitionLifecycleActions;
+use App\Filament\Support\MasterDataLabel;
 use App\Models\RecruitmentRequisition;
+use App\Services\RequisitionService;
+use DomainException;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
+use Filament\Facades\Filament;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class RecruitmentRequisitionsTable
 {
@@ -30,9 +35,11 @@ class RecruitmentRequisitionsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))
                     ->searchable()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -41,6 +48,7 @@ class RecruitmentRequisitionsTable
                     ->sortable(),
                 TextColumn::make('filled_openings_count')
                     ->label('Filled')
+                    ->tooltip('Filled openings: applications whose joining record is marked Joined (the pipeline stage alone does not count).')
                     ->state(fn (RecruitmentRequisition $record): string => "{$record->filledOpeningsCount()} / {$record->openings}")
                     ->badge()
                     ->color(fn (RecruitmentRequisition $record): string => $record->filledOpeningsCount() >= $record->openings ? 'success' : 'gray'),
@@ -79,7 +87,18 @@ class RecruitmentRequisitionsTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                     ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    // SaaS-3: each restored active requisition takes room under the plan's limit
+                    // (one that does not fit is reported as not restored).
+                    RestoreBulkAction::make()
+                        ->using(function (RestoreBulkAction $action, Collection $records): void {
+                            foreach ($records as $record) {
+                                try {
+                                    app(RequisitionService::class)->restore($record, Filament::auth()->user());
+                                } catch (DomainException) {
+                                    $action->reportBulkProcessingFailure();
+                                }
+                            }
+                        }),
                 ]),
             ])
             ->emptyStateHeading('No requisitions found')

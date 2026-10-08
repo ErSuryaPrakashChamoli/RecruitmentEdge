@@ -2,12 +2,9 @@
 
 namespace App\Filament\Resources\Designations\Tables;
 
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
+use App\Filament\Actions\MasterDataLifecycleActions;
+use App\Filament\Support\MasterDataLabel;
 use Filament\Actions\EditAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use Filament\Actions\RestoreBulkAction;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -26,12 +23,19 @@ class DesignationsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->label('Department')
                     ->searchable()
                     ->sortable(),
-                IconColumn::make('is_active')
-                    ->boolean()
-                    ->sortable(),
+                TextColumn::make('lifecycle_state')
+                    ->label('Status')
+                    ->badge()
+                    ->state(fn ($record): string => $record->lifecycleState())
+                    ->color(fn (string $state): string => match ($state) {
+                        'Active' => 'success',
+                        'Inactive' => 'warning',
+                        default => 'gray',
+                    }),
             ])
             ->filters([
                 SelectFilter::make('department')
@@ -40,13 +44,9 @@ class DesignationsTable
             ])
             ->recordActions([
                 EditAction::make(),
+                ...MasterDataLifecycleActions::all(),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                ]),
-            ]);
+            // Phase 8.6: no bulk archive/restore/delete — each change needs its own reason and in-use check.
+            ->toolbarActions([]);
     }
 }

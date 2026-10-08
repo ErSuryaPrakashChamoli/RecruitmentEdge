@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\RecruitmentSettings\Tables;
 
-use Filament\Actions\DeleteAction;
-use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -28,9 +26,7 @@ class RecruitmentSettingsTable
             ->filters([
                 SelectFilter::make('group'),
             ])
-            ->recordActions([
-                EditAction::make(),
-                DeleteAction::make(),
-            ]);
+            // Phase 8.6 (D8.6-013): read-only; change settings on the Configure page.
+            ->recordActions([]);
     }
 }

@@ -68,26 +68,29 @@ class RecruiterIncentiveCalculationResource extends Resource
                     TextEntry::make('period_start')->label('Period')->formatStateUsing(fn ($record) => $record->period_start->format('M Y')),
                 ]),
             Section::make('Calculation')
-                ->description('How the rule priced this occurrence, and the resulting amount.')
+                ->description(fn ($record): string => $record->hasPricingSnapshot()
+                    ? 'How the rule priced this occurrence, exactly as applied, and the resulting amount.'
+                    : 'Priced before pricing was recorded (Phase 8.6): the rule and slab shown are the current ones, which may have changed since.')
                 ->columns(3)
                 ->schema([
                     TextEntry::make('incentiveRule.name')
                         ->label('Rule')
+                        ->state(fn ($record): string => $record->pricedRuleName())
                         ->url(fn ($record): ?string => $record->incentiveRule !== null && auth()->user()?->can('update', $record->incentiveRule)
                             ? RecruitmentIncentiveRuleResource::getUrl('edit', ['record' => $record->incentiveRule])
                             : null),
                     TextEntry::make('payout_type')
                         ->label('Payout Type')
-                        ->state(fn ($record): string => $record->incentiveRule?->payout_type?->label() ?? '—'),
+                        ->state(fn ($record): string => $record->pricedPayoutLabel()),
                     TextEntry::make('slab_basis')
                         ->label('Slab Matched On')
                         ->state(fn ($record): ?string => $record->slabBasis() !== null ? $record->incentiveRule->formatSlabBasis($record->slabBasis()) : null)
                         ->placeholder('—'),
-                    TextEntry::make('incentiveSlab.achievement_min')
+                    TextEntry::make('slab_band')
                         ->label('Slab Band')
-                        ->formatStateUsing(fn ($record): string => $record->incentiveSlab?->bandLabel($record->incentiveRule) ?? '—')
+                        ->state(fn ($record): ?string => $record->pricedBandLabel())
                         ->placeholder('—'),
-                    TextEntry::make('incentiveSlab.amount')->label('Slab Amount')->money('INR')->placeholder('—'),
+                    TextEntry::make('slab_amount')->label('Slab Amount')->state(fn ($record): ?float => $record->pricedSlabAmount())->money('INR')->placeholder('—'),
                     TextEntry::make('amount')->label('Calculated Amount')->money('INR'),
                     TextEntry::make('effective_amount')->label('Effective Amount (after adjustments)')->state(fn ($record) => $record->effectiveAmount())->money('INR'),
                 ]),

@@ -2,50 +2,59 @@
 
 namespace App\Filament\Resources\Roles\Pages;
 
-use App\Filament\Resources\Roles\Concerns\AuditsRolePermissions;
 use App\Filament\Resources\Roles\RoleResource;
+use App\Models\Role;
+use App\Models\User;
+use App\Services\Identity\RoleAssignmentService;
+use DomainException;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
-use Spatie\Permission\Models\Role;
+use Filament\Support\Exceptions\Halt;
+use Illuminate\Database\Eloquent\Model;
 
 class EditRole extends EditRecord
 {
-    use AuditsRolePermissions;
-
     protected static string $resource = RoleResource::class;
-
-    protected ?string $roleNameBeforeSave = null;
-
-    /**
-     * @var array<int, string>
-     */
-    protected array $permissionNamesBeforeSave = [];
 
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make(),
+            DeleteAction::make()->using(fn (Role $record) => RoleResource::deleteThroughService($record)),
         ];
     }
 
     /**
-     * Captured before validation, because the permissions CheckboxList relationship is synced while
-     * the form state is read — before the beforeSave hook runs.
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
      */
-    protected function beforeValidate(): void
+    protected function mutateFormDataBeforeFill(array $data): array
     {
         /** @var Role $role */
         $role = $this->getRecord();
 
-        $this->roleNameBeforeSave = $role->getRawOriginal('name');
-        $this->permissionNamesBeforeSave = $this->currentPermissionNames($role);
+        return [...$data, 'permissions' => $role->permissions()->pluck('id')->map(fn ($id) => (string) $id)->all()];
     }
 
-    protected function afterSave(): void
+    /**
+     * Phase 8.4: renamed and re-permissioned by RoleAssignmentService (audited with the old and new
+     * name and permission names).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function handleRecordUpdate(Model $record, array $data): Model
     {
-        /** @var Role $role */
-        $role = $this->getRecord();
+        $actor = auth()->user();
+        abort_unless($actor instanceof User && $record instanceof Role, 403);
 
-        $this->auditRolePermissions($role, 'permissions_updated', $this->roleNameBeforeSave, $this->permissionNamesBeforeSave);
+        $permissions = array_key_exists('permissions', $data) ? $data['permissions'] : $record->permissions()->pluck('id')->all();
+
+        try {
+            return app(RoleAssignmentService::class)->updateRole($record, (string) $data['name'], $permissions, $actor);
+        } catch (DomainException $e) {
+            Notification::make()->title('Role could not be saved')->body($e->getMessage())->danger()->persistent()->send();
+
+            throw new Halt;
+        }
     }
 }

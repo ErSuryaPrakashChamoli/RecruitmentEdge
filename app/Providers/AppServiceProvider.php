@@ -2,14 +2,88 @@
 
 namespace App\Providers;
 
+use App\Enums\Entitlement;
+use App\Http\Controllers\PrivateFileController;
+use App\Http\Middleware\AuditExportDownload;
+use App\Http\Middleware\EnforceStaffAccess;
+use App\Http\Middleware\EnsureCandidateSessionIsCurrent;
+use App\Http\Middleware\EnsureStaffMfa;
+use App\Http\Middleware\ResolveTenantForFilamentDownload;
+use App\Http\Middleware\UseCandidateSessionContext;
+use App\Http\Session\StaffDatabaseSessionHandler;
+use App\Logging\RedactingFailedJobProvider;
+use App\Models\AuditLog;
+use App\Models\CandidatePortalAccount;
+use App\Models\Export;
+use App\Models\Role;
+use App\Models\User;
+use App\Policies\ExportPolicy;
 use App\Policies\RolePolicy;
+use App\Rules\NotCommonPassword;
+use App\Services\Automation\AutomationActionRegistry;
+use App\Services\Automation\AutomationEventRegistry;
+use App\Services\Automation\AutomationFieldRegistry;
+use App\Services\Automation\AutomationRuntime;
+use App\Services\Billing\BillingStatusService;
+use App\Services\Billing\Providers\BillingProviderManager;
+use App\Services\CandidatePortalService;
+use App\Services\Communication\CommunicationProviderManager;
+use App\Services\Distribution\JobBoardRegistry;
+use App\Services\Entitlements\EntitlementService;
+use App\Services\Export\ExportGovernance;
+use App\Services\HierarchyMemo;
+use App\Services\Identity\StaffAccessService;
+use App\Services\Integrations\Calendar\CalendarManager;
+use App\Services\Integrations\IntegrationRegistry;
+use App\Services\Integrations\Video\ZoomMeetingProvider;
+use App\Services\RecruitmentAnalyticsService;
+use App\Services\SchedulerHeartbeat;
+use App\Services\Tenancy\TenantPermissionRegistrar;
+use App\Services\WorkerHeartbeat;
+use Filament\Actions\ExportAction;
+use Filament\Actions\Exports\ExportColumn;
+use Filament\Auth\Notifications\NoticeOfEmailChangeRequest;
+use Filament\Auth\Notifications\ResetPassword;
+use Filament\Auth\Notifications\VerifyEmailChange;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\FileUpload;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Table;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskSkipped;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Events\DiagnosingHealth;
+use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobAttempted;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
+use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
-use Spatie\Permission\Models\Role;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
+use Livewire\Component;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -18,7 +92,47 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Phase 5: every external integration, for honest implemented/configured/operational
+        // reporting (Administration → Integrations). Adapters themselves are resolved lazily.
+        // Phase 6 automation: the runtime must be one instance per process (loop prevention); the
+        // registries are stateless catalogues built once.
+        $this->app->singleton(AutomationRuntime::class);
+
+        // Phase 8.7 (D8.7-017, SEC-87-02): Filament's queued auth mails carry bearer-token URLs —
+        // resolve encrypted subclasses (Filament builds them through the container).
+        $this->app->bind(ResetPassword::class, \App\Notifications\Auth\ResetPassword::class);
+        $this->app->bind(NoticeOfEmailChangeRequest::class, \App\Notifications\Auth\NoticeOfEmailChangeRequest::class);
+        // Phase 8.9 (P89-SEC-002): the email-change verification link is encrypted in the queue too.
+        $this->app->bind(VerifyEmailChange::class, \App\Notifications\Auth\VerifyEmailChange::class);
+        $this->app->singleton(AutomationEventRegistry::class);
+        $this->app->singleton(AutomationFieldRegistry::class);
+        $this->app->singleton(AutomationActionRegistry::class);
+        // Phase 8.4: one access gate per process, so its per-user decisions are memoised for the
+        // request (every identity change invalidates them — StaffAccessService::invalidateDecisions).
+        $this->app->singleton(StaffAccessService::class);
+        // Phase 8.9 (P89-PERF-012, P89-PERF-015): one subtree memo and one position-health memo per
+        // request / queued job.
+        $this->app->scoped(HierarchyMemo::class);
+        $this->app->scoped(RecruitmentAnalyticsService::class);
+        // SaaS-4: one provider adapter instance per request / queued job (adapters may hold a client).
+        $this->app->scoped(BillingProviderManager::class);
+        $this->app->scoped(BillingStatusService::class);
+        // Phase 8.9: one heartbeat writer per worker process (it throttles its own writes).
+        $this->app->singleton(WorkerHeartbeat::class);
+        // SaaS-7 (S7-01): spatie's permission → roles map is cached per tenant (the global map
+        // exhausted 256 MB between 100 and 250 tenants). An extender, because spatie binds its
+        // registrar in its own boot(), after every register().
+        $this->app->extend(PermissionRegistrar::class, fn (PermissionRegistrar $registrar, $app): PermissionRegistrar => $registrar instanceof TenantPermissionRegistrar ? $registrar : new TenantPermissionRegistrar($app->make(CacheManager::class)));
+
+        $this->app->singleton(IntegrationRegistry::class, function (): IntegrationRegistry {
+            $registry = new IntegrationRegistry;
+
+            foreach ([...CommunicationProviderManager::PROVIDERS, ...CalendarManager::PROVIDERS, 'zoom' => ZoomMeetingProvider::class, ...JobBoardRegistry::CONNECTORS] as $key => $class) {
+                $registry->register($key, $class);
+            }
+
+            return $registry;
+        });
     }
 
     /**
@@ -26,11 +140,159 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Spatie's Role model lives outside App\Models, so Laravel's policy auto-discovery
-        // (which only replaces a "Models" namespace segment) can't find RolePolicy on its own.
+        // Phase 8.4: App\Models\Role (the configured Spatie role model) — registered explicitly so
+        // the policy never depends on auto-discovery for this security-critical model.
         Gate::policy(Role::class, RolePolicy::class);
 
+        // SaaS-7 (S7-01): the permissions table is global — a permission added or removed (seeders
+        // run inside a tenant) must rebuild every tenant's map, not only the current one's.
+        // (A statement closure: an event listener returning false would stop spatie's own listener.)
+        $forgetAllTenants = function (): void {
+            $registrar = app(PermissionRegistrar::class);
+
+            if ($registrar instanceof TenantPermissionRegistrar) {
+                $registrar->forgetAllTenants();
+            }
+        };
+        Permission::saved($forgetAllTenants);
+        Permission::deleted($forgetAllTenants);
+
+        // Phase 8.4: a suspended or revoked login may do nothing, whatever a policy would allow.
+        Gate::before(fn (mixed $user): ?bool => $user instanceof User && ! app(StaffAccessService::class)->permits($user) ? false : null);
+
+        // Phase 8.6 (D8.6-027): fail closed. Outside strict mode Filament treats a policy that lacks
+        // the ability's method as "allowed" unless a before-callback denies it; this is that denial.
+        // It only applies when the model has a policy, the policy has no such method and no gate
+        // ability of that name is defined — every rule must be written down, never assumed.
+        Gate::before(fn (mixed $user, string $ability, array $arguments = []): ?bool => self::policyLacksAbility($ability, $arguments) ? false : null);
+
+        // Phase 8.7 (SEC-87-07): exception text stored in failed_jobs is redacted centrally. The
+        // queue provider is deferred (and would re-bind over an extender), so the store is wrapped
+        // here, once; constructing it runs no query.
+        $failer = $this->app->make('queue.failer');
+        $this->app->instance('queue.failer', $failer instanceof RedactingFailedJobProvider ? $failer : new RedactingFailedJobProvider($failer));
+
+        // SaaS-7 (C13): the proxies whose forwarded client address and scheme are believed.
+        if (config('app.trusted_proxies') !== null) {
+            TrustProxies::at(config('app.trusted_proxies'));
+        }
+
+        $this->configureTrustedOrigin();
+        $this->configureAsyncContext();
+        $this->configureSchedulerHeartbeat();
+        $this->configureHealthCheck();
+        $this->configureCandidateSessions();
+
         $this->configureTables();
+        $this->configurePortalRateLimits();
+        $this->configurePasswordPolicy();
+
+        $this->configureUploads();
+        $this->configureExports();
+        $this->configurePrivateFiles();
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-001): every absolute URL the application generates takes its host (and
+     * any base path) from APP_URL, never from the request's Host or X-Forwarded-Host — above all the
+     * signed links emailed during an anonymous request (candidate set-password, staff password
+     * reset), which a forged Host would otherwise point at an attacker's site. The scheme still
+     * follows the request, as the `signed` middleware checks the signature against the request URL.
+     * Local development keeps the request's host (`artisan serve` on another address than APP_URL).
+     */
+    private function configureTrustedOrigin(): void
+    {
+        if ($this->app->environment('local')) {
+            return;
+        }
+
+        URL::forceRootUrl((string) config('app.url'));
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-06): every upload field accepts only a file uploaded in that form or the
+     * value already stored — a submitted path can never point the record at another stored file.
+     */
+    private function configureUploads(): void
+    {
+        FileUpload::configureUsing(fn (FileUpload $upload): FileUpload => $upload->preventFilePathTampering());
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-03, SEC-88-12, SEC-88-13, SEC-88-24): every Filament table export is capped,
+     * written without live spreadsheet formulas and audited; its file is downloadable only by its
+     * owner within the download window, behind the panel's staff-access and MFA checks.
+     */
+    private function configureExports(): void
+    {
+        ExportAction::configureUsing(fn (ExportAction $action): ExportAction => $action
+            // SaaS-3: hidden when data exports are not in the tenant's plan (the Export record
+            // refuses to be created anyway — the button is not the boundary).
+            ->hidden(fn (): bool => ! app(EntitlementService::class)->allows(Entitlement::ExportsData))
+            ->maxRows(ExportGovernance::MAX_ROWS)
+            ->before(fn (ExportAction $action, array $data, Component $livewire) => ExportGovernance::rememberRequest($action, $data, $livewire))
+            ->after(fn () => ExportGovernance::recordRefusedIfNotStarted()));
+
+        ExportColumn::configureUsing(fn (ExportColumn $column): ExportColumn => $column->preventFormulaInjection());
+
+        // SaaS-1: exports are App\Models\Export (the tenant-owned model Filament resolves); model
+        // events are per class, so the audit hook is registered on it.
+        Export::created(fn (Export $export) => ExportGovernance::recordRequested($export));
+
+        Gate::policy(Export::class, ExportPolicy::class);
+
+        // The download route is Filament's (not a panel route); its middleware group gets the
+        // panel's staff-access and MFA checks, then the download audit.
+        // SaaS-1: first the record's tenant (and the person's access to it), so every lookup after
+        // it — binding, the owner-only policy, the audit — stays in that tenant.
+        $this->app['router']->middlewareGroup('filament.actions', ['web', ResolveTenantForFilamentDownload::class, EnforceStaffAccess::class, EnsureStaffMfa::class, AuditExportDownload::class]);
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-17): the private disk is not served at storage/{path}; its temporary URLs
+     * (Filament file previews) point at the authenticated, audited files.private route instead.
+     */
+    private function configurePrivateFiles(): void
+    {
+        PrivateFileController::registerTemporaryUrls();
+    }
+
+    /**
+     * Phase 8.4: the staff password policy — Filament's profile and reset pages and the Users form
+     * all use Password::defaults().
+     */
+    private function configurePasswordPolicy(): void
+    {
+        Password::defaults(function (): Password {
+            $rule = Password::min((int) config('identity.password.min_length', 12))
+                ->letters()
+                ->mixedCase()
+                ->numbers()
+                ->symbols()
+                ->rules([new NotCommonPassword]);
+
+            return config('identity.password.check_breached') ? $rule->uncompromised() : $rule;
+        });
+    }
+
+    /**
+     * Candidate portal throttles (Phase 4): sign-in/password endpoints per IP, emailed links per
+     * IP + email, and everyday portal/self-scheduling actions per candidate (or IP when signed-link
+     * only). The login controller additionally locks out an email + IP after repeated failures.
+     */
+    private function configurePortalRateLimits(): void
+    {
+        RateLimiter::for('portal-auth', fn (Request $request) => Limit::perMinute(10)->by($request->ip()));
+        RateLimiter::for('portal-links', fn (Request $request) => Limit::perMinute(3)->by($request->ip().'|'.strtolower((string) $request->input('email'))));
+        RateLimiter::for('career-apply', fn (Request $request) => Limit::perMinute(5)->by($request->ip()));
+        RateLimiter::for('webhooks', fn (Request $request) => Limit::perMinute(600)->by($request->ip()));
+        RateLimiter::for('portal-actions', fn (Request $request) => Limit::perMinute(60)->by($request->user('candidate')?->getAuthIdentifier() ?? $request->ip()));
+        // Phase 8.9 (P89-SEC-010): per signed-in staff user — the private-file links and the calendar
+        // OAuth flow need a valid session and signature, so these bound load, not access.
+        RateLimiter::for('private-files', fn (Request $request) => Limit::perMinute(300)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
+        // SaaS-2: invitation links and their forms (the tokens themselves are 64 random characters).
+        RateLimiter::for('invitations', fn (Request $request) => Limit::perMinute(30)->by('invitations:'.$request->ip()));
+        RateLimiter::for('calendar-oauth', fn (Request $request) => Limit::perMinute(20)->by('staff:'.($request->user('web')?->getAuthIdentifier() ?? $request->ip())));
     }
 
     /**
@@ -67,5 +329,174 @@ class AppServiceProvider extends ServiceProvider
         }
 
         return null;
+    }
+
+    /**
+     * Whether the first argument's policy exists but defines no method for the ability.
+     *
+     * @param  array<int, mixed>  $arguments
+     */
+    public static function policyLacksAbility(string $ability, array $arguments): bool
+    {
+        $target = $arguments[0] ?? null;
+
+        if (! ($target instanceof Model) && ! (is_string($target) && is_subclass_of($target, Model::class))) {
+            return false;
+        }
+
+        $policy = Gate::getPolicyFor($target);
+
+        return $policy !== null && ! method_exists($policy, $ability) && ! Gate::has($ability);
+    }
+
+    /**
+     * Phase 8.7 (D8.7-014/015): every unit of work carries a correlation id and an actor kind.
+     *
+     * - An artisan command without one gets `cmd:<uuid>`; jobs it dispatches carry it (Laravel
+     *   Context travels in the payload). A job that arrives without one gets `job:<uuid>`.
+     * - Audit rows written by a job record `queue`, by a scheduled command `scheduler` (a scheduled
+     *   command name run without a terminal), otherwise `console` — unless the work runs inside
+     *   AuditLog::asActor() (automation, AI).
+     */
+    /**
+     * @var array<string, int> job uuid => hrtime when it started (this worker)
+     */
+    private static array $jobStartedAt = [];
+
+    /**
+     * Phase 8.9: the default audit actor kind in force before each running command / job, restored
+     * when it ends — so a sync job nested in a request or another job, or a job deleted before it
+     * failed (no JobProcessed / JobFailed), never leaves its kind behind.
+     *
+     * @var array<int, string|null>
+     */
+    private static array $actorKindsBefore = [];
+
+    private function configureAsyncContext(): void
+    {
+        Event::listen(CommandStarting::class, function (CommandStarting $event): void {
+            if (! Context::has('request_id')) {
+                Context::add('request_id', 'cmd:'.Str::uuid());
+            }
+
+            if ($event->command !== null && ! str_starts_with($event->command, 'queue:')) {
+                self::$actorKindsBefore[] = AuditLog::defaultActorKind();
+                AuditLog::setDefaultActorKind(self::isScheduledRun($event->command) ? 'scheduler' : 'console');
+            }
+        });
+        Event::listen(CommandFinished::class, function (CommandFinished $event): void {
+            if ($event->command !== null && ! str_starts_with($event->command, 'queue:') && self::$actorKindsBefore !== []) {
+                AuditLog::setDefaultActorKind(array_pop(self::$actorKindsBefore));
+            }
+        });
+
+        Queue::before(function (JobProcessing $event): void {
+            if (! Context::has('request_id')) {
+                Context::add('request_id', 'job:'.($event->job->uuid() ?? Str::uuid()));
+            }
+
+            self::$actorKindsBefore[] = AuditLog::defaultActorKind();
+            AuditLog::setDefaultActorKind('queue');
+
+            // Phase 8.9 (P89-SEC-003, ED-11): a long-lived worker re-reads role permissions for every
+            // job — Spatie keeps the role → permission map in memory for the process, so a role
+            // edited in the panel would otherwise be honoured with its old permissions for up to an
+            // hour (--max-time). The cached map (flushed by Spatie on every role/permission change)
+            // is read again on the job's first permission check.
+            app(PermissionRegistrar::class)->clearPermissionsCollection();
+
+            // Phase 8.9 (P89-OPS-006): which job did this — on every log line of the job (Context is
+            // added to the log's extra), and in the processed line below.
+            Context::add('job', ['uuid' => $event->job->uuid(), 'name' => $event->job->resolveName(), 'queue' => $event->job->getQueue(), 'attempt' => $event->job->attempts()]);
+            self::$jobStartedAt[(string) $event->job->uuid()] = hrtime(true);
+        });
+
+        Queue::after(function (JobProcessed $event): void {
+            // Phase 8.9 (P89-OPS-006): a successful job leaves a trace — class, queue, attempt and
+            // duration — correlated by request id with what it changed (audit rows carry the same id).
+            $started = self::$jobStartedAt[(string) $event->job->uuid()] ?? null;
+            unset(self::$jobStartedAt[(string) $event->job->uuid()]);
+            Log::info('queue.job_processed', [
+                'job' => $event->job->resolveName(),
+                'queue' => $event->job->getQueue(),
+                'attempt' => $event->job->attempts(),
+                'duration_ms' => $started !== null ? (int) round((hrtime(true) - $started) / 1e6) : null,
+            ]);
+        });
+        // Fired once per attempt, whatever happened (processed, failed, released, deleted).
+        Event::listen(JobAttempted::class, function (): void {
+            if (self::$actorKindsBefore !== []) {
+                AuditLog::setDefaultActorKind(array_pop(self::$actorKindsBefore));
+            }
+        });
+
+        // Phase 8.9 (P89-OPS-002/007): a looping worker records its heartbeat (at most once a minute).
+        Event::listen(Looping::class, fn (Looping $event) => app(WorkerHeartbeat::class)->beat($event->queue));
+    }
+
+    /**
+     * Phase 8.9 (P89-OPS-006): GET /up checks the database — sessions, cache and queues all live there,
+     * so a reachable web server with an unreachable database is not healthy.
+     */
+    private function configureHealthCheck(): void
+    {
+        Event::listen(DiagnosingHealth::class, fn () => DB::connection()->select('select 1'));
+
+        // SaaS-7 (C8): a query slower than database.slow_query_ms is logged as db.slow_query — its
+        // SQL (truncated) and duration, never its bindings (they carry the data). With the request id
+        // and tenant id from Context, a log pipeline can chart database latency per tenant.
+        $threshold = (int) config('database.slow_query_ms', 0);
+
+        if ($threshold > 0) {
+            DB::listen(function (QueryExecuted $query) use ($threshold): void {
+                if ($query->time >= $threshold) {
+                    Log::warning('db.slow_query', ['ms' => (int) round($query->time), 'connection' => $query->connectionName, 'sql' => mb_substr($query->sql, 0, 500)]);
+                }
+            });
+        }
+    }
+
+    /**
+     * Phase 8.7 (D8.7-021/028): every scheduled task's outcome is the scheduler's heartbeat.
+     */
+    private function configureSchedulerHeartbeat(): void
+    {
+        Event::listen(ScheduledTaskFinished::class, fn (ScheduledTaskFinished $event) => app(SchedulerHeartbeat::class)->record($event->task, $event->task->exitCode === 0 || $event->task->runInBackground ? 'finished' : 'failed'));
+        Event::listen(ScheduledBackgroundTaskFinished::class, fn (ScheduledBackgroundTaskFinished $event) => app(SchedulerHeartbeat::class)->record($event->task, $event->task->exitCode === 0 ? 'finished' : 'failed'));
+        Event::listen(ScheduledTaskFailed::class, fn (ScheduledTaskFailed $event) => app(SchedulerHeartbeat::class)->record($event->task, 'failed'));
+        Event::listen(ScheduledTaskSkipped::class, fn (ScheduledTaskSkipped $event) => app(SchedulerHeartbeat::class)->record($event->task, 'skipped'));
+    }
+
+    /**
+     * Phase 8.8 (D8.8-001): every candidate sign-in — password, set-password link or remember-me
+     * cookie — stores the fingerprint that EnsureCandidateSessionIsCurrent checks.
+     */
+    private function configureCandidateSessions(): void
+    {
+        // Phase 8.9 (P89-SEC-007): candidate sessions never record a user id in the shared table.
+        Session::extend('database', fn (Application $app) => new StaffDatabaseSessionHandler(
+            $app['db']->connection(config('session.connection')),
+            (string) config('session.table'),
+            (int) config('session.lifetime'),
+            $app,
+        ));
+
+        Event::listen(Login::class, function (Login $event): void {
+            if ($event->guard === UseCandidateSessionContext::CANDIDATE_GUARD && $event->user instanceof CandidatePortalAccount && request()->hasSession()) {
+                request()->session()->put(EnsureCandidateSessionIsCurrent::SESSION_KEY, app(CandidatePortalService::class)->sessionFingerprint($event->user));
+            }
+        });
+    }
+
+    private static function isScheduledRun(string $command): bool
+    {
+        if (defined('STDIN') && @stream_isatty(STDIN)) {
+            return false;
+        }
+
+        // SaaS-1: tenant tasks are scheduled through tenants:dispatch / tenants:run, which run the
+        // task itself per tenant — still a scheduled run.
+        return collect(app(Schedule::class)->events())
+            ->contains(fn ($event) => is_string($event->command) && preg_match('/artisan[\'"]?\s+(tenants:(dispatch|run)\s+)?'.preg_quote($command, '/').'(\s|$)/', $event->command) === 1);
     }
 }

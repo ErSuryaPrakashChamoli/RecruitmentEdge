@@ -14,6 +14,11 @@ class RecordingWebSearchProvider implements WebSearchProviderInterface
      */
     public array $options = [];
 
+    /**
+     * @var array<int, string> every query sent to the web-search provider
+     */
+    public array $queries = [];
+
     public function isConfigured(): bool
     {
         return true;
@@ -22,6 +27,7 @@ class RecordingWebSearchProvider implements WebSearchProviderInterface
     public function search(string $query, array $options = []): array
     {
         $this->options[] = $options;
+        $this->queries[] = $query;
 
         return [];
     }

@@ -25,17 +25,17 @@ beforeEach(function (): void {
     $call->result()->create(['output' => ['summary' => 'Found 3 application(s) stuck for 14+ days.'], 'success' => true]);
 });
 
-test('an ai.manage user can list conversations and review one\'s messages, tool calls, and results', function (): void {
+test('an ai.conversations.view user can list conversations and review one\'s messages, tool calls, and results', function (): void {
     $admin = User::factory()->create();
     $admin->assignRole('chro');
 
     actingAs($admin)
-        ->get('/admin/ai-conversations')
+        ->get('/admin/acme/ai-conversations')
         ->assertSuccessful()
         ->assertSee('Stuck candidates review');
 
     actingAs($admin)
-        ->get("/admin/ai-conversations/{$this->conversation->id}")
+        ->get("/admin/acme/ai-conversations/{$this->conversation->id}")
         ->assertSuccessful()
         ->assertSee('Which candidates are stuck?')
         ->assertSee('find_stuck_candidates')
@@ -43,9 +43,9 @@ test('an ai.manage user can list conversations and review one\'s messages, tool 
         ->assertSee('Found 3 application(s) stuck for 14+ days.');
 });
 
-test('users without ai.manage cannot open the conversation review screen, even for their own conversation', function (): void {
+test('users without ai.conversations.view cannot open the conversation review screen, even for their own conversation', function (): void {
     $this->owner->assignRole('recruiter');
 
-    actingAs($this->owner)->get('/admin/ai-conversations')->assertForbidden();
-    actingAs($this->owner)->get("/admin/ai-conversations/{$this->conversation->id}")->assertForbidden();
+    actingAs($this->owner)->get('/admin/acme/ai-conversations')->assertForbidden();
+    actingAs($this->owner)->get("/admin/acme/ai-conversations/{$this->conversation->id}")->assertForbidden();
 });

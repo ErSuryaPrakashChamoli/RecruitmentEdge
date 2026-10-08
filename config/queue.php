@@ -40,7 +40,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 330),
             'after_commit' => false,
         ],
 
@@ -120,10 +120,37 @@ return [
     |
     */
 
+    /*
+    | Phase 8.7 (D8.7-020): the longest --timeout of any worker. queue:health-check alerts when the
+    | database connection's retry_after is not above it (a running job would be handed out twice).
+    */
+    'worker_max_timeout' => (int) env('QUEUE_WORKER_MAX_TIMEOUT', 300),
+
+    /*
+    | Phase 8.9 (P89-OPS-002/007): the queue list of every shipped worker (docker-compose.yml, checked
+    | by QueueTopologyTest). Workers record a heartbeat; with expect_processes on (the compose stack
+    | and production), queue health reports a worker silent for 5 minutes and a scheduler that never
+    | reported. Off where no worker or scheduler runs (development, tests).
+    */
+    'workers' => [
+        'communications,default',
+        'security,billing,notifications,default',
+        'automation,default',
+        'documents,intelligence,integrations,exports,default',
+    ],
+
+    'expect_processes' => (bool) env('QUEUE_EXPECT_PROCESSES', false),
+
+    // Phase 8.7 (D8.7-021): bearer token an external monitor presents to GET /health/queue. Empty
+    // = only signed-in platform administrators can read it.
+    'health_token' => env('QUEUE_HEALTH_TOKEN'),
+
     'failed' => [
         'driver' => env('QUEUE_FAILED_DRIVER', 'database-uuids'),
         'database' => env('DB_CONNECTION', 'sqlite'),
         'table' => 'failed_jobs',
+        // Phase 8.7 (D8.7-012): failed jobs are kept 30 days, then pruned daily (queue:prune-failed).
+        'retention_hours' => (int) env('QUEUE_FAILED_RETENTION_HOURS', 720),
     ],
 
 ];

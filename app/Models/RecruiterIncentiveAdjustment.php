@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\IncentiveAdjustmentType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruiterIncentiveAdjustmentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruiterIncentiveAdjustment extends Model
 {
     /** @use HasFactory<RecruiterIncentiveAdjustmentFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     public const ?string UPDATED_AT = null;
 

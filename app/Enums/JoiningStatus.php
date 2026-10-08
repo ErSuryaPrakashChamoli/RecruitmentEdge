@@ -2,6 +2,10 @@
 
 namespace App\Enums;
 
+/**
+ * Phase 8.3 adds Cancelled: the joining will not happen because the company closed the application
+ * (e.g. rejected it) — distinct from a no-show or a candidate dropout. It records no joining outcome.
+ */
 enum JoiningStatus: string
 {
     case Expected = 'expected';
@@ -9,6 +13,7 @@ enum JoiningStatus: string
     case Joined = 'joined';
     case NoShow = 'no_show';
     case Dropout = 'dropout';
+    case Cancelled = 'cancelled';
 
     public function label(): string
     {
@@ -18,6 +23,7 @@ enum JoiningStatus: string
             self::Joined => 'Joined',
             self::NoShow => 'No Show',
             self::Dropout => 'Dropout',
+            self::Cancelled => 'Cancelled',
         };
     }
 
@@ -30,7 +36,7 @@ enum JoiningStatus: string
             self::Joined => 'success',
             self::Confirmed => 'info',
             self::NoShow, self::Dropout => 'danger',
-            self::Expected => 'gray',
+            self::Expected, self::Cancelled => 'gray',
         };
     }
 }

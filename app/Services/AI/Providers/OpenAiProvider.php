@@ -133,15 +133,27 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
 
         try {
             $response = $this->request()->post('/responses', $payload);
-            $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
-            $text = $this->extractOutputText($response->json() ?? []);
-
-            return $text !== null ? (json_decode($text, true) ?? []) : [];
         } catch (Throwable $e) {
-            Log::error('AI structured() call failed', ['exception' => $e->getMessage()]);
+            Log::error('AI structured() call failed', ['exception' => $e::class]);
 
-            return [];
+            throw new AiProviderUnavailableException('The OpenAI request failed: '.$e->getMessage(), 0, $e);
         }
+
+        // An HTTP error or unparseable output is a failed call, not an empty answer — see
+        // GeminiProvider::structured().
+        if ($response->failed()) {
+            throw new AiProviderUnavailableException("OpenAI returned HTTP {$response->status()}.");
+        }
+
+        $this->lastUsage = $this->usageFrom($response->json('usage') ?? []);
+        $text = $this->extractOutputText($response->json() ?? []);
+        $decoded = $text !== null ? json_decode($text, true) : null;
+
+        if (! is_array($decoded)) {
+            throw new AiProviderUnavailableException('OpenAI returned no valid JSON for a structured request.');
+        }
+
+        return $decoded;
     }
 
     /**
@@ -159,7 +171,7 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         ]);
 
         if ($response->failed()) {
-            Log::error('AI embed() call failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('AI embed() call failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new AiProviderUnavailableException('The embedding service returned an error.');
         }
@@ -189,7 +201,7 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
         ]);
 
         if ($response->failed()) {
-            Log::error('AI web search failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('AI web search failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new AiProviderUnavailableException('The web search service returned an error.');
         }
@@ -278,7 +290,7 @@ class OpenAiProvider implements EmbeddingProviderInterface, LLMProviderInterface
     private function parseResponse(Response $response, string $model): LlmResponse
     {
         if ($response->failed()) {
-            Log::error('AI complete() call failed', ['status' => $response->status(), 'body' => $response->body()]);
+            Log::error('AI complete() call failed', ['status' => $response->status(), 'error' => $response->json('error.status') ?? $response->json('error.code') ?? $response->json('error.type')]);
 
             throw new RuntimeException('The AI service returned an error response.');
         }

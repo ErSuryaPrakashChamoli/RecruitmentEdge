@@ -7,6 +7,7 @@ use App\Enums\InterviewStatus;
 use App\Models\Interview;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Carbon\CarbonImmutable;
@@ -18,7 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class SearchInterviewsTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -76,23 +77,12 @@ class SearchInterviewsTool implements AiTool
                 $name = '%'.$arguments['interviewer_name'].'%';
                 $interviewer->where('first_name', 'like', $name)->orWhere('last_name', 'like', $name);
             }))
-            ->with(['candidateApplication.candidate:id,full_name', 'interviewer:id,first_name,last_name'])
+            ->with(['candidateApplication.candidate', 'interviewer'])
             ->orderBy('scheduled_at')
             ->limit($limit)
             ->get();
 
-        $rows = $interviews->map(fn (Interview $interview) => [
-            'interview_id' => $interview->id,
-            'application_id' => $interview->candidate_application_id,
-            'candidate' => $interview->candidateApplication?->candidate?->full_name,
-            'round_number' => $interview->round_number,
-            'round_name' => $interview->round_name,
-            'interviewer' => $interview->interviewer?->fullName(),
-            'scheduled_at' => $interview->scheduled_at?->toIso8601String(),
-            'mode' => $interview->mode?->value,
-            'status' => $interview->status->label(),
-            'result' => $interview->result?->label(),
-        ]);
+        $rows = $interviews->map(fn (Interview $interview) => $this->projector()->interview($interview));
 
         return ToolResult::ok(
             data: ['interviews' => $rows->toArray()],

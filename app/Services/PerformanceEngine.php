@@ -12,6 +12,7 @@ use App\Models\RecruiterPerformanceSnapshot;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Computes a recruiter's composite performance score for a period as a weighted average of each
@@ -81,9 +82,22 @@ class PerformanceEngine
      * `period_end` are date-cast columns: Eloquent's date cast serializes to a full "Y-m-d H:i:s"
      * string for storage, so a plain string match on `toDateString()` never finds the existing
      * row. `whereDate()` compares only the date part at the SQL level and sidesteps that mismatch.
+     *
+     * Phase 8.5 (D48): a frozen snapshot (a finalised month) is returned untouched unless $force —
+     * the audited `performance:snapshot --month --force --reason` path.
      */
-    public function snapshotFor(Employee $recruiter, CarbonInterface $start, CarbonInterface $end): RecruiterPerformanceSnapshot
+    public function snapshotFor(Employee $recruiter, CarbonInterface $start, CarbonInterface $end, bool $force = false): RecruiterPerformanceSnapshot
     {
+        $existing = RecruiterPerformanceSnapshot::query()
+            ->where('employee_id', $recruiter->id)
+            ->whereDate('period_start', $start)
+            ->whereDate('period_end', $end)
+            ->first();
+
+        if ($existing?->frozen_at !== null && ! $force) {
+            return $existing;
+        }
+
         $result = $this->computeFor($recruiter, $start, $end);
 
         $attributes = [
@@ -92,16 +106,16 @@ class PerformanceEngine
             'computed_at' => now(),
         ];
 
-        $snapshot = RecruiterPerformanceSnapshot::query()
-            ->where('employee_id', $recruiter->id)
-            ->whereDate('period_start', $start)
-            ->whereDate('period_end', $end)
-            ->first();
+        if ($existing !== null) {
+            // Phase 8.9 (P89-DQ-012): the month may have been frozen after it was read above; the
+            // write itself refuses a frozen row (unless forced), so a finalised month never changes.
+            $existing->fill($attributes);
+            RecruiterPerformanceSnapshot::query()
+                ->whereKey($existing->getKey())
+                ->when(! $force, fn ($query) => $query->whereNull('frozen_at'))
+                ->update($existing->getDirty());
 
-        if ($snapshot !== null) {
-            $snapshot->update($attributes);
-
-            return $snapshot;
+            return $existing->refresh();
         }
 
         return RecruiterPerformanceSnapshot::query()->create([
@@ -119,18 +133,37 @@ class PerformanceEngine
      * @param  Collection<int, int>|null  $visibleEmployeeIds  null means no restriction
      * @return int the number of recruiters snapshotted
      */
-    public function snapshotAllRecruiters(CarbonInterface $start, CarbonInterface $end, ?Collection $visibleEmployeeIds = null): int
+    public function snapshotAllRecruiters(CarbonInterface $start, CarbonInterface $end, ?Collection $visibleEmployeeIds = null, bool $force = false): int
     {
         $count = 0;
 
         $this->activeRecruitersQuery($visibleEmployeeIds)
             ->lazyById()
-            ->each(function (Employee $recruiter) use ($start, $end, &$count): void {
-                $this->snapshotFor($recruiter, $start, $end);
-                $count++;
+            ->each(function (Employee $recruiter) use ($start, $end, $force, &$count): void {
+                // Phase 8.7 (D8.7-011): one recruiter's failure never stops the others' snapshots.
+                try {
+                    $this->snapshotFor($recruiter, $start, $end, $force);
+                    $count++;
+                } catch (Throwable $e) {
+                    report($e);
+                }
             });
 
         return $count;
+    }
+
+    /**
+     * Phase 8.5 (D48): freeze a finalised period's snapshots so later changes cannot rewrite it.
+     *
+     * @return int the number of snapshots frozen
+     */
+    public function freezePeriod(CarbonInterface $start, CarbonInterface $end): int
+    {
+        return RecruiterPerformanceSnapshot::query()
+            ->whereDate('period_start', $start)
+            ->whereDate('period_end', $end)
+            ->whereNull('frozen_at')
+            ->update(['frozen_at' => now()]);
     }
 
     /**

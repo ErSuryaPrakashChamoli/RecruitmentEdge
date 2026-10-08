@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\RecruiterPerformanceRules\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\RecruiterPerformanceRules\RecruiterPerformanceRuleResource;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateRecruiterPerformanceRule extends CreateRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = RecruiterPerformanceRuleResource::class;
 
     /**

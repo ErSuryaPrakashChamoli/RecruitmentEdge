@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RecruitmentCosts\Schemas;
 
 use App\Enums\RecruitmentCostStatus;
 use App\Enums\RecruitmentCostType;
+use App\Filament\Support\ActiveMasterDataOptions;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -19,8 +20,13 @@ class RecruitmentCostForm
                 Select::make('cost_type')
                     ->options(collect(RecruitmentCostType::cases())->mapWithKeys(fn (RecruitmentCostType $t) => [$t->value => $t->label()]))
                     ->required(),
+                Select::make('campaign_id')
+                    ->label('Recruitment campaign')
+                    ->relationship('recruitmentCampaign', 'name')
+                    ->searchable()
+                    ->preload(),
                 TextInput::make('campaign')
-                    ->label('Campaign (optional)'),
+                    ->label('Campaign note (optional)'),
                 TextInput::make('amount')
                     ->numeric()
                     ->required(),
@@ -33,7 +39,7 @@ class RecruitmentCostForm
                     ->required(),
                 Select::make('source_id')
                     ->label('Source (optional)')
-                    ->relationship('source', 'name')
+                    ->relationship('source', 'name', ActiveMasterDataOptions::scope('source_id'))
                     ->searchable()
                     ->preload(),
                 Select::make('requisition_id')
@@ -43,12 +49,12 @@ class RecruitmentCostForm
                     ->preload(),
                 Select::make('department_id')
                     ->label('Department (optional)')
-                    ->relationship('department', 'name')
+                    ->relationship('department', 'name', ActiveMasterDataOptions::scope('department_id'))
                     ->searchable()
                     ->preload(),
                 Select::make('location_id')
                     ->label('Location (optional)')
-                    ->relationship('location', 'name')
+                    ->relationship('location', 'name', ActiveMasterDataOptions::scope('location_id'))
                     ->searchable()
                     ->preload(),
                 Textarea::make('remarks')

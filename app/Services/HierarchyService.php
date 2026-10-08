@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\Tenancy\TenantContext;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -12,14 +14,18 @@ use Illuminate\Support\Facades\DB;
  * Manager -> Recruiter). Every policy and query scope that restricts recruitment data to "my
  * team" should resolve its allowed employee IDs through this service rather than walking
  * `reports_to_id` by hand.
+ *
+ * SaaS-1: the hierarchy lives inside one tenant. "View all" (a null visibility list) means every
+ * employee of the CURRENT tenant — never every tenant: tenant-owned models are scoped by
+ * TenantScope, and every closure-table read here names the current tenant (closure()).
  */
 class HierarchyService
 {
     /**
      * The employee IDs a user is allowed to see (themselves plus everyone below them in the
      * hierarchy), or null when the user holds the `hierarchy.view-all` permission and therefore
-     * has no restriction at all — callers should skip filtering entirely in that case rather than
-     * loading every employee ID.
+     * has no hierarchy restriction within the current tenant — callers skip the hierarchy filter
+     * in that case (the tenant boundary still applies) rather than loading every employee ID.
      *
      * @return Collection<int, int>|null
      */
@@ -38,12 +44,19 @@ class HierarchyService
 
     /**
      * Whether $subject is $user's own employee record or lies within their reporting hierarchy.
+     * Phase 8.4: a record with no employee (null) is visible only with hierarchy.view-all — never a
+     * TypeError that breaks the page for everyone.
      */
-    public function canView(User $user, Employee $subject): bool
+    public function canView(User $user, ?Employee $subject): bool
     {
+        // SaaS-1: another tenant's employee is never "in view", whatever the viewer's reach.
+        if ($subject !== null && (int) $subject->tenant_id !== TenantContext::current()->requireId()) {
+            return false;
+        }
+
         $visible = $this->visibleEmployeeIdsFor($user);
 
-        return $visible === null || $visible->contains($subject->id);
+        return $visible === null || ($subject !== null && $visible->contains($subject->id));
     }
 
     /**
@@ -53,9 +66,53 @@ class HierarchyService
      */
     public function descendantIdsOf(int $employeeId): Collection
     {
-        return DB::table('employee_hierarchy')
+        // Phase 8.9 (P89-PERF-012): remembered for the current request/job — see HierarchyMemo.
+        return app(HierarchyMemo::class)->descendants($employeeId, fn (): Collection => $this->closure()
             ->where('ancestor_id', $employeeId)
-            ->pluck('descendant_id');
+            ->pluck('descendant_id'));
+    }
+
+    /**
+     * Employee IDs at or above the given employee (inclusive) — their management chain — via the
+     * closure table.
+     *
+     * @return Collection<int, int>
+     */
+    public function ancestorIdsOf(int $employeeId): Collection
+    {
+        return $this->closure()
+            ->where('descendant_id', $employeeId)
+            ->pluck('ancestor_id');
+    }
+
+    /**
+     * The given employee's managers, nearest first (depth 1 = direct manager), each with its user
+     * and roles loaded — the escalation path used by automation (Phase 6). Built from the closure
+     * table's `depth`, never by walking `reports_to_id`.
+     *
+     * @return Collection<int, Employee>
+     */
+    public function managementChainOf(int $employeeId): Collection
+    {
+        $depths = $this->closure()
+            ->where('descendant_id', $employeeId)
+            ->where('depth', '>', 0)
+            ->pluck('depth', 'ancestor_id');
+
+        return Employee::query()
+            ->whereIn('id', $depths->keys())
+            ->with('user.roles')
+            ->get()
+            ->sortBy(fn (Employee $manager) => $depths[$manager->id])
+            ->values();
+    }
+
+    /**
+     * The current tenant's rows of the employee_hierarchy closure table.
+     */
+    private function closure(): Builder
+    {
+        return DB::table('employee_hierarchy')->where('tenant_id', TenantContext::current()->requireId());
     }
 
     /**
@@ -88,7 +145,7 @@ class HierarchyService
             ->get()
             ->keyBy('id');
 
-        $teamSizes = DB::table('employee_hierarchy')
+        $teamSizes = $this->closure()
             ->whereIn('ancestor_id', $descendantIds)
             ->selectRaw('ancestor_id, count(*) - 1 as team_size')
             ->groupBy('ancestor_id')

@@ -9,12 +9,13 @@ use App\Filament\Resources\Candidates\Pages\ViewCandidate;
 use App\Filament\Resources\Candidates\RelationManagers\ApplicationsRelationManager;
 use App\Filament\Resources\Candidates\RelationManagers\DocumentsRelationManager;
 use App\Filament\Resources\Candidates\RelationManagers\DuplicateMatchesRelationManager;
+use App\Filament\Resources\Candidates\RelationManagers\TalentPoolsRelationManager;
 use App\Filament\Resources\Candidates\Schemas\CandidateForm;
 use App\Filament\Resources\Candidates\Schemas\CandidateInfolist;
 use App\Filament\Resources\Candidates\Tables\CandidatesTable;
 use App\Models\Candidate;
 use App\Models\User;
-use App\Services\HierarchyService;
+use App\Services\CandidateSearchTerm;
 use BackedEnum;
 use Filament\Facades\Filament;
 use Filament\Resources\Resource;
@@ -57,24 +58,10 @@ class CandidateResource extends Resource
      */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-
         /** @var User $user */
         $user = Filament::auth()->user();
 
-        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
-
-        if ($visibleIds === null) {
-            return $query;
-        }
-
-        return $query->where(function (Builder $q) use ($visibleIds, $user): void {
-            $q->whereHas('applications', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds));
-
-            if ($user->employee_id !== null) {
-                $q->orWhere('created_by', $user->employee_id);
-            }
-        });
+        return parent::getEloquentQuery()->visibleTo($user);
     }
 
     public static function getRelations(): array
@@ -83,6 +70,7 @@ class CandidateResource extends Resource
             ApplicationsRelationManager::class,
             DocumentsRelationManager::class,
             DuplicateMatchesRelationManager::class,
+            TalentPoolsRelationManager::class,
         ];
     }
 
@@ -134,5 +122,18 @@ class CandidateResource extends Resource
     public static function getGlobalSearchEloquentQuery(): Builder
     {
         return parent::getGlobalSearchEloquentQuery()->with('source');
+    }
+
+    /**
+     * Phase 8.9 (P89-PERF-003): a complete email, mobile number or candidate code is an exact,
+     * indexed lookup (CandidateSearchTerm); any other term keeps Filament's substring search.
+     */
+    protected static function applyGlobalSearchAttributeConstraints(Builder $query, string $search): void
+    {
+        if (CandidateSearchTerm::applyExact($query, $search)) {
+            return;
+        }
+
+        parent::applyGlobalSearchAttributeConstraints($query, $search);
     }
 }

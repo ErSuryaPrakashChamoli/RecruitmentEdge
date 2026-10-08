@@ -14,6 +14,9 @@ enum AiToolCallStatus: string
     case Rejected = 'rejected';
     case Executed = 'executed';
     case Failed = 'failed';
+    // Phase 8.4: never executed — the approval window passed, or the requester's authority changed.
+    case Expired = 'expired';
+    case Invalidated = 'invalidated';
 
     public function label(): string
     {
@@ -23,6 +26,8 @@ enum AiToolCallStatus: string
             self::Rejected => 'Rejected',
             self::Executed => 'Executed',
             self::Failed => 'Failed',
+            self::Expired => 'Expired',
+            self::Invalidated => 'Invalidated',
         };
     }
 }

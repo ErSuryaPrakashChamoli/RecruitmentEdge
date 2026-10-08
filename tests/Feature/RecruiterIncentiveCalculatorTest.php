@@ -158,7 +158,9 @@ test('a recalculation that moves Pending Verification back to Calculated is reco
     $calculation = $this->calculator->calculateForJoining($joining)->first();
     expect($calculation->status)->toBe(IncentiveCalculationStatus::PendingVerification);
 
-    $rule->update(['retention_days' => 30]);
+    // Phase 8.6 (D8.6-015) locks a used rule's terms; this simulates a rule changed before that
+    // lock existed, whose pending calculations still re-derive their status with a trail row.
+    RecruitmentIncentiveRule::query()->whereKey($rule->id)->update(['retention_days' => 30]);
     $this->calculator->calculateForJoining($joining);
 
     $latest = $calculation->approvals()->reorder('id', 'desc')->first();

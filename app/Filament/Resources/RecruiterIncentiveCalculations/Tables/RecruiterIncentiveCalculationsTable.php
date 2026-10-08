@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Tables;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
 use App\Filament\Exports\RecruiterIncentiveCalculationExporter;
 use App\Filament\Resources\RecruiterIncentiveCalculations\Actions\IncentiveLifecycleActions;
@@ -16,17 +17,24 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class RecruiterIncentiveCalculationsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->withAdjustmentTotal())
             ->columns([
                 TextColumn::make('employee.first_name')
-                    ->label('Recruiter')
+                    ->label('Payee')
                     ->formatStateUsing(fn ($record) => $record->employee->fullName())
                     ->searchable(['first_name', 'last_name']),
+                TextColumn::make('beneficiary_type')
+                    ->label('Type')
+                    ->badge()
+                    ->color(fn (IncentiveBeneficiary $state): string => $state === IncentiveBeneficiary::EmployeeReferrer ? 'info' : 'gray')
+                    ->formatStateUsing(fn (IncentiveBeneficiary $state): string => $state->label()),
                 TextColumn::make('candidate.full_name')
                     ->label('Candidate')
                     ->searchable(),
@@ -51,13 +59,17 @@ class RecruiterIncentiveCalculationsTable
             ])
             ->defaultSort('calculated_at', 'desc')
             ->filters([
+                SelectFilter::make('beneficiary_type')
+                    ->label('Type')
+                    ->options(IncentiveBeneficiary::options()),
                 SelectFilter::make('status')
                     ->options(collect(IncentiveCalculationStatus::cases())->mapWithKeys(fn (IncentiveCalculationStatus $s) => [$s->value => $s->label()])),
             ])
             ->headerActions([
+                // Phase 8.8 (SEC-88-15): the export carries incentive amounts — pay needs compensation.view.
                 ExportAction::make()
                     ->exporter(RecruiterIncentiveCalculationExporter::class)
-                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export')),
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export') && (bool) auth()->user()?->can('compensation.view')),
             ])
             ->recordActions([
                 ViewAction::make(),

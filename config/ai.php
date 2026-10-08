@@ -175,6 +175,24 @@ return [
         'rate_limit_per_minute' => (int) env('AI_RATE_LIMIT_PER_MINUTE', 20),
         'action_rate_limit_per_minute' => (int) env('AI_ACTION_RATE_LIMIT_PER_MINUTE', 10),
         'max_bulk_action_size' => (int) env('AI_MAX_BULK_ACTION_SIZE', 50),
+        // Phase 8.7 (D8.7-013): an approved action still running after this long was interrupted;
+        // reliability:sweep marks it Failed.
+        'stuck_approved_minutes' => 30,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Approved actions (Phase 8.4)
+    |--------------------------------------------------------------------------
+    |
+    | A proposed write/external action must be approved by the person who asked for it within this
+    | many minutes, with the same authority (roles and hierarchy scope) they had when it was
+    | proposed. After that it expires and can never run — ask again.
+    |
+    */
+
+    'actions' => [
+        'pending_ttl_minutes' => (int) env('AI_ACTION_PENDING_TTL_MINUTES', 30),
     ],
 
     /*
@@ -188,6 +206,23 @@ return [
         'chunk_overlap_tokens' => (int) env('AI_RAG_CHUNK_OVERLAP', 50),
         'top_k' => (int) env('AI_RAG_TOP_K', 5),
         'min_similarity' => (float) env('AI_RAG_MIN_SIMILARITY', 0.15),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Privacy boundary (Phase 8.1)
+    |--------------------------------------------------------------------------
+    |
+    | Every provider-bound payload passes AiEgressGuard. `redact` removes personal data and logs
+    | the counts; `block` throws (used in tests so regressions fail loudly). There is no "off":
+    | any other value behaves as `redact`. See docs/phase-8-1-ai-data-boundary.md.
+    |
+    */
+
+    'privacy' => [
+        'egress_mode' => env('AI_PRIVACY_EGRESS_MODE', 'redact'),
+        'feedback_excerpt_chars' => (int) env('AI_PRIVACY_FEEDBACK_EXCERPT_CHARS', 1000),
+        'research_query_max_chars' => 120,
     ],
 
 ];

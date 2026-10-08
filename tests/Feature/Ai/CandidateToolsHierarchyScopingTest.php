@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\CandidateStage;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\AI\Tools\CandidateTools\CompareCandidatesTool;
 use App\Services\AI\Tools\CandidateTools\GetCandidateTool;
 use App\Services\AI\Tools\CandidateTools\SearchCandidatesTool;
 use Database\Seeders\RolePermissionSeeder;
@@ -66,4 +68,21 @@ test('a CHRO with hierarchy.view-all sees every candidate regardless of recruite
     $result = $tool->handle(['candidate_id' => $application->candidate_id], $user);
 
     expect($result->success)->toBeTrue();
+});
+
+test('compare_candidates compares the latest application the caller may see, never another team\'s (P810-AI-11)', function (): void {
+    $manager = Employee::factory()->create();
+    $myRecruiter = Employee::factory()->reportingTo($manager)->create();
+    $otherRecruiter = Employee::factory()->create();
+    $user = User::factory()->create(['employee_id' => $manager->id])->assignRole('manager');
+
+    $mine = CandidateApplication::factory()->create(['recruiter_id' => $myRecruiter->id, 'current_stage' => CandidateStage::Screened, 'application_date' => now()->subMonth()]);
+    CandidateApplication::factory()->create(['candidate_id' => $mine->candidate_id, 'recruiter_id' => $otherRecruiter->id, 'current_stage' => CandidateStage::OfferReleased, 'application_date' => now()]);
+    $second = CandidateApplication::factory()->create(['recruiter_id' => $myRecruiter->id, 'current_stage' => CandidateStage::Interview1]);
+
+    $result = app(CompareCandidatesTool::class)->handle(['candidate_ids' => [$mine->candidate_id, $second->candidate_id]], $user);
+    $row = collect($result->data['comparison'])->firstWhere('id', $mine->candidate_id);
+
+    expect($result->success)->toBeTrue()
+        ->and($row['current_stage'])->toBe(CandidateStage::Screened->label());
 });

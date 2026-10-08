@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveTriggerEvent;
 use App\Filament\Resources\CandidateApplications\Schemas\ApplicationPicker;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
@@ -9,6 +10,7 @@ use App\Models\Employee;
 use App\Models\User;
 use App\Services\IncentiveStatementService;
 use App\Services\RecruiterIncentiveCalculator;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
@@ -37,16 +39,18 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                 ])
                 ->action(function (array $data): void {
                     $application = ApplicationPicker::selectableApplications()->findOrFail($data['candidate_application_id']);
-                    $event = IncentiveTriggerEvent::from($data['trigger_event']);
-                    $calculator = app(RecruiterIncentiveCalculator::class);
 
-                    $results = match ($event) {
-                        IncentiveTriggerEvent::Selection => $calculator->calculateForSelection($application),
-                        IncentiveTriggerEvent::OfferAccepted => $calculator->calculateForOfferAcceptance($application),
-                        IncentiveTriggerEvent::Joining => $application->joining
-                            ? $calculator->calculateForJoining($application->joining)
-                            : collect(),
-                    };
+                    // Phase 8.10 (P810-DI-01): permission, hierarchy, the trigger's lifecycle
+                    // precondition and the audit row are the calculator's, not this page's.
+                    try {
+                        /** @var User $user */
+                        $user = auth()->user();
+                        $results = app(RecruiterIncentiveCalculator::class)->calculateManually($application, IncentiveTriggerEvent::from($data['trigger_event']), $user);
+                    } catch (DomainException $e) {
+                        Notification::make()->title('Incentives not calculated')->body($e->getMessage())->danger()->send();
+
+                        throw new Halt;
+                    }
 
                     Notification::make()
                         ->title($results->isEmpty() ? 'No matching incentive rules found' : "Calculated {$results->count()} incentive(s)")
@@ -86,6 +90,11 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                     ->options(fn (): array => app(IncentiveStatementService::class)->monthOptions())
                     ->default(now()->format('Y-m'))
                     ->required(),
+                Select::make('beneficiary_type')
+                    ->label('Statement')
+                    ->options(IncentiveBeneficiary::options())
+                    ->default(IncentiveBeneficiary::Recruiter->value)
+                    ->required(),
             ])
             ->action(function (array $data): mixed {
                 /** @var User $user */
@@ -103,7 +112,7 @@ class ListRecruiterIncentiveCalculations extends ListRecords
                     throw new Halt;
                 }
 
-                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']));
+                return $service->streamPeriodStatement($recruiter, $service->parseMonth($data['month']), IncentiveBeneficiary::from($data['beneficiary_type'] ?? IncentiveBeneficiary::Recruiter->value));
             });
     }
 }

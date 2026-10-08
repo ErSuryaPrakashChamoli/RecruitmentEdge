@@ -4,10 +4,16 @@ namespace App\Filament\Resources\Offers\Tables;
 
 use App\Enums\OfferLetterTemplateFormat;
 use App\Enums\OfferStatus;
+use App\Filament\Concerns\GuardsDomainExceptions;
 use App\Filament\Exports\OfferExporter;
+use App\Models\AuditLog;
+use App\Models\Designation;
+use App\Models\Location;
 use App\Models\Offer;
 use App\Models\OfferLetterTemplate;
+use App\Models\OfferRevision;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\OfferLetterIssuanceService;
 use App\Services\OfferLetterRenderer;
 use App\Services\OfferService;
 use DomainException;
@@ -16,9 +22,11 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ExportAction;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -30,13 +38,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OffersTable
 {
+    use GuardsDomainExceptions;
+
     /**
-     * The letter can be tailored until the candidate has decided on the offer.
+     * The letter can be tailored until the offer is released; after that it changes only through a
+     * revision (Phase 8.3).
      */
     private const LETTER_EDITABLE_STATUSES = [
         OfferStatus::Draft,
         OfferStatus::Initiated,
-        OfferStatus::Released,
     ];
 
     public static function configure(Table $table): Table
@@ -55,6 +65,7 @@ class OffersTable
                     ]))
                     ->searchable(),
                 TextColumn::make('offered_ctc')
+                    ->visible(fn (): bool => (bool) auth()->user()?->can('compensation.view'))
                     ->money('INR')
                     ->sortable(),
                 TextColumn::make('offer_date')
@@ -86,6 +97,7 @@ class OffersTable
                 self::releaseAction(),
                 self::changeStatusAction(),
                 self::customizeOfferLetterAction(),
+                self::requestRevisionAction(),
                 self::downloadOfferLetterAction(),
                 EditAction::make(),
             ])
@@ -183,10 +195,10 @@ class OffersTable
                     ->required(),
             ])
             ->action(function (Offer $record, array $data): void {
-                $record->update([
+                static::guarded('Offer letter not saved', fn () => app(OfferService::class)->updateTerms($record, [
                     'offer_letter_template_id' => $data['offer_letter_template_id'] ?? null,
                     'offer_letter_body' => $data['offer_letter_body'],
-                ]);
+                ]));
 
                 Notification::make()->title('Offer letter saved')->success()->send();
             });
@@ -207,9 +219,39 @@ class OffersTable
                 && in_array($record->status, self::LETTER_EDITABLE_STATUSES, true)
                 && (bool) auth()->user()?->can('update', $record))
             ->action(function (Offer $record): void {
-                $record->update(['offer_letter_body' => null]);
+                static::guarded('Offer letter not reset', fn () => app(OfferService::class)->updateTerms($record, ['offer_letter_body' => null]));
 
                 Notification::make()->title('Offer letter reset to template')->success()->send();
+            });
+    }
+
+    /**
+     * Phase 8.3: released terms are locked; a change is requested as a revision (with a reason) and
+     * takes effect only when someone with offers.release releases it.
+     */
+    public static function requestRevisionAction(): Action
+    {
+        return Action::make('requestRevision')
+            ->label('Request revision')
+            ->icon('heroicon-o-document-duplicate')
+            ->color('warning')
+            ->visible(fn (Offer $record): bool => $record->status === OfferStatus::Released && (bool) auth()->user()?->can('update', $record))
+            ->fillForm(fn (Offer $record): array => collect(OfferRevision::TERMS)->mapWithKeys(fn (string $term) => [$term => $record->getRawOriginal($term)])->all())
+            ->schema([
+                Select::make('designation_id')->label('Designation')->options(fn () => Designation::query()->orderBy('name')->pluck('name', 'id'))->searchable(),
+                Select::make('location_id')->label('Location')->options(fn () => Location::query()->orderBy('name')->pluck('name', 'id'))->searchable(),
+                TextInput::make('offered_ctc')->numeric(),
+                TextInput::make('fixed_salary')->numeric(),
+                TextInput::make('variable_salary')->numeric(),
+                TextInput::make('joining_bonus')->numeric(),
+                DatePicker::make('offer_expiry'),
+                DatePicker::make('expected_joining_date'),
+                Textarea::make('reason')->label('Reason for the revision')->required()->rows(2)->maxLength(255),
+            ])
+            ->modalDescription('The released terms stay in force and on record until this revision is released by someone with release permission.')
+            ->action(function (Offer $record, array $data): void {
+                self::guarded('Revision could not be requested', fn () => app(OfferService::class)->requestRevision($record, collect($data)->only(OfferRevision::TERMS)->all(), $data['reason'], auth()->user()));
+                Notification::make()->title('Revision requested')->body('It takes effect once released.')->success()->send();
             });
     }
 
@@ -219,8 +261,9 @@ class OffersTable
             ->label('Download Offer Letter')
             ->icon('heroicon-o-document-arrow-down')
             ->color('gray')
-            ->visible(fn (Offer $record): bool => (bool) auth()->user()?->can('view', $record))
-            ->action(function (Offer $record): StreamedResponse {
+            // Phase 8.8 (SEC-88-15): the letter states the full CTC, so it needs compensation.view too.
+            ->visible(fn (Offer $record): bool => (bool) auth()->user()?->can('view', $record) && (bool) auth()->user()?->can('compensation.view'))
+            ->action(function (Offer $record): ?StreamedResponse {
                 $record->loadMissing([
                     'candidateApplication.candidate',
                     'candidateApplication.requisition.department',
@@ -232,11 +275,36 @@ class OffersTable
                 ]);
 
                 // Candidates always receive a PDF, whatever format the template is maintained in.
-                $pdf = app(OfferLetterRenderer::class)->pdf($record);
+                // Phase 8.6 (D8.6-010): once released, the stored issued letter is returned as issued;
+                // a letter regenerated from current data (never released, or released before 8.6)
+                // is labelled as such.
+                $letters = app(OfferLetterIssuanceService::class);
+
+                // Phase 8.9 (P89-PERF-024): a released Word letter is converted to PDF in the background.
+                if ($letters->pendingConversionFor($record) !== null) {
+                    Notification::make()->title('Offer letter being prepared')->body('The PDF for this release is being produced; it will be ready in a minute or two.')->warning()->send();
+
+                    return null;
+                }
+
+                ['pdf' => $pdf, 'issued' => $issued, 'format' => $format] = $letters->pdfFor($record);
+
+                if ($issued === null && $record->status !== OfferStatus::Draft && $record->status !== OfferStatus::Initiated) {
+                    Notification::make()->title('Regenerated letter')->body('No issued letter is stored for this offer (released before letters were kept); this copy was generated from current data.')->warning()->send();
+                }
+
+                if ($format === 'docx') {
+                    Notification::make()->title('Word preview')->body('This is the filled Word letter. The PDF is produced when the offer is released.')->info()->send();
+                }
+
+                $name = ($issued !== null ? "offer-letter-{$record->offer_code}-r{$issued->revision}" : "offer-letter-{$record->offer_code}").'.'.$format;
+
+                // Phase 8.8 (SEC-88-13): who took a copy of the letter.
+                AuditLog::record($record, 'offer_letter_downloaded', null, ['issued' => $issued !== null, 'revision' => $issued?->revision, 'format' => $format]);
 
                 return response()->streamDownload(function () use ($pdf): void {
                     echo $pdf;
-                }, "offer-letter-{$record->offer_code}.pdf", ['Content-Type' => 'application/pdf']);
+                }, $name, ['Content-Type' => $format === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf']);
             });
     }
 

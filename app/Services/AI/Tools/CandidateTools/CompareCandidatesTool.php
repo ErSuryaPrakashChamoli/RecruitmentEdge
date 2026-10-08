@@ -6,13 +6,14 @@ use App\Enums\AiRiskLevel;
 use App\Models\Candidate;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
 
 class CompareCandidatesTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -56,25 +57,16 @@ class CompareCandidatesTool implements AiTool
                 'applications',
                 fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
             ))
-            ->with(['applications' => fn ($q) => $q->latest('application_date')->limit(1)])
+            // Phase 8.10 (P810-AI-11): the application compared is the latest one the user may see,
+            // never another team's (its stage and compensation fit are outside the user's scope).
+            ->with(['applications' => fn ($q) => $q->when($visibleIds !== null, fn ($a) => $a->whereIn('recruiter_id', $visibleIds))->with('requisition')->latest('application_date')->limit(1)])
             ->get(['id', 'full_name', 'total_experience', 'relevant_experience', 'skills', 'current_company', 'current_designation', 'expected_salary', 'notice_period_days']);
 
         if ($candidates->count() < 2) {
             return ToolResult::fail('At least two visible candidates are required to compare.');
         }
 
-        $rows = $candidates->map(fn (Candidate $c) => [
-            'id' => $c->id,
-            'name' => $c->full_name,
-            'total_experience' => $c->total_experience,
-            'relevant_experience' => $c->relevant_experience,
-            'current_company' => $c->current_company,
-            'current_designation' => $c->current_designation,
-            'skills' => $c->skills,
-            'expected_salary' => $c->expected_salary,
-            'notice_period_days' => $c->notice_period_days,
-            'current_stage' => optional($c->applications->first())->current_stage?->label(),
-        ]);
+        $rows = $candidates->map(fn (Candidate $c) => $this->projector()->candidateComparable($c, $c->applications->first()));
 
         return ToolResult::ok(
             data: ['comparison' => $rows->toArray()],

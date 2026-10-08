@@ -1,0 +1,102 @@
+# Runbook: Backup, Restore and Disaster Recovery
+
+For whoever operates Recruitment Edge. Phase 8.9 (P89-OPS-001; decisions D8.9-007/008/009/010/028).
+
+> **Status — read first.** This repository contains **no backup system**: no scheduled backup, no backup storage, no restore automation. Nothing here has been verified against production. This runbook states **what must be protected and how to back up and restore it**. Running it, storing the copies, and testing restores is an operations responsibility outside the repository.
+>
+> **Not set here:** the **RTO** (how long the service may be down), the **RPO** (how much data may be lost), backup frequency, backup retention, and the DR site. They are owner decisions (D8.9-007 RTO, D8.9-008 RPO, D8.9-009 backup policy, D8.9-010 DR, D8.9-028 restore-test cadence). Backup retention is also a legal question; it waits for the data-governance / retention decision (SEC-88-02, R-13).
+>
+> **Until those decisions exist and a restore has been tested, the platform has no verified recovery capability.**
+
+## 1. What must be protected
+
+| What | Where (compose) | Why it matters | Notes |
+|---|---|---|---|
+| **Database** — every candidate, application, offer, joining, incentive, audit row; also sessions, cache, queued jobs | MySQL 8.4, volume `db-data` | the system of record | Queued jobs include unsent candidate messages. Sessions and cache are transient but restore with it. |
+| **Files** — resumes, candidate and joining documents, offer letters (SHA-256 recorded in `offer_letters`), templates, AI documents, export files | volume `storage-data` → `storage/app` | documents are referenced by path from the database | A database restore without the matching files leaves broken links. A file restore without the database leaves orphans. Back both up at the **same point in time**. |
+| **`APP_KEY`** (and `APP_PREVIOUS_KEYS`) | `.env` / secret store | decrypts calendar tokens, MFA secrets, encrypted queue payloads, signed links, the cached Zoom token | **Without it a restored database is partly unreadable.** Keep it in the secret store, separate from the backups. |
+| Configuration (`.env`) and the release image tag (`APP_IMAGE_TAG`) | secret store / registry | the restored data must run on a compatible release | Migrations are forward-only. A backup restores onto the release it was taken with, or a later one. |
+| Logs | volume `storage-logs` | investigation only | Optional. Log retention is R-13. |
+
+## 2. Taking a backup (procedure)
+
+Run during a quiet period. The procedure is consistent without stopping the app, because InnoDB gives a transactional snapshot.
+
+1. **Note the release:** record `APP_IMAGE_TAG` and `php artisan migrate:status | tail -1` (the last migration).
+2. **Database** — a consistent snapshot, without locking tables:
+   ```sh
+   docker compose exec -T db sh -c 'mysqldump --single-transaction --routines --triggers --hex-blob \
+     --no-tablespaces --set-gtid-purged=OFF --default-character-set=utf8mb4 \
+     -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' | gzip > recruitment_edge_$(date -u +%Y%m%dT%H%M%SZ).sql.gz
+   ```
+   SaaS-7: `--triggers` also dumps the audit trail's append-only triggers (`audit:protect`). Loading them back needs a privileged user when binary logging is on; otherwise restore without them and run `php artisan audit:protect install` afterwards (step 6 of §3 checks it).
+   Phase 8.10: `--no-tablespaces` is needed because, since MySQL 8.0.21, dumping tablespaces requires the PROCESS privilege, which the compose application user does not have. The application uses no general tablespaces. `--set-gtid-purged=OFF` keeps the dump restorable into a server with a different GTID state.
+   For a point-in-time capability (an RPO below the backup interval), enable MySQL binary logging (`--log-bin`, `binlog_expire_logs_seconds`) and archive the binlogs. This is an infrastructure change, decided under D8.9-008/009.
+3. **Files** — immediately after the dump:
+   ```sh
+   docker run --rm -v recruitment-edge_storage-data:/data:ro -v "$PWD":/backup alpine \
+     tar czf /backup/storage_$(date -u +%Y%m%dT%H%M%SZ).tar.gz -C /data .
+   ```
+   (The volume name carries the compose project prefix. `docker volume ls` shows it.)
+4. **Protect the copies.** Encrypt them, because they hold personal data and compensation. The procedure tested in Phase 8.10 is symmetric GnuPG AES-256, which includes modification detection, with a passphrase file kept in the secret store:
+   ```sh
+   gpg --batch --pinentry-mode loopback --passphrase-file <key-file> --symmetric --cipher-algo AES256 \
+     -o <file>.gpg <file> && sha256sum *.gpg > SHA256SUMS
+   ```
+   Then remove the plaintext copies.
+   - Store the copies away from the host, under access control, and record where they are.
+   - Never put `APP_KEY`, or the backup key, in the same place as the backups.
+   - Where the copies are stored, how long they are kept, and who holds the key are owner decisions (D8.9-009, R-13).
+5. **Verify the backup.** A backup that was never restored is not verified.
+   - Run `sha256sum -c SHA256SUMS`, decrypt and `gunzip -t` the dump, and decrypt and `tar tzf` the archive.
+   - Periodically, run a full restore test into a throwaway environment (§3) with the checks in §3 step 6. Phase 8.10 rehearsed it like this:
+     - restore into a separate database and directory;
+     - compare tables, columns, indexes, foreign keys, CHECK constraints, row counts and per-column checksums with the source;
+     - compare every file's SHA-256;
+     - confirm every file path referenced by the database (for example `candidate_documents.file_path`, `offer_letters`) exists.
+     
+     See `docs/phase-8-10-release-readiness.md` §3.2.
+   - A modified archive fails both the checksum and GnuPG ("encrypted message has been manipulated"). A wrong key fails with "Bad session key". Treat either as a failed backup.
+
+## 3. Restoring (procedure)
+
+1. **Decide the target point** (which backup) and record why. Restoring overwrites everything written since.
+2. **Stop writers:** `docker compose stop scheduler queue queue-priority queue-automation queue-background app`.
+3. **Database.** First run `sha256sum -c SHA256SUMS`.
+   - **Restore into an empty database.** The dump drops and recreates only the tables it contains, never the database. Restoring an older backup over a newer schema would leave the newer tables behind, and the next `migrate` would fail.
+   - Recreate the database first:
+     ```sh
+     docker compose exec -T db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "DROP DATABASE \`$MYSQL_DATABASE\`; CREATE DATABASE \`$MYSQL_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"'
+     ```
+     The compose form of these commands was not executed in Phase 8.10 (no container runtime). The compose `MYSQL_USER` normally holds `ALL` on its own database, which includes DROP and CREATE for it (INFERENCE).
+   - Then load the dump:
+   ```sh
+   gpg --batch --pinentry-mode loopback --passphrase-file <key-file> -d recruitment_edge_<stamp>.sql.gz.gpg \
+     | gunzip | docker compose exec -T db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+   ```
+   For a release rollback, this restore of the pre-release backup is the recovery path, not `migrate:rollback`. Several migrations cannot undo their data changes; for example, permission grants persist (`docs/phase-8-10-release-readiness.md` §4.3).
+4. **Files:** restore the matching archive into the `storage-data` volume (`tar xzf … -C /data`). Then start the app once with `FIX_STORAGE_OWNERSHIP=true`, because restored files can be root-owned.
+5. **Start on a compatible release:** `APP_IMAGE_TAG=<release at backup time or later> docker compose up -d`. The `migrate` service (`ops:migrate`) applies any newer migrations.
+6. **Check before reopening:**
+   - **SaaS-7:** `php artisan ops:verify-integrity` → "Integrity OK" (0 foreign keys with orphaned rows — a dump is loaded with foreign-key checks off, so MySQL itself does not prove this; 0 tenancy violations; 0 pending migrations). `php artisan audit:protect status` → installed (or install it); `php artisan ops:preflight` → no blocker.
+   - `GET /health/ready` → 200; `GET /up` → 200; `GET /health/queue` → 200;
+   - Queue health: decide what to do with jobs that were queued at backup time (they will run — messages are re-checked at send time, and automation re-checks its owner);
+   - spot-check a candidate's documents and an offer letter (the stored SHA-256 must match);
+   - users sign in again where needed (sessions are as of the backup).
+7. **Record the restore** (time, backup used, data lost window, checks done) for the incident record.
+
+## 4. Disaster recovery (host or site loss)
+
+No DR site, replica or standby exists (P89-OPS-001). Recovery from the loss of the host means:
+1. a new host with Docker;
+2. the release image (registry, by tag) or the source at that tag;
+3. `.env` from the secret store, **including `APP_KEY`**;
+4. the latest database and file backups (§3).
+
+How fast this must happen (RTO) and how much may be lost (RPO) are not set; see D8.9-007/008/010.
+
+## 5. Related
+
+- `docs/runbooks/queue-operations.md` — deployment (a verified backup is a prerequisite), queues, recovery of stuck work.
+- `docs/runbooks/production-environment.md` — production settings.
+- `docs/phase-8-8-retention-decision.md` — retention, erasure and legal hold, deferred (backup retention is part of it).

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Phase 8.9 (ED-10): MySQL-backed concurrency tests (tests/Concurrency). Not part of the default
+    SQLite run: they need a MySQL 8.4 server and fork processes. Run with
+        vendor/bin/pest -c phpunit.concurrency.xml
+    The database name must end in _concurrency; it is created and migrated fresh by the harness.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Concurrency">
+            <directory>tests/Concurrency</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="METRICS_CACHE_TTL" value="0"/>
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="hrms_p89_concurrency"/>
+        <env name="DB_URL" value=""/>
+        <env name="GEMINI_API_KEY" value=""/>
+        <env name="OPENAI_API_KEY" value=""/>
+        <env name="AI_WEB_SEARCH_ENABLED" value="false"/>
+        <env name="AI_PRIVACY_EGRESS_MODE" value="block"/>
+        <env name="IDENTITY_MFA_ENFORCE" value="false"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+    </php>
+</phpunit>

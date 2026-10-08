@@ -3,6 +3,7 @@
 namespace App\Filament\Exports;
 
 use App\Enums\TargetMetric;
+use App\Filament\Exports\Concerns\RunsOnExportQueue;
 use App\Models\RecruiterPerformanceSnapshot;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
@@ -11,6 +12,8 @@ use Illuminate\Support\Str;
 
 class RecruiterPerformanceSnapshotExporter extends Exporter
 {
+    use RunsOnExportQueue;
+
     protected static ?string $model = RecruiterPerformanceSnapshot::class;
 
     public static function getColumns(): array

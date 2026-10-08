@@ -28,7 +28,7 @@ test('the theme picker renders on the profile page, not the header or topbar', f
         ->assertSee('Minimal Beige');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertDontSee('Executive Navy')
         ->assertSee('data-app-theme', false);

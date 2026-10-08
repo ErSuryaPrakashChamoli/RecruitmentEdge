@@ -2,6 +2,8 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentSlaService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -14,18 +16,14 @@ use Illuminate\Support\Collection;
  */
 class SlaTatWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.sla-tat';
 
     protected int|string|array $columnSpan = 1;
 
     /**
-     * @return Collection<int, array{label: string, average_days: float|null, median_days: float|null, target_days: int, sla_percent: float|null, breaches: int, sample_size: int}>
+     * @return Collection<int, array{label: string, average_days: float|null, median_days: float|null, target_days: int, compliance_percent: float|null, breaches: int, sample_size: int}>
      */
     public function getRows(): Collection
     {
@@ -35,7 +33,7 @@ class SlaTatWidget extends Widget
     }
 
     /**
-     * @return array{average_days: float|null, target_days: int, sla_percent: float|null, status: string}
+     * @return array{median_days: float|null, target_days: int, status: string, sample_size: int}
      */
     public function getTimeToHire(): array
     {

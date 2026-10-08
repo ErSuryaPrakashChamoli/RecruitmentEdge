@@ -10,6 +10,7 @@ use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Providers\GeminiProvider;
 use App\Services\AI\Providers\NullProvider;
 use App\Services\AI\Providers\OpenAiProvider;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -200,4 +201,43 @@ test('an unconfigured GeminiProvider throws when asked to embed rather than sile
 
     expect($provider->isConfigured())->toBeFalse()
         ->and(fn () => $provider->embed(['text']))->toThrow(AiProviderUnavailableException::class);
+});
+
+test('a structured call that fails at the provider throws instead of looking like an empty answer', function (int $status, array $body): void {
+    Http::fake([
+        'generativelanguage.googleapis.com/*' => Http::response($body, $status),
+        'api.openai.com/*' => Http::response($body, $status),
+    ]);
+
+    $gemini = new GeminiProvider('fake-key', 'https://generativelanguage.googleapis.com/v1beta');
+    $openai = new OpenAiProvider('fake-key', 'https://api.openai.com/v1');
+
+    expect(fn () => $gemini->structured([LlmMessage::user('x')], 'gemini-2.5-flash', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class)
+        ->and(fn () => $openai->structured([LlmMessage::user('x')], 'gpt-5-mini', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class);
+})->with([
+    'overloaded (503)' => [503, ['error' => ['message' => 'overloaded']]],
+    'unparseable output' => [200, ['candidates' => [['content' => ['parts' => [['text' => '{not json']]]]], 'output' => [['content' => [['type' => 'output_text', 'text' => '{not json']]]]]],
+    'server error (500)' => [500, ['error' => ['message' => 'internal']]],
+    'rate limited (429)' => [429, ['error' => ['message' => 'quota']]],
+    'malformed response shape' => [200, ['unexpected' => true]],
+    'empty body' => [200, []],
+]);
+
+test('a structured call that times out or cannot connect throws a provider-unavailable error', function (): void {
+    Http::fake(fn () => throw new ConnectionException('cURL error 28: Operation timed out'));
+
+    $gemini = new GeminiProvider('fake-key', 'https://generativelanguage.googleapis.com/v1beta');
+    $openai = new OpenAiProvider('fake-key', 'https://api.openai.com/v1');
+
+    expect(fn () => $gemini->structured([LlmMessage::user('x')], 'gemini-2.5-flash', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class)
+        ->and(fn () => $openai->structured([LlmMessage::user('x')], 'gpt-5-mini', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class);
+});
+
+test('an unconfigured provider refuses a structured call without making a request', function (): void {
+    Http::fake();
+
+    expect(fn () => (new GeminiProvider(null, 'https://generativelanguage.googleapis.com/v1beta'))->structured([LlmMessage::user('x')], 'gemini-2.5-flash', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class)
+        ->and(fn () => (new OpenAiProvider(null, 'https://api.openai.com/v1'))->structured([LlmMessage::user('x')], 'gpt-5-mini', ['type' => 'object']))->toThrow(AiProviderUnavailableException::class);
+
+    Http::assertNothingSent();
 });

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Exports;
 
+use App\Filament\Exports\Concerns\RunsOnExportQueue;
 use App\Models\Candidate;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
@@ -10,6 +11,8 @@ use Illuminate\Support\Str;
 
 class CandidateExporter extends Exporter
 {
+    use RunsOnExportQueue;
+
     protected static ?string $model = Candidate::class;
 
     public static function getColumns(): array

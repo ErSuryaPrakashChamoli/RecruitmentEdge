@@ -27,7 +27,7 @@ test('the recruitment reports page renders successfully with no data', function 
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/recruitment-reports')
+        ->get('/admin/acme/recruitment-reports')
         ->assertSuccessful()
         ->assertSee('No open or on-hold requisitions');
 });
@@ -37,7 +37,7 @@ test('the recruitment reports page renders successfully for a scoped recruiter',
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('recruiter');
 
-    actingAs($user)->get('/admin/recruitment-reports')->assertSuccessful();
+    actingAs($user)->get('/admin/acme/recruitment-reports')->assertSuccessful();
 });
 
 test('a user with reports.export can export the funnel and vacancy ageing as CSV', function (): void {
@@ -93,11 +93,11 @@ test('cost per hire on the reports page honours the source filter', function ():
 
     $page = Livewire::test(RecruitmentReports::class);
 
-    expect($page->instance()->getCostPerHire())->toBe(8000.0);
+    expect($page->instance()->getCostPerHire()->value)->toBe(8000.0);
 
     $page->set('data.source_id', $naukri->id);
 
-    expect($page->instance()->getCostPerHire())->toBe(10000.0);
+    expect($page->instance()->getCostPerHire()->value)->toBe(10000.0);
 });
 
 test('cost per hire on the reports page is scoped to the viewer hierarchy', function (): void {
@@ -109,8 +109,9 @@ test('cost per hire on the reports page is scoped to the viewer hierarchy', func
     RecruitmentCost::factory()->create(['amount' => 4000, 'incurred_on' => now(), 'requisition_id' => $teamRequisition->id]);
     RecruitmentCost::factory()->create(['amount' => 90000, 'incurred_on' => now()]);
 
+    // Phase 8.5: the hire counts through the team's requisition, like the cost does.
     CandidateJoining::factory()->create([
-        'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id])->id,
+        'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id, 'requisition_id' => $teamRequisition->id])->id,
         'status' => JoiningStatus::Joined,
         'actual_doj' => now(),
     ]);
@@ -124,7 +125,7 @@ test('cost per hire on the reports page is scoped to the viewer hierarchy', func
     $user->assignRole('manager');
     actingAs($user);
 
-    expect(Livewire::test(RecruitmentReports::class)->instance()->getCostPerHire())->toBe(4000.0);
+    expect(Livewire::test(RecruitmentReports::class)->instance()->getCostPerHire()->value)->toBe(4000.0);
 });
 
 test('the vacancy ageing table shows a priority column', function (): void {
@@ -138,7 +139,7 @@ test('the vacancy ageing table shows a priority column', function (): void {
     ]);
 
     actingAs($user)
-        ->get('/admin/recruitment-reports')
+        ->get('/admin/acme/recruitment-reports')
         ->assertSuccessful()
         ->assertSee('Priority')
         ->assertSee('Urgent');

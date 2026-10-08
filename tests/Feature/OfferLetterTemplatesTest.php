@@ -122,7 +122,7 @@ test('an offer owner can tailor the letter for one offer and reset it to the tem
 });
 
 test('the letter cannot be customised once the candidate has decided on the offer', function (): void {
-    $this->offer->update(['status' => OfferStatus::Accepted]);
+    lifecycleFixture(fn () => $this->offer->update(['status' => OfferStatus::Accepted]));
     actingAsLetterUser($this->recruiter, 'manager');
 
     Livewire::test(EditOffer::class, ['record' => $this->offer->getKey()])

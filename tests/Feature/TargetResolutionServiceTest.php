@@ -147,6 +147,7 @@ test('the designation tier ignores another employee\'s personal target that also
 
     // A legacy multi-scope row written before the saving guard existed.
     DB::table('recruitment_daily_targets')->insert([
+        'tenant_id' => $this->tenant->id,
         'employee_id' => $colleague->id,
         'designation_id' => $recruiter->designation_id,
         'department_id' => $recruiter->department_id,
@@ -168,6 +169,7 @@ test('the department tier ignores a designation-scoped target for another design
     $recruiter = Employee::factory()->create(['department_id' => $department->id]);
 
     DB::table('recruitment_daily_targets')->insert([
+        'tenant_id' => $this->tenant->id,
         'employee_id' => null,
         'designation_id' => $otherDesignation->id,
         'department_id' => $department->id,

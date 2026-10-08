@@ -24,7 +24,7 @@ test('the incentive statement view renders the slab breakdown when a slab is set
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get("/admin/recruiter-incentive-calculations/{$calculation->id}")
+        ->get("/admin/acme/recruiter-incentive-calculations/{$calculation->id}")
         ->assertSuccessful()
         ->assertSee('Slab Band')
         ->assertSee('80.0% – 100.0%');
@@ -41,6 +41,6 @@ test('the incentive statement view renders gracefully when no slab is set', func
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get("/admin/recruiter-incentive-calculations/{$calculation->id}")
+        ->get("/admin/acme/recruiter-incentive-calculations/{$calculation->id}")
         ->assertSuccessful();
 });

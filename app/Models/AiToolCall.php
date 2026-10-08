@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\AiRiskLevel;
 use App\Enums\AiToolCallStatus;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiToolCallFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -23,11 +24,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'approved_by',
     'approved_at',
     'executed_at',
+    'requested_by',
+    'expires_at',
+    'authority_fingerprint',
 ])]
 class AiToolCall extends Model
 {
     /** @use HasFactory<AiToolCallFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -39,6 +43,8 @@ class AiToolCall extends Model
             'requires_confirmation' => 'boolean',
             'approved_at' => 'datetime',
             'executed_at' => 'datetime',
+            'expires_at' => 'datetime',
+            'invalidated_at' => 'datetime',
         ];
     }
 
@@ -48,6 +54,24 @@ class AiToolCall extends Model
     public function message(): BelongsTo
     {
         return $this->belongsTo(AiMessage::class, 'message_id');
+    }
+
+    /**
+     * Phase 8.4: who asked for this action (immutable). Only they may approve it.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function requester(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    /**
+     * Phase 8.4: a pending action past its approval window can never run.
+     */
+    public function isExpired(): bool
+    {
+        return $this->requires_confirmation && ($this->expires_at === null || $this->expires_at->isPast());
     }
 
     /**

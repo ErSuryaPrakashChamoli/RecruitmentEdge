@@ -3,13 +3,23 @@
 namespace App\Filament\Pages;
 
 use App\Enums\AppTheme;
+use App\Models\Employee;
+use App\Models\Tenant;
+use App\Models\User;
+use App\Services\Identity\CredentialService;
+use App\Services\Identity\TenantSelectionService;
+use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantStorage;
+use Filament\Actions\Action;
 use Filament\Auth\Pages\EditProfile;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 
 /**
@@ -28,6 +38,83 @@ use Illuminate\Support\Arr;
  */
 class Profile extends EditProfile
 {
+    /**
+     * SaaS-1/2: the profile is Filament's tenant-less page: the identity's own name, email, password
+     * and MFA are global. The employee details and photo belong to a tenant — the one the person
+     * last entered in this session, else their default (TenantSelectionService), each re-checked
+     * against their membership on every request of this page (Livewire updates included). With no
+     * such tenant the page shows the identity only.
+     */
+    public function boot(): void
+    {
+        $user = $this->getUser();
+        $tenant = $user instanceof User ? app(TenantSelectionService::class)->workingTenant($user, request()->hasSession() ? request()->session() : null) : null;
+
+        if ($tenant instanceof Tenant) {
+            TenantContext::current()->setTenant($tenant);
+        }
+    }
+
+    /**
+     * Phase 8.4: sign out of every other browser and device (this session stays signed in).
+     *
+     * @return array<int, Action>
+     */
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('signOutOtherSessions')
+                ->label('Sign out other sessions')
+                ->icon('heroicon-o-arrow-right-start-on-rectangle')
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalDescription('Every other browser or device signed in as you is signed out. This one stays signed in.')
+                ->action(function (): void {
+                    /** @var User $user */
+                    $user = $this->getUser();
+                    app(CredentialService::class)->signOutEverywhere($user, $user, session()->driver());
+
+                    Notification::make()->title('Other sessions signed out')->success()->send();
+                }),
+        ];
+    }
+
+    /**
+     * Phase 8.4: the change is audited when requested; it applies only once the new address is
+     * verified (the panel's email change verification).
+     */
+    protected function sendEmailChangeVerification(Model $record, string $newEmail): void
+    {
+        if ($record instanceof User && $record->email !== $newEmail) {
+            CredentialService::recordEmailChangeRequest($record, $newEmail, $record);
+
+            // SaaS-2 (S1-01): an address another identity uses gets no link, and the page says the
+            // same as for any other address — it never reveals who is on the platform.
+            if (CredentialService::addressIsTaken($record, $newEmail)) {
+                $this->getEmailChangeVerificationSentNotification($newEmail)?->send();
+                $this->data['email'] = $record->getAttributeValue('email');
+
+                return;
+            }
+        }
+
+        parent::sendEmailChangeVerification($record, $newEmail);
+    }
+
+    /**
+     * SaaS-2 (S1-01): no uniqueness check on the address (Filament's default would answer "already
+     * taken" for any address on the platform); sendEmailChangeVerification() handles a taken one.
+     */
+    protected function getEmailFormComponent(): Component
+    {
+        return TextInput::make('email')
+            ->label(__('filament-panels::auth/pages/edit-profile.form.email.label'))
+            ->email()
+            ->required()
+            ->maxLength(255)
+            ->live(debounce: 500);
+    }
+
     public function setThemePreference(string $theme): void
     {
         $this->getUser()->update(['theme' => AppTheme::fromValueOrDefault($theme)->value]);
@@ -128,8 +215,12 @@ class Profile extends EditProfile
                     ->label('Photo')
                     ->image()
                     ->avatar()
-                    ->disk('public')
-                    ->directory('employee-photos'),
+                    // Phase 8.10 (P810-SEC-002): raster only (after avatar(), which resets the types to image/*).
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                    // SaaS-5 (S1-06): private; a photo not yet moved stays readable where it is.
+                    ->disk(fn (): string => Employee::photoDisk($this->getUser()->employee?->photo_path))
+                    ->visibility('private')
+                    ->directory(fn (): string => TenantStorage::path('employee-photos')),
             ])
             ->visible(fn (): bool => $this->getUser()->employee !== null);
     }

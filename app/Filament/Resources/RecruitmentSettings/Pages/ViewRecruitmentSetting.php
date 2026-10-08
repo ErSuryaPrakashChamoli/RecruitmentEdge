@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\RecruitmentSettings\Pages;
 
 use App\Filament\Resources\RecruitmentSettings\RecruitmentSettingResource;
-use Filament\Actions\EditAction;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\ViewRecord;
 
 class ViewRecruitmentSetting extends ViewRecord
@@ -13,7 +13,9 @@ class ViewRecruitmentSetting extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            EditAction::make(),
+            Action::make('configure')
+                ->label('Configure Settings')
+                ->url(RecruitmentSettingResource::getUrl('configure')),
         ];
     }
 }

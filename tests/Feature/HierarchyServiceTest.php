@@ -33,7 +33,7 @@ test('moving an employee to a new manager updates the closure table for the whol
     $recruiter = Employee::factory()->reportingTo($manager)->create();
 
     // Move the manager (and its recruiter) to report directly to the CHRO, bypassing the VP.
-    $manager->update(['reports_to_id' => $chro->id]);
+    lifecycleFixture(fn () => $manager->update(['reports_to_id' => $chro->id]));
 
     expect($this->hierarchy->descendantIdsOf($chro->id)->sort()->values()->all())
         ->toBe([$chro->id, $vp->id, $manager->id, $recruiter->id])

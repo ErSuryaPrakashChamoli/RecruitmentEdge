@@ -3,11 +3,8 @@
 namespace App\Filament\Resources\Employees\Tables;
 
 use App\Enums\EmployeeStatus;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
+use App\Filament\Support\MasterDataLabel;
 use Filament\Actions\EditAction;
-use Filament\Actions\ForceDeleteBulkAction;
-use Filament\Actions\RestoreBulkAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -28,9 +25,11 @@ class EmployeesTable
                     ->formatStateUsing(fn ($record) => $record->fullName())
                     ->searchable(['first_name', 'last_name']),
                 TextColumn::make('department.name')
+                    ->formatStateUsing(MasterDataLabel::for('department'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('designation.name')
+                    ->formatStateUsing(MasterDataLabel::for('designation'))
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('reportsTo.first_name')
@@ -39,10 +38,7 @@ class EmployeesTable
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (EmployeeStatus $state) => $state->label())
-                    ->color(fn (EmployeeStatus $state) => match ($state) {
-                        EmployeeStatus::Active => 'success',
-                        EmployeeStatus::Inactive => 'gray',
-                    }),
+                    ->color(fn (EmployeeStatus $state) => $state->color()),
             ])
             ->filters([
                 SelectFilter::make('department')
@@ -53,13 +49,6 @@ class EmployeesTable
             ])
             ->recordActions([
                 EditAction::make(),
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
-                ]),
             ]);
     }
 }

@@ -3,10 +3,12 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\TargetMetric;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
 use App\Services\RecruiterDailyMetricsService;
 use App\Services\RecruitmentAnalyticsService;
 use App\Services\TargetResolutionService;
@@ -25,7 +27,7 @@ use Illuminate\Support\Collection;
  */
 class TodaysRecruitmentPulse extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
@@ -57,9 +59,9 @@ class TodaysRecruitmentPulse extends Widget
     public function getPulsePeriod(): array
     {
         if (blank($this->pageFilters['period'] ?? null)) {
-            $now = CarbonImmutable::now();
+            $today = MetricPeriod::day();
 
-            return [$now->startOfDay(), $now->endOfDay()];
+            return [$today->from, $today->to->endOfDay()];
         }
 
         return $this->resolvePeriod();
@@ -69,7 +71,9 @@ class TodaysRecruitmentPulse extends Widget
     {
         [$start, $end] = $this->getPulsePeriod();
 
-        return $start->isToday() && $end->isToday();
+        $today = MetricPeriod::now()->toDateString();
+
+        return $start->toDateString() === $today && $end->toDateString() === $today;
     }
 
     public function getPeriodLabel(): string
@@ -77,7 +81,7 @@ class TodaysRecruitmentPulse extends Widget
         [$start, $end] = $this->getPulsePeriod();
 
         if ($start->isSameDay($end)) {
-            return $start->isToday() ? 'Today' : $start->format('d M Y');
+            return $start->toDateString() === MetricPeriod::now()->toDateString() ? 'Today' : $start->format('d M Y');
         }
 
         return $start->format('d M').' – '.$end->format('d M Y');
@@ -103,26 +107,35 @@ class TodaysRecruitmentPulse extends Widget
         $targets = app(TargetResolutionService::class);
 
         [$start, $end] = $this->getPulsePeriod();
-        $todayStart = CarbonImmutable::now()->startOfDay();
-        $todayEnd = CarbonImmutable::now()->endOfDay();
+        $period = MetricPeriod::between($start, $end);
+        $today = MetricPeriod::day();
+        $todayStart = $today->from;
+        $todayEnd = $today->to->endOfDay();
 
-        $rows = collect(self::PULSE_METRICS)->map(function (TargetMetric $metric) use ($recruiters, $metrics, $targets, $start, $end, $todayStart, $todayEnd) {
-            $todayActual = 0;
-            $periodActual = 0;
-            $periodTarget = 0;
+        // Phase 8.5 (§17): achievement compares actual with target only for the recruiters who have
+        // a target — a recruiter without one is "no target", never a target of 0 that inflates the
+        // team's achievement. Actuals are read for all recruiters at once (PF-9).
+        $rows = collect(self::PULSE_METRICS)->map(function (TargetMetric $metric) use ($recruiters, $metrics, $targets, $start, $end, $period, $today) {
+            $todayActuals = $metrics->actualsFor($recruiters->pluck('id'), $metric, $today);
+            $periodActuals = $metrics->actualsFor($recruiters->pluck('id'), $metric, $period);
+            $periodTarget = null;
+            $actualAgainstTarget = 0;
 
             foreach ($recruiters as $recruiter) {
-                $todayActual += $metrics->actualFor($recruiter, $metric, $todayStart, $todayEnd);
-                $periodActual += $metrics->actualFor($recruiter, $metric, $start, $end);
-                $periodTarget += $targets->resolveForRange($recruiter, $metric, $start, $end) ?? 0;
+                $target = $targets->resolveForRange($recruiter, $metric, $start, $end);
+
+                if ($target !== null) {
+                    $periodTarget = ($periodTarget ?? 0) + $target;
+                    $actualAgainstTarget += $periodActuals[$recruiter->id] ?? 0;
+                }
             }
 
             return [
                 'label' => $metric->label(),
-                'today' => $todayActual,
-                'actual' => $periodActual,
+                'today' => array_sum($todayActuals),
+                'actual' => array_sum($periodActuals),
                 'target' => $periodTarget,
-                'achievement' => $periodTarget > 0 ? round($periodActual / $periodTarget * 100, 1) : null,
+                'achievement' => $periodTarget !== null && $periodTarget > 0 ? round($actualAgainstTarget / $periodTarget * 100, 1) : null,
             ];
         });
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DocumentStatus;
 use App\Enums\DocumentType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\CandidateDocumentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,7 +20,23 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CandidateDocument extends Model
 {
     /** @use HasFactory<CandidateDocumentFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
+
+    /**
+     * Phase 8.8 (SEC-88-06): what staff may upload as a candidate or joining document — PDF, Word
+     * and JPEG/PNG images, up to 10 MB.
+     *
+     * @var list<string>
+     */
+    public const array STAFF_UPLOAD_MIME_TYPES = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/png',
+    ];
+
+    public const int STAFF_UPLOAD_MAX_KB = 10240;
 
     protected static function booted(): void
     {

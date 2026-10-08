@@ -6,6 +6,7 @@ use App\Enums\AiRiskLevel;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\HierarchyService;
 use App\Services\PerformanceEngine;
@@ -14,6 +15,8 @@ use Carbon\CarbonImmutable;
 
 class GetRecruiterPerformanceTool implements AiTool
 {
+    use ProjectsForAi;
+
     public function __construct(
         private readonly PerformanceEngine $performance,
         private readonly RecruiterDailyMetricsService $metrics,
@@ -75,7 +78,7 @@ class GetRecruiterPerformanceTool implements AiTool
 
         return ToolResult::ok(
             data: [
-                'recruiter' => $recruiter->fullName(),
+                'recruiter_ref' => $recruiterRef = $this->projector()->employeeRef($recruiter),
                 'score' => $performance['score'],
                 'breakdown' => $performance['breakdown'],
                 'accountability' => $accountability->toArray(),
@@ -83,8 +86,8 @@ class GetRecruiterPerformanceTool implements AiTool
                 'end_date' => $end->toDateString(),
             ],
             summary: $performance['score'] !== null
-                ? "{$recruiter->fullName()}'s composite performance score is {$performance['score']}."
-                : "No scored metrics found for {$recruiter->fullName()} in this range.",
+                ? "{$recruiterRef}'s composite performance score is {$performance['score']}."
+                : "No scored metrics found for {$recruiterRef} in this range.",
             type: 'kpi_card',
         );
     }

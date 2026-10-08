@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Enums\IncentiveBeneficiary;
 use App\Enums\IncentiveCalculationStatus;
+use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Models\RecruiterIncentivePayment;
@@ -27,7 +29,8 @@ class IncentiveStatementService
 
     /**
      * Anyone with `incentives.view` may download their own statement; another recruiter's needs
-     * `reports.export` or `incentives.approve` and that recruiter inside the viewer's hierarchy.
+     * `reports.export` or `incentives.approve`, `compensation.view` (Phase 8.8, SEC-88-15 — it is
+     * someone else's pay) and that recruiter inside the viewer's hierarchy.
      */
     public function canDownloadFor(User $user, Employee $recruiter): bool
     {
@@ -36,18 +39,22 @@ class IncentiveStatementService
         }
 
         return ($user->can('reports.export') || $user->can('incentives.approve'))
+            && $user->can('compensation.view')
             && $this->hierarchy->canView($user, $recruiter);
     }
 
     /**
      * @return array{recruiter: Employee, periodStart: CarbonImmutable, periodEnd: CarbonImmutable, calculations: Collection<int, RecruiterIncentiveCalculation>, effectiveAmounts: array<int, float>, totalsByStatus: array<string, array{label: string, count: int, amount: float}>, earnedTotal: float, payments: Collection<int, RecruiterIncentivePayment>, paidTotal: float}
      */
-    public function periodStatement(Employee $recruiter, CarbonInterface $month): array
+    public function periodStatement(Employee $recruiter, CarbonInterface $month, IncentiveBeneficiary $beneficiary = IncentiveBeneficiary::Recruiter): array
     {
         $periodStart = CarbonImmutable::parse($month)->startOfMonth();
         $periodEnd = $periodStart->endOfMonth();
 
+        // A recruiter statement never includes referral bonuses the same person earned as a
+        // referrer, and a referral-bonus statement never includes recruiter incentives (Phase 4.1).
         $calculations = RecruiterIncentiveCalculation::query()
+            ->forBeneficiary($beneficiary)
             ->where('employee_id', $recruiter->id)
             ->whereDate('period_start', '>=', $periodStart)
             ->whereDate('period_start', '<=', $periodEnd)
@@ -102,12 +109,15 @@ class IncentiveStatementService
         return 'incentive-statement-'.str($code)->slug().'-'.$month->format('Y-m').'.pdf';
     }
 
-    public function streamPeriodStatement(Employee $recruiter, CarbonInterface $month): StreamedResponse
+    public function streamPeriodStatement(Employee $recruiter, CarbonInterface $month, IncentiveBeneficiary $beneficiary = IncentiveBeneficiary::Recruiter): StreamedResponse
     {
+        // Phase 8.8 (SEC-88-13): who took a copy of whose statement.
+        AuditLog::record($recruiter, 'incentive_statement_downloaded', null, ['statement' => 'period', 'month' => $month->format('Y-m'), 'beneficiary' => $beneficiary->value]);
+
         return $this->exporter->streamPdf(
             $this->filename($recruiter, $month),
             'pdf.incentive-statement-period',
-            $this->periodStatement($recruiter, $month),
+            [...$this->periodStatement($recruiter, $month, $beneficiary), 'beneficiary' => $beneficiary],
         );
     }
 

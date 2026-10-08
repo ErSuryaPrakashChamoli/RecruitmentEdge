@@ -3,6 +3,8 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\AppTheme;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\User;
 use App\Services\RecruitmentAnalyticsService;
@@ -17,11 +19,7 @@ use Filament\Widgets\Concerns\InteractsWithPageFilters;
  */
 class TurnUpTrendChart extends ChartWidget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected ?string $heading = 'Interview Line-up vs Turn-up Trend';
 

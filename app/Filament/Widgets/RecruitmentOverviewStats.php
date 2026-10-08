@@ -4,10 +4,12 @@ namespace App\Filament\Widgets;
 
 use App\Enums\CandidateStage;
 use App\Enums\RequisitionStatus;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\CostPerHireService;
+use App\Services\Metrics\MetricResult;
+use App\Services\Metrics\MetricService;
 use App\Services\RecruitmentAnalyticsService;
-use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Filament\Widgets\Widget;
@@ -26,7 +28,7 @@ use Illuminate\Support\Collection;
  */
 class RecruitmentOverviewStats extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, ResolvesDashboardPeriod;
 
     // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
     // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
@@ -37,67 +39,76 @@ class RecruitmentOverviewStats extends Widget
     protected int|string|array $columnSpan = 'full';
 
     /**
-     * @return array<int, array{label: string, value: string, icon: string, color: string, trend: float|null, trendLabel: string|null, sparkline?: array<int, int>|null, progress?: array{current: int, target: int}|null}>
+     * @return array<int, array{label: string, value: string, icon: string, color: string, trend: float|null, trendLabel: string|null, sparkline?: array<int, int>|null, progress?: array{current: int, target: int}|null, definition?: string|null}>
      */
     public function getCards(): array
     {
         $user = $this->filteredUser();
         $analytics = app(RecruitmentAnalyticsService::class);
 
+        $period = $this->resolveMetricPeriod();
         [$start, $end] = $this->resolvePeriod();
         // Like-for-like trends: a period still in progress (This Month, This Week) is compared over
         // the days elapsed so far, not a partial current period against a full previous one.
-        $days = $start->diffInDays($end->min(CarbonImmutable::now()->endOfDay())) + 1;
-        $previousEnd = $start->copy()->subDay()->endOfDay();
-        $previousStart = $previousEnd->copy()->subDays($days - 1)->startOfDay();
+        $elapsed = $period->elapsed();
+        $previous = $elapsed->previous();
 
-        $funnel = $analytics->funnel($start, $end, $user)->keyBy(fn (array $row) => $row['stage']->value);
-        $previousFunnel = $analytics->funnel($previousStart, $previousEnd, $user)->keyBy(fn (array $row) => $row['stage']->value);
+        // Phase 8.5: stage cards are pipeline volumes (pipeline.stage_activity — genuine stage
+        // entries only); Joining is hires (hiring.hires), never the pipeline stage.
+        $activity = $analytics->stageActivity($elapsed->from, $elapsed->to->endOfDay(), $user)->keyBy(fn (array $row) => $row['stage']->value);
+        $previousActivity = $analytics->stageActivity($previous->from, $previous->to->endOfDay(), $user)->keyBy(fn (array $row) => $row['stage']->value);
+        $current = $analytics->stageActivity($start, $end, $user)->keyBy(fn (array $row) => $row['stage']->value);
 
         $turnUp = $analytics->turnUpAnalysis($start, $end, $user);
         $positionHealth = $analytics->positionHealth($user);
-        $avgTimeToHire = $analytics->averageTimeToHireDays($start, $end, $user);
-        $costPerHire = app(CostPerHireService::class)->costPerHire($start, $end, user: $user);
+        $timeToHire = $analytics->metric('hiring.time_to_hire', $start, $end, $user);
+        $costPerHire = app(CostPerHireService::class)->result($start, $end, user: $user);
+        $hires = $analytics->metric('hiring.hires', $start, $end, $user);
 
         $openPositions = $positionHealth->filter(fn (array $row) => $row['requisition']->status === RequisitionStatus::Open)->count();
         $remaining = $positionHealth->sum('remaining');
-        $filled = $positionHealth->sum('filled');
-        $required = $positionHealth->sum('required');
         $turnUpSeries = $analytics->turnUpTrend($start, $end, $user)->pluck('turnups')->all();
 
         return [
             ['label' => 'Open Positions', 'value' => (string) $openPositions, 'icon' => 'heroicon-o-briefcase', 'color' => 'info', 'trend' => null, 'trendLabel' => null],
             [
-                'label' => 'Positions Filled', 'value' => (string) $filled, 'icon' => 'heroicon-o-check-badge', 'color' => 'success', 'trend' => null, 'trendLabel' => null,
-                'progress' => $required > 0 ? ['current' => $filled, 'target' => $required] : null,
+                'label' => 'Positions Filled', 'value' => $hires->display(), 'icon' => 'heroicon-o-check-badge', 'color' => 'success', 'trend' => null,
+                'trendLabel' => 'hires in period', 'definition' => $this->definition($hires),
             ],
-            ['label' => 'Positions Remaining', 'value' => (string) $remaining, 'icon' => 'heroicon-o-clock', 'color' => $remaining > 0 ? 'warning' : 'success', 'trend' => null, 'trendLabel' => null],
-            $this->stageCard('Applications', 'heroicon-o-inbox-arrow-down', 'info', CandidateStage::Sourced, $funnel, $previousFunnel),
-            $this->stageCard('Shortlisted', 'heroicon-o-star', 'info', CandidateStage::Shortlisted, $funnel, $previousFunnel),
-            $this->stageCard('Line-ups', 'heroicon-o-calendar-days', 'info', CandidateStage::InterviewScheduled, $funnel, $previousFunnel),
+            ['label' => 'Positions Remaining', 'value' => (string) $remaining, 'icon' => 'heroicon-o-clock', 'color' => $remaining > 0 ? 'warning' : 'success', 'trend' => null, 'trendLabel' => 'open requisitions, today'],
+            $this->stageCard('Applications', 'heroicon-o-inbox-arrow-down', 'info', CandidateStage::Sourced, $current, $activity, $previousActivity),
+            $this->stageCard('Shortlisted', 'heroicon-o-star', 'info', CandidateStage::Shortlisted, $current, $activity, $previousActivity),
+            $this->stageCard('Line-ups', 'heroicon-o-calendar-days', 'info', CandidateStage::InterviewScheduled, $current, $activity, $previousActivity),
             [
                 'label' => 'Turn-ups', 'value' => (string) $turnUp['turnups'], 'icon' => 'heroicon-o-arrow-trending-up', 'color' => 'info', 'trend' => null,
-                'trendLabel' => $turnUp['turnup_percent'] !== null ? "{$turnUp['turnup_percent']}% turn-up ratio" : 'No line-ups in period',
+                'trendLabel' => $turnUp['turnup_percent'] !== null ? "{$turnUp['turnup_percent']}% turn-up ratio" : 'No recorded line-ups in period',
                 'sparkline' => count($turnUpSeries) >= 2 ? $turnUpSeries : null,
             ],
-            $this->stageCard('Selections', 'heroicon-o-check-circle', 'success', CandidateStage::Selected, $funnel, $previousFunnel),
-            $this->stageCard('Offers', 'heroicon-o-document-text', 'info', CandidateStage::OfferReleased, $funnel, $previousFunnel),
-            $this->stageCard('Offer Accepted', 'heroicon-o-hand-thumb-up', 'success', CandidateStage::OfferAccepted, $funnel, $previousFunnel),
-            $this->stageCard('Joining', 'heroicon-o-flag', 'success', CandidateStage::Joined, $funnel, $previousFunnel),
-            ['label' => 'Avg. Time to Hire', 'value' => $avgTimeToHire !== null ? "{$avgTimeToHire} days" : '—', 'icon' => 'heroicon-o-clock', 'color' => 'default', 'trend' => null, 'trendLabel' => null],
-            ['label' => 'Cost per Hire', 'value' => $costPerHire !== null ? '₹'.number_format($costPerHire, 2) : '—', 'icon' => 'heroicon-o-banknotes', 'color' => 'default', 'trend' => null, 'trendLabel' => null],
+            $this->stageCard('Selections', 'heroicon-o-check-circle', 'success', CandidateStage::Selected, $current, $activity, $previousActivity),
+            $this->stageCard('Offers', 'heroicon-o-document-text', 'info', CandidateStage::OfferReleased, $current, $activity, $previousActivity),
+            $this->stageCard('Offer Accepted', 'heroicon-o-hand-thumb-up', 'success', CandidateStage::OfferAccepted, $current, $activity, $previousActivity),
+            $this->stageCard('Joining', 'heroicon-o-flag', 'success', CandidateStage::Joined, $current, $activity, $previousActivity),
+            ['label' => 'Median Time to Hire', 'value' => $timeToHire->display(), 'icon' => 'heroicon-o-clock', 'color' => 'default', 'trend' => null, 'trendLabel' => "n = {$timeToHire->sampleSize}", 'definition' => $this->definition($timeToHire)],
+            ['label' => 'Cost per Hire', 'value' => $costPerHire->display(), 'icon' => 'heroicon-o-banknotes', 'color' => 'default', 'trend' => null, 'trendLabel' => null, 'definition' => $this->definition($costPerHire)],
         ];
     }
 
+    private function definition(MetricResult $result): string
+    {
+        return app(MetricService::class)->spec($result->key)->description.' — '.$result->basisLine();
+    }
+
     /**
-     * @param  Collection<string, array{stage: CandidateStage, count: int, conversion_from_sourced: float|null}>  $funnel
-     * @param  Collection<string, array{stage: CandidateStage, count: int, conversion_from_sourced: float|null}>  $previousFunnel
+     * @param  Collection<string, array{stage: CandidateStage, count: int}>  $current  the whole selected period
+     * @param  Collection<string, array{stage: CandidateStage, count: int}>  $elapsed  the elapsed part (for the trend)
+     * @param  Collection<string, array{stage: CandidateStage, count: int}>  $previous  the equal-length period before it
      * @return array{label: string, value: string, icon: string, color: string, trend: float|null, trendLabel: string|null}
      */
-    private function stageCard(string $label, string $icon, string $color, CandidateStage $stage, Collection $funnel, Collection $previousFunnel): array
+    private function stageCard(string $label, string $icon, string $color, CandidateStage $stage, Collection $current, Collection $elapsed, Collection $previous): array
     {
-        $count = $funnel->get($stage->value)['count'] ?? 0;
-        $previousCount = $previousFunnel->get($stage->value)['count'] ?? 0;
+        $count = $current->get($stage->value)['count'] ?? 0;
+        $elapsedCount = $elapsed->get($stage->value)['count'] ?? 0;
+        $previousCount = $previous->get($stage->value)['count'] ?? 0;
 
         if ($previousCount === 0) {
             return [
@@ -106,7 +117,7 @@ class RecruitmentOverviewStats extends Widget
                 'icon' => $icon,
                 'color' => $color,
                 'trend' => null,
-                'trendLabel' => $count > 0 ? 'vs 0 in previous period' : 'No change vs previous period',
+                'trendLabel' => $elapsedCount > 0 ? 'vs 0 in previous period' : 'No change vs previous period',
             ];
         }
 
@@ -115,7 +126,7 @@ class RecruitmentOverviewStats extends Widget
             'value' => (string) $count,
             'icon' => $icon,
             'color' => $color,
-            'trend' => round(($count - $previousCount) / $previousCount * 100, 1),
+            'trend' => round(($elapsedCount - $previousCount) / $previousCount * 100, 1),
             'trendLabel' => 'vs previous period',
         ];
     }

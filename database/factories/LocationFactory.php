@@ -19,7 +19,7 @@ class LocationFactory extends Factory
     {
         return [
             'name' => fake()->city(),
-            'code' => strtoupper(fake()->unique()->lexify('LOC-???')),
+            'code' => strtoupper(fake()->unique()->bothify('LOC-???###')),
             'city' => fake()->city(),
             'state' => fake()->state(),
             'country' => fake()->country(),

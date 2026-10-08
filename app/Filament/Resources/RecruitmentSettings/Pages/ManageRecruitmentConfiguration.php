@@ -4,8 +4,11 @@ namespace App\Filament\Resources\RecruitmentSettings\Pages;
 
 use App\Filament\Resources\RecruitmentSettings\RecruitmentSettingResource;
 use App\Models\RecruitmentSetting;
+use App\Services\RecruitmentSettingService;
+use DomainException;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -18,9 +21,13 @@ use Filament\Schemas\Schema;
 
 /**
  * Typed, validated editor for the business-rule settings in RecruitmentSetting::DEFINITIONS.
- * Storage is still the generic key/value recruitment_settings table (RecruitmentSetting::put(),
- * whose saved event invalidates each key's cache), so every service keeps reading settings the
- * same way. Access follows the resource (RecruitmentSettingPolicy: `settings.manage`).
+ * Storage is still the generic key/value recruitment_settings table, so every service keeps
+ * reading settings the same way. Access follows the resource (RecruitmentSettingPolicy:
+ * `settings.manage`).
+ *
+ * Phase 8.6 (D8.6-012/013): the only editor. A save needs a reason and goes through
+ * RecruitmentSettingService, which applies the cross-field rules and records each changed key in
+ * the setting history (old → new, effective now, who, why).
  *
  * @property-read Schema $form
  */
@@ -88,6 +95,8 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
                         ->columns(['md' => 3])
                         ->schema([
                             self::daysInput('candidate_stall_days', 'Candidate stall threshold', 'Active candidates with no stage change for this long are flagged as stalled.'),
+                            self::integerInput('activity_backdate_days', 'Activity logging window', 'days', 0, 31)
+                                ->helperText('How many days back a recruiter activity may be logged. Activities feed targets, scores and incentives.'),
                             self::daysInput('offer_expiry_alert_days', 'Offer expiry alert window', 'Released offers expiring within this many days appear in the Action Center.'),
                             TextInput::make('interviewer_daily_capacity')
                                 ->label('Interviewer daily capacity')
@@ -97,6 +106,9 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
                                 ->maxValue(50)
                                 ->suffix('interviews')
                                 ->required(),
+                            self::integerInput('self_scheduling_min_lead_hours', 'Self-scheduling minimum notice', 'hours', 0, 168)
+                                ->helperText('Candidates cannot book a slot starting sooner than this.'),
+                            self::daysInput('self_scheduling_invitation_days', 'Self-scheduling link validity', 'How long a candidate\'s scheduling invitation link stays valid.'),
                         ]),
                     Section::make('Joining')
                         ->columns(['md' => 2])
@@ -112,6 +124,14 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
                             self::daysInput('notification_offer_expiry_warning_days', 'Offer expiry notification window'),
                             self::integerInput('notification_recruiter_shortfall_percent', 'Underperformance threshold', '%', 1, 100),
                             self::integerInput('notification_recruiter_critical_shortfall_percent', 'Critical underperformance threshold', '%', 1, 100),
+                        ]),
+                    Section::make('Reason for this change')
+                        ->description('Recorded in the setting history and the audit log. SLA and time-to-hire targets apply from now on; past periods keep the targets that were in force.')
+                        ->schema([
+                            Textarea::make('change_reason')
+                                ->label('Reason')
+                                ->required()
+                                ->maxLength(1000),
                         ]),
                 ])
                     ->livewireSubmitHandler('save')
@@ -131,18 +151,19 @@ class ManageRecruitmentConfiguration extends Page implements HasForms
     {
         $data = $this->form->getState();
 
-        foreach (RecruitmentSetting::DEFINITIONS as $key => $definition) {
-            $value = match ($definition['type']) {
-                'int' => (int) $data[$key],
-                'float' => (float) $data[$key],
-                default => (string) $data[$key],
-            };
+        try {
+            $changed = app(RecruitmentSettingService::class)->update(auth()->user(), collect($data)->except('change_reason')->all(), $data['change_reason'] ?? null);
+        } catch (DomainException $e) {
+            Notification::make()->title('Configuration not saved')->body($e->getMessage())->danger()->persistent()->send();
 
-            RecruitmentSetting::put($key, $value, $definition['type'], $definition['group'], $definition['description']);
+            return;
         }
 
+        $this->data['change_reason'] = null;
+
         Notification::make()
-            ->title('Recruitment configuration saved')
+            ->title($changed === [] ? 'Nothing changed' : 'Recruitment configuration saved')
+            ->body($changed === [] ? null : count($changed).' setting(s) changed.')
             ->success()
             ->send();
     }

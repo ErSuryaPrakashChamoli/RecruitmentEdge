@@ -70,6 +70,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Trusted Hosts
+    |--------------------------------------------------------------------------
+    |
+    | Phase 8.10 (P810-SEC-001): optional. The exact host names this deployment
+    | answers to, comma separated (APP_TRUSTED_HOSTS); a request for any other
+    | Host is refused. Include the name the container health check uses
+    | (localhost). Unset, every Host is served. Emailed and generated links use
+    | APP_URL either way (AppServiceProvider::configureTrustedOrigin).
+    |
+    */
+
+    'trusted_hosts' => array_values(array_filter(array_map(trim(...), explode(',', (string) env('APP_TRUSTED_HOSTS', ''))))),
+
+    /*
+    | SaaS-7 (C13, closes SEC-88-10): the load balancer / TLS proxy addresses whose X-Forwarded-*
+    | headers are believed — `*` (any, when only the proxy can reach the app) or a comma-separated
+    | list of addresses or CIDR ranges. Unset: none (the app sees the proxy as the client — every
+    | per-IP limit becomes one bucket and https is not detected; ops:preflight warns).
+    */
+    'trusted_proxies' => ($proxies = trim((string) env('TRUSTED_PROXIES', ''))) === '' ? null : ($proxies === '*' ? '*' : array_values(array_filter(array_map(trim(...), explode(',', $proxies))))),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

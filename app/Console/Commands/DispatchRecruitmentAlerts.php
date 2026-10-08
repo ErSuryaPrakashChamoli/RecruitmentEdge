@@ -20,6 +20,7 @@ use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentFollowup;
 use App\Models\RecruitmentSetting;
+use App\Services\Automation\AutomationRuleService;
 use App\Services\NotificationDispatchService;
 use App\Services\PerformanceEngine;
 use App\Services\RecruitmentAnalyticsService;
@@ -29,6 +30,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Throwable;
 
 /**
  * Threshold/time-driven proactive alerts (Section 40) that have no single triggering write —
@@ -47,22 +49,45 @@ class DispatchRecruitmentAlerts extends Command
         RecruitmentAnalyticsService $analytics,
         RecruitmentSlaService $sla,
         PerformanceEngine $performance,
+        AutomationRuleService $automationRules,
     ): int {
+        $checks = [
+            'vacancy_ageing' => fn () => $this->checkVacancyAgeing($notifications, $analytics),
+            'open_sla_breaches' => fn () => $this->checkOpenSlaBreaches($notifications, $sla),
+            'pipeline_stage_sla' => fn () => $this->checkPipelineStageSlaBreaches($notifications, $sla),
+            'selected_without_offer' => fn () => $this->checkSelectedWithoutOffer($notifications),
+            'followups_due' => fn () => $this->checkFollowupsDue($notifications),
+            'interviews_tomorrow' => fn () => $this->checkInterviewsTomorrow($notifications),
+            'unconfirmed_interviews' => fn () => $this->checkUnconfirmedInterviews($notifications),
+            'interview_feedback_pending' => fn () => $this->checkInterviewFeedbackPending($notifications),
+            'offers_nearing_expiry' => fn () => $this->checkOffersNearingExpiry($notifications),
+            'joining_tomorrow' => fn () => $this->checkJoiningTomorrow($notifications),
+            'joining_reminder' => fn () => $this->checkJoiningReminder($notifications),
+            'joining_risk' => fn () => $this->checkJoiningRisk($notifications),
+            'joiner_did_not_join' => fn () => $this->checkJoinerDidNotJoin($notifications),
+            'performance' => fn () => $this->checkRecruiterAndTeamPerformance($notifications, $performance),
+        ];
+
+        // Phase 6: a check whose job an Active template-based automation rule now does is skipped,
+        // so the same situation never raises both the built-in alert and the rule's notification.
+        $superseded = $automationRules->supersededAlertChecks();
         $sent = 0;
 
-        $sent += $this->checkVacancyAgeing($notifications, $analytics);
-        $sent += $this->checkOpenSlaBreaches($notifications, $sla);
-        $sent += $this->checkSelectedWithoutOffer($notifications);
-        $sent += $this->checkFollowupsDue($notifications);
-        $sent += $this->checkInterviewsTomorrow($notifications);
-        $sent += $this->checkUnconfirmedInterviews($notifications);
-        $sent += $this->checkInterviewFeedbackPending($notifications);
-        $sent += $this->checkOffersNearingExpiry($notifications);
-        $sent += $this->checkJoiningTomorrow($notifications);
-        $sent += $this->checkJoiningReminder($notifications);
-        $sent += $this->checkJoiningRisk($notifications);
-        $sent += $this->checkJoinerDidNotJoin($notifications);
-        $sent += $this->checkRecruiterAndTeamPerformance($notifications, $performance);
+        foreach ($checks as $key => $check) {
+            if (in_array($key, $superseded, true)) {
+                $this->line("Skipped {$key}: handled by an active automation rule.");
+
+                continue;
+            }
+
+            // Phase 8.7 (D8.7-011): one failing check never stops the others.
+            try {
+                $sent += $check();
+            } catch (Throwable $e) {
+                report($e);
+                $this->error("Check {$key} failed; the others still ran.");
+            }
+        }
 
         $this->info("Dispatched {$sent} recruitment alert(s).");
 
@@ -98,9 +123,8 @@ class DispatchRecruitmentAlerts extends Command
 
     private function checkOpenSlaBreaches(NotificationDispatchService $notifications, RecruitmentSlaService $sla): int
     {
-        $count = 0;
-
-        foreach ($sla->openBreaches() as $breach) {
+        // Phase 8.9 (P89-PERF-004): streamed one page of breaches at a time.
+        return $sla->eachOpenBreach(function (array $breach) use ($notifications): void {
             /** @var CandidateApplication $application */
             $application = $breach['application'];
 
@@ -113,10 +137,29 @@ class DispatchRecruitmentAlerts extends Command
                 CandidateApplicationResource::getUrl('view', ['record' => $application]),
                 "sla-breach-{$application->id}-{$breach['leg_label']}-".now()->toDateString(),
             );
-            $count++;
-        }
+        });
+    }
 
-        return $count;
+    /**
+     * Configured pipeline stages carry their own SLA (Phase 4 Stage Builder) — one alert per
+     * application per stage per day.
+     */
+    private function checkPipelineStageSlaBreaches(NotificationDispatchService $notifications, RecruitmentSlaService $sla): int
+    {
+        return $sla->eachOpenPipelineStageBreach(function (array $breach) use ($notifications): void {
+            /** @var CandidateApplication $application */
+            $application = $breach['application'];
+
+            $notifications->alert(
+                $application->recruiter?->user,
+                'Recruitment',
+                'Stage SLA breached',
+                "{$application->candidate->full_name} has been at \"{$breach['stage_name']}\" for {$breach['hours_open']} hours (SLA {$breach['target_hours']} hours).",
+                'warning',
+                CandidateApplicationResource::getUrl('view', ['record' => $application]),
+                "pipeline-sla-{$application->id}-{$application->pipeline_stage_id}-".now()->toDateString(),
+            );
+        });
     }
 
     private function checkSelectedWithoutOffer(NotificationDispatchService $notifications): int
@@ -129,7 +172,7 @@ class DispatchRecruitmentAlerts extends Command
             ->where('last_activity_at', '<=', now()->subHours($thresholdHours))
             ->whereDoesntHave('offers', fn ($q) => $q->whereNot('status', OfferStatus::Withdrawn))
             ->with('candidate', 'recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($applications as $application) {
             $notifications->alert(
@@ -159,7 +202,7 @@ class DispatchRecruitmentAlerts extends Command
             ->where('status', FollowupStatus::Pending)
             ->where('followup_date', '<=', now()->endOfDay())
             ->with('candidateApplication.candidate', 'recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($followups as $followup) {
             $isOverdue = $followup->followup_date->lt(now()->startOfDay());
@@ -195,7 +238,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [...InterviewStatus::unconfirmed(), InterviewStatus::Confirmed])
             ->whereDate('scheduled_at', $tomorrow)
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user', 'interviewer.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $recipients = collect([$interview->interviewer?->user, $interview->candidateApplication->recruiter?->user])
@@ -230,7 +273,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', InterviewStatus::unconfirmed())
             ->whereBetween('scheduled_at', [now(), now()->addHours(48)])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $notifications->alert(
@@ -258,7 +301,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereNull('result')
             ->where('scheduled_at', '<=', now()->subHours($thresholdHours))
             ->with('candidateApplication.candidate', 'interviewer')
-            ->get();
+            ->lazyById(500);
 
         foreach ($interviews as $interview) {
             $notifications->alert(
@@ -286,7 +329,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereNotNull('offer_expiry')
             ->whereBetween('offer_expiry', [now()->toDateString(), now()->addDays($warningDays)->toDateString()])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($offers as $offer) {
             $application = $offer->candidateApplication;
@@ -315,7 +358,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->whereDate('expected_doj', $tomorrow)
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;
@@ -352,7 +395,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->whereDate('expected_doj', now()->addDays($reminderDays)->toDateString())
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;
@@ -379,7 +422,7 @@ class DispatchRecruitmentAlerts extends Command
         $joinings = CandidateJoining::query()
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             if ($joining->riskLevel() !== 'red') {
@@ -415,7 +458,7 @@ class DispatchRecruitmentAlerts extends Command
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
             ->where('expected_doj', '<', now()->toDateString())
             ->with('candidateApplication.candidate', 'candidateApplication.recruiter.reportsTo.user')
-            ->get();
+            ->lazyById(500);
 
         foreach ($joinings as $joining) {
             $application = $joining->candidateApplication;

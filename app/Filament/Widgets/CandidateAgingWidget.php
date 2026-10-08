@@ -2,6 +2,8 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Services\RecruitmentAnalyticsService;
 use Filament\Widgets\Concerns\InteractsWithPageFilters;
@@ -15,18 +17,14 @@ use Illuminate\Support\Collection;
  */
 class CandidateAgingWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.candidate-aging';
 
     protected int|string|array $columnSpan = 1;
 
     /**
-     * @return Collection<int, array{stage: \App\Enums\CandidateStage, total: int, buckets: array{0_2: int, 3_5: int, 6_10: int, 10_plus: int}}>
+     * @return Collection<int, array{stage: \App\Enums\CandidateStage, total: int, buckets: array{0_2: int, 3_5: int, 6_10: int, 10_plus: int, no_activity: int}}>
      */
     public function getRows(): Collection
     {

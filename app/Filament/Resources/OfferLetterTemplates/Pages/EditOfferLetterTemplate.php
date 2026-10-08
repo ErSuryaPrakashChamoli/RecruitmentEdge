@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\OfferLetterTemplates\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\OfferLetterTemplates\Actions\OfferLetterTemplateActions;
 use App\Filament\Resources\OfferLetterTemplates\OfferLetterTemplateResource;
 use App\Models\OfferLetterTemplate;
@@ -10,6 +11,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditOfferLetterTemplate extends EditRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = OfferLetterTemplateResource::class;
 
     protected function getHeaderActions(): array

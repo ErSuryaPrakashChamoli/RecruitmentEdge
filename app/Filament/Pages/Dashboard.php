@@ -23,6 +23,7 @@ use App\Models\Employee;
 use App\Models\RecruitmentSetting;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
@@ -65,15 +66,8 @@ class Dashboard extends BaseDashboard
                 // the full width of whatever space it's given.
                 Select::make('period')
                     ->label('Period')
-                    ->options([
-                        'today' => 'Today',
-                        'yesterday' => 'Yesterday',
-                        'this_week' => 'This Week',
-                        'this_month' => 'This Month',
-                        'last_month' => 'Last Month',
-                        'last_30_days' => 'Last 30 Days',
-                        'custom' => 'Custom Range',
-                    ])
+                    // Phase 8.5 (D16/D17b): business-timezone calendar periods, quarters and years included.
+                    ->options(MetricPeriod::presetOptions())
                     ->default('this_month')
                     ->live()
                     ->native(false),
@@ -179,7 +173,7 @@ class Dashboard extends BaseDashboard
                 ->label('Explain with AI')
                 ->icon(Heroicon::OutlinedSparkles)
                 ->color('gray')
-                ->visible(fn () => (bool) auth()->user()?->can('ai.query'))
+                ->visible(fn (): bool => AiCopilot::canAccess())
                 ->url(fn () => AiCopilot::linkForContext('dashboard')),
         ];
     }

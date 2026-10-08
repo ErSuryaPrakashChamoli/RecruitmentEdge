@@ -35,7 +35,7 @@ test('the leaderboard renders the real, hierarchy-scoped recruiter table, not an
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/leaderboard')
+        ->get('/admin/acme/leaderboard')
         ->assertSuccessful()
         ->assertSee('Priya Recruiter')
         ->assertSee('82.5');

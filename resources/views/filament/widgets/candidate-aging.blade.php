@@ -10,7 +10,8 @@
                         <th class="py-2 pr-3 text-right">0-2d</th>
                         <th class="py-2 pr-3 text-right">3-5d</th>
                         <th class="py-2 pr-3 text-right">6-10d</th>
-                        <th class="py-2 text-right">10d+</th>
+                        <th class="py-2 pr-3 text-right">10d+</th>
+                        <th class="py-2 text-right" title="No activity has ever been recorded on these applications">No activity</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -20,7 +21,8 @@
                             <td class="py-2 pr-3 text-right">{{ $row['buckets']['0_2'] }}</td>
                             <td class="py-2 pr-3 text-right">{{ $row['buckets']['3_5'] }}</td>
                             <td class="py-2 pr-3 text-right text-amber-600 dark:text-amber-400">{{ $row['buckets']['6_10'] }}</td>
-                            <td class="py-2 text-right text-rose-600 dark:text-rose-400 font-semibold">{{ $row['buckets']['10_plus'] }}</td>
+                            <td class="py-2 pr-3 text-right text-rose-600 dark:text-rose-400 font-semibold">{{ $row['buckets']['10_plus'] }}</td>
+                            <td class="py-2 text-right text-gray-500 dark:text-gray-400">{{ $row['buckets']['no_activity'] }}</td>
                         </tr>
                     @endforeach
                 </tbody>

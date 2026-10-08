@@ -3,6 +3,7 @@
 namespace App\Services\AI\Gateway;
 
 use App\Enums\AiUsageRequestType;
+use App\Enums\Entitlement;
 use App\Models\AiUsageLog;
 use App\Models\User;
 use App\Services\AI\Contracts\EmbeddingProviderInterface;
@@ -14,7 +15,11 @@ use App\Services\AI\DTO\LlmResponse;
 use App\Services\AI\DTO\ToolDefinition;
 use App\Services\AI\DTO\WebSearchResult;
 use App\Services\AI\Exceptions\AiProviderUnavailableException;
+use App\Services\AI\Privacy\AiEgressGuard;
+use App\Services\AI\Privacy\AiPayloadSanitizer;
 use App\Services\AI\Tools\ToolExecutionContext;
+use App\Services\Entitlements\EntitlementService;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -28,6 +33,12 @@ use Throwable;
  * Cost is computed per row from config('ai.pricing') (UsageCostCalculator). When a call site passes
  * no conversation id, the id of the conversation whose tool is currently executing
  * (ToolExecutionContext) is used, so model calls made inside tools are attributed correctly.
+ *
+ * Phase 8.1: every provider-bound payload — messages, tool-call arguments, embedding texts and
+ * research queries — passes AiEgressGuard before the provider is called, whatever the caller.
+ * Failure logs carry the exception class and a scrubbed message, never request or response bodies.
+ *
+ * SaaS-3: and before anything is sent, the tenant's plan must include the AI assistant.
  */
 class AiGateway
 {
@@ -38,6 +49,8 @@ class AiGateway
         private readonly ModelRouter $router,
         private readonly UsageCostCalculator $costs,
         private readonly ToolExecutionContext $toolContext,
+        private readonly AiEgressGuard $egress,
+        private readonly AiPayloadSanitizer $sanitizer,
     ) {}
 
     /**
@@ -46,6 +59,8 @@ class AiGateway
      */
     public function generate(array $messages, array $tools, string $category, ?User $user = null, ?int $conversationId = null): LlmResponse
     {
+        $this->assertEntitled();
+        $messages = $this->egress->messages($messages, 'generate');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
 
@@ -56,7 +71,7 @@ class AiGateway
             return $result;
         } catch (Throwable $e) {
             $this->logUsage($user, $conversationId, AiUsageRequestType::Chat, config('ai.provider'), $model, [], $start, 'error');
-            Log::error('AiGateway::generate failed', ['exception' => $e->getMessage()]);
+            Log::error('AiGateway::generate failed', ['exception' => $e::class, 'message' => $this->sanitizer->sanitizeText($e->getMessage())['text']]);
 
             throw $e;
         }
@@ -68,6 +83,8 @@ class AiGateway
      */
     public function stream(array $messages, array $tools, string $category, callable $onDelta, ?User $user = null, ?int $conversationId = null): LlmResponse
     {
+        $this->assertEntitled();
+        $messages = $this->egress->messages($messages, 'stream');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
 
@@ -78,7 +95,7 @@ class AiGateway
             return $result;
         } catch (Throwable $e) {
             $this->logUsage($user, $conversationId, AiUsageRequestType::Chat, config('ai.provider'), $model, [], $start, 'error');
-            Log::error('AiGateway::stream failed', ['exception' => $e->getMessage()]);
+            Log::error('AiGateway::stream failed', ['exception' => $e::class, 'message' => $this->sanitizer->sanitizeText($e->getMessage())['text']]);
 
             throw $e;
         }
@@ -91,6 +108,8 @@ class AiGateway
      */
     public function structured(array $messages, array $jsonSchema, string $category = 'extraction', ?User $user = null, ?int $conversationId = null): array
     {
+        $this->assertEntitled();
+        $messages = $this->egress->messages($messages, 'structured');
         $model = $this->router->forCategory($category);
         $start = microtime(true);
 
@@ -101,7 +120,7 @@ class AiGateway
             return $result;
         } catch (Throwable $e) {
             $this->logUsage($user, $conversationId, AiUsageRequestType::Chat, config('ai.provider'), $model, [], $start, 'error');
-            Log::error('AiGateway::structured failed', ['exception' => $e->getMessage()]);
+            Log::error('AiGateway::structured failed', ['exception' => $e::class, 'message' => $this->sanitizer->sanitizeText($e->getMessage())['text']]);
 
             throw $e;
         }
@@ -114,6 +133,8 @@ class AiGateway
      */
     public function embed(array $texts, ?User $user = null, string $context = 'document', ?int $conversationId = null): array
     {
+        $this->assertEntitled();
+        $texts = $this->egress->texts($texts, 'embed');
         $start = microtime(true);
         $model = $this->router->forEmbeddings();
 
@@ -134,7 +155,15 @@ class AiGateway
      */
     public function research(string $query, ?User $user = null, ?int $conversationId = null): array
     {
+        $this->assertEntitled();
+
         if (! config('ai.features.web_search_enabled')) {
+            return [];
+        }
+
+        // A query the guard had to change is not sent at all: a redacted external search is
+        // still a disclosure that something personal was being looked up.
+        if ($this->egress->query($query, 'research') !== $query) {
             return [];
         }
 
@@ -150,6 +179,18 @@ class AiGateway
             $this->logUsage($user, $conversationId, AiUsageRequestType::WebSearch, config('ai.web_search.provider'), $model, [], $start, 'error');
 
             return [];
+        }
+    }
+
+    /**
+     * SaaS-3: every provider call made for a tenant needs the AI assistant in that tenant's plan —
+     * checked here, where every AI path passes, so no page, tool, job or command can go around it.
+     * Platform work (no tenant: provider diagnostics) is governed by platform configuration only.
+     */
+    private function assertEntitled(): void
+    {
+        if (TenantContext::current()->hasTenant()) {
+            app(EntitlementService::class)->require(Entitlement::AiAssistant);
         }
     }
 
@@ -171,6 +212,15 @@ class AiGateway
      */
     private function logUsage(?User $user, ?int $conversationId, AiUsageRequestType $type, ?string $provider, string $model, array $usage, float $start, string $status): void
     {
+        // SaaS-1: usage is metered per tenant (ai_usage_logs is tenant-owned). A call made with no
+        // tenant (the ai:test-provider diagnostic) is platform usage: logged, never charged to a
+        // tenant.
+        if (! TenantContext::current()->hasTenant()) {
+            Log::info('ai.platform_usage', ['provider' => (string) $provider, 'model' => $model, 'request_type' => $type->value, 'status' => $status, 'input_tokens' => $usage['input_tokens'] ?? null, 'output_tokens' => $usage['output_tokens'] ?? null]);
+
+            return;
+        }
+
         AiUsageLog::query()->create([
             'user_id' => $user?->id,
             'conversation_id' => $conversationId ?? $this->toolContext->conversationId(),

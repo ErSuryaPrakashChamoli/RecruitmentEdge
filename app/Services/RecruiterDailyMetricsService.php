@@ -16,6 +16,7 @@ use App\Models\Employee;
 use App\Models\Interview;
 use App\Models\Offer;
 use App\Models\RecruitmentDailyActivity;
+use App\Services\Metrics\MetricPeriod;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -30,36 +31,69 @@ class RecruiterDailyMetricsService
 {
     public function __construct(private readonly TargetResolutionService $targets) {}
 
+    /**
+     * One recruiter's actual for one metric over a range of calendar days (Phase 8.5: business
+     * timezone days, genuine stage entries only — see actualsFor()).
+     */
     public function actualFor(Employee $recruiter, TargetMetric $metric, CarbonInterface $start, CarbonInterface $end): int
     {
-        $range = [$start->copy()->startOfDay(), $end->copy()->endOfDay()];
+        return $this->actualsFor([$recruiter->id], $metric, MetricPeriod::between($start, $end))[$recruiter->id] ?? 0;
+    }
 
-        return match ($metric) {
-            TargetMetric::ProfilesSourced => Candidate::query()
-                ->where('created_by', $recruiter->id)
-                ->whereBetween('created_at', $range)
-                ->count(),
-            TargetMetric::Calls => $this->activityCount($recruiter, ActivityType::Call, $range),
-            TargetMetric::ConnectedCalls => $this->activityCount($recruiter, ActivityType::Call, $range, ActivityOutcome::Connected),
-            TargetMetric::InterestedCandidates => $this->stageReachedCount($recruiter, CandidateStage::Interested, $range),
-            TargetMetric::Screening => $this->stageReachedCount($recruiter, CandidateStage::Screened, $range),
-            TargetMetric::Shortlisted => $this->stageReachedCount($recruiter, CandidateStage::Shortlisted, $range),
-            TargetMetric::Selections => $this->stageReachedCount($recruiter, CandidateStage::Selected, $range),
-            TargetMetric::Interviews => Interview::query()
-                ->whereHas('candidateApplication', fn (Builder $q) => $q->where('recruiter_id', $recruiter->id))
-                ->where('status', InterviewStatus::Completed)
-                ->whereBetween('scheduled_at', $range)
-                ->count(),
-            TargetMetric::Offers => Offer::query()
-                ->whereHas('candidateApplication', fn (Builder $q) => $q->where('recruiter_id', $recruiter->id))
-                ->whereBetween('offer_date', $range)
-                ->count(),
-            TargetMetric::Joining => CandidateJoining::query()
-                ->whereHas('candidateApplication', fn (Builder $q) => $q->where('recruiter_id', $recruiter->id))
-                ->where('status', JoiningStatus::Joined)
-                ->whereBetween('actual_doj', $range)
-                ->count(),
+    /**
+     * Actuals for many recruiters at once, keyed by employee id (recruiters with nothing are absent).
+     *
+     * Attribution (Phase 8.5 D8): activity metrics count the person who did it — profiles by
+     * candidates.created_by, calls by the activity's recruiter, stage metrics by who made the move;
+     * outcome metrics (interviews, offers, joining) count the application's current owner. Stage
+     * metrics count distinct applications genuinely entering the stage (DF-9): a rejection, dropout,
+     * hold, reactivation or requisition move is never a stage reached.
+     *
+     * @param  iterable<int>  $recruiterIds
+     * @return array<int, int>
+     */
+    public function actualsFor(iterable $recruiterIds, TargetMetric $metric, MetricPeriod $period): array
+    {
+        $ids = collect($recruiterIds)->map(fn ($id) => (int) $id)->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        $counts = match ($metric) {
+            TargetMetric::ProfilesSourced => $period->whereTimestampColumn(Candidate::query(), 'created_at')
+                ->whereIn('created_by', $ids)
+                ->selectRaw('created_by as recruiter_id, count(*) as total')
+                ->groupBy('created_by'),
+            TargetMetric::Calls => $this->activityCounts($ids, ActivityType::Call, $period),
+            TargetMetric::ConnectedCalls => $this->activityCounts($ids, ActivityType::Call, $period, ActivityOutcome::Connected),
+            TargetMetric::InterestedCandidates => $this->stageReachedCounts($ids, CandidateStage::Interested, $period),
+            TargetMetric::Screening => $this->stageReachedCounts($ids, CandidateStage::Screened, $period),
+            TargetMetric::Shortlisted => $this->stageReachedCounts($ids, CandidateStage::Shortlisted, $period),
+            TargetMetric::Selections => $this->stageReachedCounts($ids, CandidateStage::Selected, $period),
+            TargetMetric::Interviews => $period->whereTimestampColumn(Interview::query(), 'interviews.scheduled_at')
+                ->join('candidate_applications', 'candidate_applications.id', '=', 'interviews.candidate_application_id')
+                ->whereNull('candidate_applications.deleted_at')
+                ->whereIn('candidate_applications.recruiter_id', $ids)
+                ->where('interviews.status', InterviewStatus::Completed->value)
+                ->selectRaw('candidate_applications.recruiter_id as recruiter_id, count(*) as total')
+                ->groupBy('candidate_applications.recruiter_id'),
+            TargetMetric::Offers => $period->whereDateColumn(Offer::query(), 'offers.offer_date')
+                ->join('candidate_applications', 'candidate_applications.id', '=', 'offers.candidate_application_id')
+                ->whereNull('candidate_applications.deleted_at')
+                ->whereIn('candidate_applications.recruiter_id', $ids)
+                ->selectRaw('candidate_applications.recruiter_id as recruiter_id, count(*) as total')
+                ->groupBy('candidate_applications.recruiter_id'),
+            TargetMetric::Joining => $period->whereDateColumn(CandidateJoining::query(), 'candidate_joinings.actual_doj')
+                ->join('candidate_applications', 'candidate_applications.id', '=', 'candidate_joinings.candidate_application_id')
+                ->whereNull('candidate_applications.deleted_at')
+                ->whereIn('candidate_applications.recruiter_id', $ids)
+                ->where('candidate_joinings.status', JoiningStatus::Joined->value)
+                ->selectRaw('candidate_applications.recruiter_id as recruiter_id, count(*) as total')
+                ->groupBy('candidate_applications.recruiter_id'),
         };
+
+        return $counts->toBase()->pluck('total', 'recruiter_id')->mapWithKeys(fn ($total, $id) => [(int) $id => (int) $total])->all();
     }
 
     /**
@@ -77,7 +111,9 @@ class RecruiterDailyMetricsService
         $end ??= $start;
 
         return collect(TargetMetric::cases())->map(function (TargetMetric $metric) use ($recruiter, $start, $end, $periodType): array {
-            $target = $this->targets->resolve($recruiter, $metric, $start, $periodType);
+            // DF-1 (Phase 8.5): the target for the whole range (prorated like the Performance Engine),
+            // never a single day's target set against the range's actual.
+            $target = $start->isSameDay($end) ? $this->targets->resolve($recruiter, $metric, $start, $periodType) : $this->targets->resolveForRange($recruiter, $metric, $start, $end);
             $actual = $this->actualFor($recruiter, $metric, $start, $end);
 
             return [
@@ -91,27 +127,30 @@ class RecruiterDailyMetricsService
     }
 
     /**
-     * @param  array{0: CarbonInterface, 1: CarbonInterface}  $range
+     * @param  Collection<int, int>  $ids
+     * @return Builder<RecruitmentDailyActivity>
      */
-    private function activityCount(Employee $recruiter, ActivityType $type, array $range, ?ActivityOutcome $outcome = null): int
+    private function activityCounts(Collection $ids, ActivityType $type, MetricPeriod $period, ?ActivityOutcome $outcome = null): Builder
     {
-        return RecruitmentDailyActivity::query()
-            ->where('recruiter_id', $recruiter->id)
+        return $period->whereTimestampColumn(RecruitmentDailyActivity::query(), 'activity_datetime')
+            ->whereIn('recruiter_id', $ids)
             ->where('activity_type', $type)
             ->when($outcome !== null, fn ($q) => $q->where('outcome', $outcome))
-            ->whereBetween('activity_datetime', $range)
-            ->count();
+            ->selectRaw('recruiter_id, count(*) as total')
+            ->groupBy('recruiter_id');
     }
 
     /**
-     * @param  array{0: CarbonInterface, 1: CarbonInterface}  $range
+     * @param  Collection<int, int>  $ids
+     * @return Builder<CandidateStageHistory>
      */
-    private function stageReachedCount(Employee $recruiter, CandidateStage $stage, array $range): int
+    private function stageReachedCounts(Collection $ids, CandidateStage $stage, MetricPeriod $period): Builder
     {
-        return CandidateStageHistory::query()
-            ->where('changed_by', $recruiter->id)
+        return $period->whereTimestampColumn(CandidateStageHistory::query()->milestoneEntries(), 'candidate_stage_histories.created_at')
+            ->whereHas('candidateApplication')
+            ->whereIn('changed_by', $ids)
             ->where('new_stage', $stage)
-            ->whereBetween('created_at', $range)
-            ->count();
+            ->selectRaw('changed_by as recruiter_id, count(distinct candidate_application_id) as total')
+            ->groupBy('changed_by');
     }
 }

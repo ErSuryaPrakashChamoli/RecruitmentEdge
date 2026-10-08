@@ -41,7 +41,7 @@ test('the Command Center dashboard loads successfully for a recruiter with a pop
     $user = User::factory()->create(['employee_id' => $recruiter->id]);
     $user->assignRole('recruiter');
 
-    actingAs($user)->get('/admin')->assertSuccessful();
+    actingAs($user)->get('/admin/acme')->assertSuccessful();
 });
 
 test('the Command Center dashboard loads successfully for a manager with team data', function (): void {
@@ -51,19 +51,19 @@ test('the Command Center dashboard loads successfully for a manager with team da
     $user = User::factory()->create(['employee_id' => $manager->id]);
     $user->assignRole('manager');
 
-    actingAs($user)->get('/admin')->assertSuccessful();
+    actingAs($user)->get('/admin/acme')->assertSuccessful();
 });
 
 test('the Command Center dashboard loads successfully for a CHRO with organization-wide visibility', function (): void {
     $user = User::factory()->create();
     $user->assignRole('chro');
 
-    actingAs($user)->get('/admin')->assertSuccessful();
+    actingAs($user)->get('/admin/acme')->assertSuccessful();
 });
 
 test('the Command Center dashboard loads successfully with no recruitment data at all', function (): void {
     $user = User::factory()->create();
     $user->assignRole('recruiter');
 
-    actingAs($user)->get('/admin')->assertSuccessful();
+    actingAs($user)->get('/admin/acme')->assertSuccessful();
 });

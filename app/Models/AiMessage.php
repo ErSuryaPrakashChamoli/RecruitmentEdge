@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AiMessageRole;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiMessageFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class AiMessage extends Model
 {
     /** @use HasFactory<AiMessageFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {

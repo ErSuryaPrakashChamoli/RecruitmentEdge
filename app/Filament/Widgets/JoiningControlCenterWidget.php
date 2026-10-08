@@ -6,12 +6,15 @@ use App\Enums\CandidateStage;
 use App\Enums\JoiningStatus;
 use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
 use App\Models\CandidateJoining;
 use App\Models\RecruitmentDailyActivity;
 use App\Models\RecruitmentFollowup;
 use App\Models\User;
 use App\Services\HierarchyService;
+use App\Services\Metrics\MetricPeriod;
 use App\Services\RecruitmentAnalyticsService;
+use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,9 +27,20 @@ use Illuminate\Support\Collection;
  * Every number reuses an existing method: RecruitmentAnalyticsService::joiningAnalytics()/funnel()
  * and CandidateJoining::riskLevel() (unfiltered here, unlike joiningRisks() which drops green) —
  * this widget only assembles and presents, it computes nothing new.
+ *
+ * Phase 8.5 (DF-10): the summary and the pipeline show the same "Joined" — hires this month
+ * (hiring.hires: joining records marked Joined, by actual joining date) — and the pipeline shows
+ * this month's genuine stage entries (pipeline.stage_activity), in business-timezone days.
  */
 class JoiningControlCenterWidget extends Widget
 {
+    use AuthorizesWidget;
+
+    protected static function requiredPermission(): string
+    {
+        return 'joining.confirm';
+    }
+
     /**
      * Rows shown per risk group; the group header always shows the full count and a "view all" link
      * when truncated.
@@ -51,7 +65,8 @@ class JoiningControlCenterWidget extends Widget
     {
         /** @var User $user */
         $user = Filament::auth()->user();
-        $analytics = app(RecruitmentAnalyticsService::class)->joiningAnalytics(now()->startOfMonth(), now()->endOfMonth(), $user);
+        $month = MetricPeriod::preset('this_month');
+        $analytics = app(RecruitmentAnalyticsService::class)->joiningAnalytics($month->from, $month->lastInstant(), $user);
 
         $active = $this->activeJoinings();
         $byRisk = $active->groupBy(fn (CandidateJoining $j) => $j->riskLevel());
@@ -76,8 +91,9 @@ class JoiningControlCenterWidget extends Widget
         /** @var User $user */
         $user = Filament::auth()->user();
         $analytics = app(RecruitmentAnalyticsService::class);
-        $funnel = $analytics->funnel(now()->startOfMonth(), now()->endOfMonth(), $user)->keyBy(fn (array $row) => $row['stage']->value);
-        $joiningAnalytics = $analytics->joiningAnalytics(now()->startOfMonth(), now()->endOfMonth(), $user);
+        $month = MetricPeriod::preset('this_month');
+        $funnel = $analytics->stageActivity($month->from, $month->lastInstant(), $user)->keyBy(fn (array $row) => $row['stage']->value);
+        $joiningAnalytics = $analytics->joiningAnalytics($month->from, $month->lastInstant(), $user);
 
         return [
             ['label' => 'Selected', 'count' => $funnel->get(CandidateStage::Selected->value)['count'] ?? 0],
@@ -131,7 +147,7 @@ class JoiningControlCenterWidget extends Widget
 
         $joinings = CandidateJoining::query()
             ->whereIn('status', [JoiningStatus::Expected, JoiningStatus::Confirmed])
-            ->whereDate('expected_doj', now()->addDay()->toDateString())
+            ->whereDate('expected_doj', MetricPeriod::now()->addDay()->toDateString())
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereHas('candidateApplication', fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds)))
             ->with(['candidateApplication.candidate', 'candidateApplication.requisition.designation', 'candidateApplication.recruiter'])
             ->get();
@@ -181,7 +197,7 @@ class JoiningControlCenterWidget extends Widget
      */
     public function daysToDoj(CandidateJoining $joining): int
     {
-        return (int) now()->startOfDay()->diffInDays($joining->expected_doj->copy()->startOfDay(), false);
+        return (int) MetricPeriod::now()->startOfDay()->diffInDays(CarbonImmutable::parse($joining->expected_doj->toDateString(), MetricPeriod::timezone()), false);
     }
 
     public function daysToDojLabel(CandidateJoining $joining): string

@@ -2,6 +2,8 @@
 
 namespace App\Services\Export;
 
+use App\Enums\Entitlement;
+use App\Services\Entitlements\EntitlementService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -19,16 +21,37 @@ class ReportExportService
      */
     public function streamCsv(string $filename, array $headers, iterable $rows): StreamedResponse
     {
+        // SaaS-3: a bulk data export needs data exports in the tenant's plan, whoever asks for it.
+        app(EntitlementService::class)->require(Entitlement::ExportsData);
+
         return response()->streamDownload(function () use ($headers, $rows): void {
             $out = fopen('php://output', 'w');
-            fputcsv($out, $headers);
+            fputcsv($out, array_map(self::neutraliseFormula(...), $headers));
 
             foreach ($rows as $row) {
-                fputcsv($out, $row);
+                fputcsv($out, array_map(self::neutraliseFormula(...), $row));
             }
 
             fclose($out);
         }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /**
+     * Phase 8.8 (SEC-88-12): a text cell a spreadsheet would run as a formula (leading =, +, -, @,
+     * tab or carriage return) is written with a leading apostrophe — the same rule Filament applies
+     * to table exports. Signed numbers such as "-5" stay numbers.
+     */
+    public static function neutraliseFormula(mixed $value): mixed
+    {
+        if (! is_string($value) || $value === '') {
+            return $value;
+        }
+
+        if (in_array($value[0], ['-', '+'], true) && is_numeric($value)) {
+            return $value;
+        }
+
+        return in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$value : $value;
     }
 
     /**

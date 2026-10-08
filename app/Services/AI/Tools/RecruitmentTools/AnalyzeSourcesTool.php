@@ -5,12 +5,14 @@ namespace App\Services\AI\Tools\RecruitmentTools;
 use App\Enums\AiRiskLevel;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ResolvesMetricPeriod;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\RecruitmentAnalyticsService;
-use Carbon\CarbonImmutable;
 
 class AnalyzeSourcesTool implements AiTool
 {
+    use ResolvesMetricPeriod;
+
     public function __construct(private readonly RecruitmentAnalyticsService $analytics) {}
 
     public function name(): string
@@ -46,21 +48,20 @@ class AnalyzeSourcesTool implements AiTool
 
     public function handle(array $arguments, User $user): ToolResult
     {
-        $end = filled($arguments['end_date'] ?? null) ? CarbonImmutable::parse($arguments['end_date']) : CarbonImmutable::now();
-        $start = filled($arguments['start_date'] ?? null) ? CarbonImmutable::parse($arguments['start_date']) : $end->subDays(90);
+        $period = $this->metricPeriod($arguments, 90);
 
-        $rows = $this->analytics->sourceAnalytics($start, $end, $user)->map(fn (array $row) => [
-            'source' => $row['source']->name,
-            'sourced' => $row['sourced'],
+        $rows = $this->analytics->sourceAnalytics($period->from, $period->lastInstant(), $user)->map(fn (array $row) => [
+            'source' => $row['source_name'],
+            'applications' => $row['sourced'],
             'interviewed' => $row['interviewed'],
             'selected' => $row['selected'],
             'joined' => $row['joined'],
-            'source_to_joined_rate' => $row['sourced'] > 0 ? round($row['joined'] / $row['sourced'] * 100, 1) : null,
+            'application_to_joined_rate' => $row['conversion_percent'],
         ]);
 
         return ToolResult::ok(
-            data: ['sources' => $rows->toArray(), 'start_date' => $start->toDateString(), 'end_date' => $end->toDateString()],
-            summary: "Source performance for {$start->toDateString()} to {$end->toDateString()}.",
+            data: ['sources' => $rows->toArray(), 'start_date' => $period->fromDate(), 'end_date' => $period->toDate()],
+            summary: "Source performance for applications created {$period->fromDate()} to {$period->toDate()}.",
             type: 'comparison_table',
         );
     }

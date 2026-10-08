@@ -23,6 +23,8 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
+        <!-- Phase 8.5: metric results are computed fresh in tests; MetricCachingTest enables the cache itself. -->
+        <env name="METRICS_CACHE_TTL" value="0"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
@@ -31,6 +33,9 @@
         <env name="GEMINI_API_KEY" value=""/>
         <env name="OPENAI_API_KEY" value=""/>
         <env name="AI_WEB_SEARCH_ENABLED" value="false"/>
+        <env name="AI_PRIVACY_EGRESS_MODE" value="block"/>
+        <!-- Phase 8.4: MFA enrolment is enforced in production; tests enable it where they test it. -->
+        <env name="IDENTITY_MFA_ENFORCE" value="false"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

@@ -17,8 +17,8 @@
     </style>
 </head>
 <body>
-    <h1>{{ config('app.name') }}</h1>
-    <p class="subtitle">Incentive Statement &mdash; {{ $periodStart->format('F Y') }}</p>
+    <h1>{{ \App\Services\Branding::tenantName() }}</h1>
+    <p class="subtitle">{{ ($beneficiary ?? \App\Enums\IncentiveBeneficiary::Recruiter) === \App\Enums\IncentiveBeneficiary::EmployeeReferrer ? 'Referral Bonus Statement' : 'Incentive Statement' }} &mdash; {{ $periodStart->format('F Y') }}</p>
 
     <table>
         <tr><th style="width: 25%">Recruiter</th><td>{{ $recruiter->fullName() }}</td></tr>
@@ -45,18 +45,14 @@
             </tr>
             @foreach ($calculations as $calculation)
                 <tr>
-                    <td>{{ $calculation->incentiveRule?->name ?? '—' }}</td>
+                    <td>{{ $calculation->pricedRuleName() }}</td>
                     <td>
                         {{ $calculation->candidateApplication?->application_code ?? '—' }}<br>
                         <span class="muted">{{ $calculation->candidate?->full_name }}</span>
                     </td>
                     <td class="num">{{ $calculation->slabBasis() !== null ? $calculation->incentiveRule->formatSlabBasis($calculation->slabBasis()) : '—' }}</td>
                     <td>
-                        @if ($calculation->incentiveSlab)
-                            {{ $calculation->incentiveSlab->bandLabel($calculation->incentiveRule) }}
-                        @else
-                            {{ $calculation->incentiveRule?->payout_type?->label() ?? '—' }}
-                        @endif
+                        {{ $calculation->pricedBandLabel() ?? $calculation->pricedPayoutLabel() }}
                     </td>
                     <td class="num">&#8377;{{ number_format((float) $calculation->amount, 2) }}</td>
                     <td class="num">

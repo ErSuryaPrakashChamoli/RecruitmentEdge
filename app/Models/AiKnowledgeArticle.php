@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Jobs\AI\ReindexKnowledgeArticleJob;
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AiKnowledgeArticleFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,7 +17,7 @@ use Illuminate\Support\Str;
 class AiKnowledgeArticle extends Model
 {
     /** @use HasFactory<AiKnowledgeArticleFactory> */
-    use HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -34,7 +36,8 @@ class AiKnowledgeArticle extends Model
 
         static::saved(function (self $article): void {
             if ($article->is_published) {
-                ReindexKnowledgeArticleJob::dispatch($article->id);
+                // Phase 8.7 (D8.7-006): only once the save is committed.
+                ReindexKnowledgeArticleJob::dispatch($article->id)->afterCommit();
             }
         });
     }
@@ -56,5 +59,15 @@ class AiKnowledgeArticle extends Model
     public function chunks(): HasMany
     {
         return $this->hasMany(AiDocumentChunk::class, 'source_id')->where('source_type', 'knowledge_article');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-025): the article body is recorded as changed, never copied into the audit trail.
+     *
+     * @return array<int, string>
+     */
+    public function auditRedactedAttributes(): array
+    {
+        return ['content'];
     }
 }

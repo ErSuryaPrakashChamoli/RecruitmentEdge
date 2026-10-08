@@ -28,7 +28,7 @@ test('the joining tracker page renders the control center with real data', funct
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/candidate-joinings')
+        ->get('/admin/acme/candidate-joinings')
         ->assertSuccessful()
         ->assertSee('Joining Pipeline')
         ->assertSee('Joining Risk')
@@ -85,7 +85,7 @@ test('joining tomorrow only shows joinings visible to the hierarchy', function (
     $user->assignRole('manager');
 
     actingAs($user)
-        ->get('/admin/candidate-joinings')
+        ->get('/admin/acme/candidate-joinings')
         ->assertSuccessful()
         ->assertSee('Visible Tomorrow Joiner')
         ->assertDontSee('Hidden Tomorrow Joiner');

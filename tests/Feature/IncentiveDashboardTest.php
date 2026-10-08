@@ -34,7 +34,7 @@ test('the incentive dashboard renders the scorecard for a recruiter with real ca
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
         ->assertSee('My Incentive Scorecard');
 });
@@ -116,7 +116,7 @@ test('the open-ended top band shows a top band reached state instead of a fake p
         ->and($row['slabProgress']['progressPct'])->toBeNull()
         ->and($row['slabProgress']['next'])->toBeNull();
 
-    $this->get('/admin/incentive-dashboard')
+    $this->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
         ->assertSee('Top band reached');
 });
@@ -161,11 +161,11 @@ test('scorecard and team rows link to the calculation view and rule names link t
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
-        ->assertSee("/admin/recruiter-incentive-calculations/{$ownCalculation->id}", false)
-        ->assertSee("/admin/recruiter-incentive-calculations/{$teamCalculation->id}", false)
-        ->assertSee("/admin/recruitment-incentive-rules/{$ownCalculation->incentive_rule_id}/edit", false);
+        ->assertSee("/admin/acme/recruiter-incentive-calculations/{$ownCalculation->id}", false)
+        ->assertSee("/admin/acme/recruiter-incentive-calculations/{$teamCalculation->id}", false)
+        ->assertSee("/admin/acme/recruitment-incentive-rules/{$ownCalculation->incentive_rule_id}/edit", false);
 });
 
 test('rule names are not linked for viewers who cannot configure rules', function (): void {
@@ -176,10 +176,10 @@ test('rule names are not linked for viewers who cannot configure rules', functio
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
-        ->assertSee("/admin/recruiter-incentive-calculations/{$calculation->id}", false)
-        ->assertDontSee("/admin/recruitment-incentive-rules/{$calculation->incentive_rule_id}/edit", false);
+        ->assertSee("/admin/acme/recruiter-incentive-calculations/{$calculation->id}", false)
+        ->assertDontSee("/admin/acme/recruitment-incentive-rules/{$calculation->incentive_rule_id}/edit", false);
 });
 
 /**
@@ -205,12 +205,12 @@ test('the team incentive view only appears for viewers who manage more than them
     $recruiterUser->assignRole('recruiter');
 
     actingAs($managerUser)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
         ->assertSee('Team Incentive');
 
     actingAs($recruiterUser)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
         ->assertDontSee('Team Incentive');
 });
@@ -238,7 +238,7 @@ test('the team incentive numbers respect hierarchy and never leak another team\'
     $managerUser->assignRole('manager');
 
     actingAs($managerUser)
-        ->get('/admin/incentive-dashboard')
+        ->get('/admin/acme/incentive-dashboard')
         ->assertSuccessful()
         ->assertSee('Visible Recruiter')
         ->assertDontSee('Hidden Recruiter');

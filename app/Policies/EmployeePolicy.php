@@ -40,16 +40,28 @@ class EmployeePolicy
 
     public function delete(User $user, Employee $employee): bool
     {
+        return $user->can('users.manage') && $this->hierarchy->canView($user, $employee) && ! $this->isSelf($user, $employee);
+    }
+
+    /**
+     * Phase 8.4: hierarchy-scoped like every other change.
+     */
+    public function restore(User $user, Employee $employee): bool
+    {
         return $user->can('users.manage') && $this->hierarchy->canView($user, $employee);
     }
 
-    public function restore(User $user, Employee $employee): bool
-    {
-        return $user->can('users.manage');
-    }
-
+    /**
+     * Phase 8.4: never — permanent deletion would erase attribution and leave the hierarchy
+     * inconsistent. Employees are separated and, if needed, soft-deleted.
+     */
     public function forceDelete(User $user, Employee $employee): bool
     {
-        return $user->can('users.manage');
+        return false;
+    }
+
+    private function isSelf(User $user, Employee $employee): bool
+    {
+        return $user->employee_id !== null && (int) $user->employee_id === (int) $employee->id;
     }
 }

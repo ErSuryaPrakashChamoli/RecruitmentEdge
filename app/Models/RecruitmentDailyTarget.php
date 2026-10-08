@@ -5,9 +5,14 @@ namespace App\Models;
 use App\Enums\TargetMetric;
 use App\Enums\TargetPeriodType;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\ReferencesActiveMasterData;
+use App\Services\HierarchyService;
 use Database\Factories\RecruitmentDailyTargetFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,7 +37,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentDailyTarget extends Model
 {
     /** @use HasFactory<RecruitmentDailyTargetFactory> */
-    use Auditable, HasFactory;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData;
 
     protected function casts(): array
     {
@@ -50,7 +55,54 @@ class RecruitmentDailyTarget extends Model
             if (! $target->hasExactlyOneScope()) {
                 throw new DomainException('A target must be scoped to exactly one of a recruiter, a designation, or a department.');
             }
+
+            // Phase 8.6 (D8.6-016): ranges run forwards, and one scope has one target per metric and
+            // period type at a time — overlapping targets would make resolution ambiguous.
+            if ($target->effective_to !== null && $target->effective_from !== null && $target->effective_to->lt($target->effective_from)) {
+                throw new DomainException('The effective-to date cannot be before the effective-from date.');
+            }
+
+            if ($target->overlapping()->exists()) {
+                throw new DomainException('Another target for the same scope, metric and period already covers part of these dates. End that target first.');
+            }
         });
+    }
+
+    /**
+     * Phase 8.9 (P89-SEC-001): the targets a user may list, see or manage — the one definition used
+     * by the resource query, the policy and RecruitmentTargetService. With hierarchy.view-all every
+     * target; otherwise only recruiter targets inside the user's hierarchy. A department or
+     * designation target reaches people outside any one team, so it needs hierarchy.view-all.
+     *
+     * @param  Builder<RecruitmentDailyTarget>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        if ($visibleIds === null) {
+            return;
+        }
+
+        $query->whereNull($query->qualifyColumn('department_id'))
+            ->whereNull($query->qualifyColumn('designation_id'))
+            ->whereIn($query->qualifyColumn('employee_id'), $visibleIds);
+    }
+
+    /**
+     * The visibleTo() rule for one (possibly unsaved) target, from its scope columns.
+     */
+    public function isVisibleTo(User $user): bool
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        return $visibleIds === null || (
+            $this->department_id === null
+            && $this->designation_id === null
+            && $this->employee_id !== null
+            && $visibleIds->contains((int) $this->employee_id)
+        );
     }
 
     public function hasExactlyOneScope(): bool
@@ -65,7 +117,9 @@ class RecruitmentDailyTarget extends Model
      */
     public function employee(): BelongsTo
     {
-        return $this->belongsTo(Employee::class);
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class)->withTrashed();
     }
 
     /**
@@ -73,7 +127,7 @@ class RecruitmentDailyTarget extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -81,7 +135,7 @@ class RecruitmentDailyTarget extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -90,5 +144,36 @@ class RecruitmentDailyTarget extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'designation_id' => Designation::class,
+        ];
+    }
+
+    /**
+     * Other targets with the same scope, metric and period type whose dates intersect this one.
+     *
+     * @return Builder<self>
+     */
+    public function overlapping(): Builder
+    {
+        return self::query()
+            ->when($this->exists, fn (Builder $query) => $query->whereKeyNot($this->getKey()))
+            ->where('metric', $this->metric)
+            ->where('period_type', $this->period_type)
+            ->where(fn (Builder $query) => $this->employee_id !== null ? $query->where('employee_id', $this->employee_id) : $query->whereNull('employee_id'))
+            ->where(fn (Builder $query) => $this->designation_id !== null ? $query->where('designation_id', $this->designation_id) : $query->whereNull('designation_id'))
+            ->where(fn (Builder $query) => $this->department_id !== null ? $query->where('department_id', $this->department_id) : $query->whereNull('department_id'))
+            ->when($this->effective_to !== null, fn (Builder $query) => $query->whereDate('effective_from', '<=', $this->effective_to))
+            ->where(fn (Builder $query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $this->effective_from));
     }
 }

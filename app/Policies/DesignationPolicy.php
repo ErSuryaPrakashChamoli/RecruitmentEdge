@@ -31,6 +31,10 @@ class DesignationPolicy
         return $user->can('settings.manage');
     }
 
+    /**
+     * Archive (a soft delete) — only through MasterDataLifecycleService, which also asks for a
+     * reason and refuses while open work still uses the record (Phase 8.6, D8.6-001/002).
+     */
     public function delete(User $user, Designation $designation): bool
     {
         return $user->can('settings.manage');
@@ -41,8 +45,29 @@ class DesignationPolicy
         return $user->can('settings.manage');
     }
 
+    /**
+     * Never: master data is archived, not permanently deleted — historical records refer to it.
+     */
     public function forceDelete(User $user, Designation $designation): bool
     {
-        return $user->can('settings.manage');
+        return false;
+    }
+
+    /**
+     * No bulk archive, restore or delete: each change needs its own reason and in-use check.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function forceDeleteAny(User $user): bool
+    {
+        return false;
+    }
+
+    public function restoreAny(User $user): bool
+    {
+        return false;
     }
 }

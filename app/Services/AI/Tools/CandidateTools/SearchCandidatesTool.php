@@ -6,6 +6,7 @@ use App\Enums\AiRiskLevel;
 use App\Models\Candidate;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class SearchCandidatesTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -77,8 +78,8 @@ class SearchCandidatesTool implements AiTool
             ->get(['id', 'full_name', 'current_company', 'current_designation', 'current_city', 'total_experience', 'skills']);
 
         return ToolResult::ok(
-            data: ['candidates' => $candidates->toArray()],
-            summary: "Found {$candidates->count()} candidate(s) matching \"{$query}\".",
+            data: ['candidates' => $candidates->map(fn (Candidate $candidate) => $this->projector()->candidateListItem($candidate))->values()->all()],
+            summary: "Found {$candidates->count()} matching candidate(s).",
             type: 'candidate_list',
         );
     }

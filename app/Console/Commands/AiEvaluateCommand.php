@@ -6,10 +6,13 @@ use App\Enums\AiToolCallStatus;
 use App\Models\AiConversation;
 use App\Models\AiEvaluation;
 use App\Models\AiToolCall;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Orchestrator\AiOrchestrator;
 use App\Services\AI\Tools\ToolRegistry;
+use App\Services\Tenancy\TenantContext;
+use Filament\Facades\Filament;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -32,7 +35,8 @@ use Throwable;
  */
 #[Signature('ai:evaluate
     {--live : Also run each question through the configured AI provider and check the expected tool was called}
-    {--user= : User id or email to run live evaluations as (default: first user with ai.manage)}')]
+    {--user= : User id or email to run live evaluations as (required with --live)}
+    {--tenant= : Slug of the tenant the live run works in (required when the user can enter more than one)}')]
 #[Description('Run the stored AI evaluation suite against the current tool registry')]
 class AiEvaluateCommand extends Command
 {
@@ -48,6 +52,7 @@ class AiEvaluateCommand extends Command
 
         $live = (bool) $this->option('live');
         $liveUser = null;
+        $liveTenant = null;
 
         if ($live) {
             if (! $gateway->isConfigured()) {
@@ -63,6 +68,14 @@ class AiEvaluateCommand extends Command
 
                 return self::FAILURE;
             }
+
+            $liveTenant = $this->resolveLiveTenant($liveUser);
+
+            if ($liveTenant === null) {
+                $this->error('The user can enter no tenant, or more than one: pass --tenant=<slug> of a tenant they can enter.');
+
+                return self::FAILURE;
+            }
         }
 
         $failures = 0;
@@ -72,7 +85,9 @@ class AiEvaluateCommand extends Command
             $calledTools = [];
 
             if ($live) {
-                [$livePassed, $liveNotes, $calledTools] = $this->checkLive($evaluation, $orchestrator, $liveUser);
+                // SaaS-1/2: a live run is real Copilot work, so it runs inside one tenant the user
+                // may enter (their membership there decides what they can see and do).
+                [$livePassed, $liveNotes, $calledTools] = TenantContext::current()->run($liveTenant, fn (): array => $this->checkLive($evaluation, $orchestrator, $liveUser));
                 $passed = $passed && $livePassed;
                 $notes = [...$notes, ...$liveNotes];
             }
@@ -192,6 +207,24 @@ class AiEvaluateCommand extends Command
                 ->first();
         }
 
-        return User::permission('ai.manage')->orderBy('id')->first();
+        // SaaS-1: with no tenant there is no "first ai.manage holder" — name the user.
+        return null;
+    }
+
+    /**
+     * SaaS-2: the named tenant when the user may enter it, else the user's only (or default) one.
+     */
+    private function resolveLiveTenant(User $user): ?Tenant
+    {
+        $tenants = $user->accessibleTenants();
+        $slug = $this->option('tenant');
+
+        if (filled($slug)) {
+            return $tenants->first(fn (Tenant $tenant): bool => $tenant->slug === $slug);
+        }
+
+        $default = $user->getDefaultTenant(Filament::getPanel('admin'));
+
+        return $default instanceof Tenant ? $default : null;
     }
 }

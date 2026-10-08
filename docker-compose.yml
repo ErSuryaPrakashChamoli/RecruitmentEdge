@@ -1,11 +1,35 @@
-# The web app, scheduler and queue worker share one image, env and storage volumes. Only `app`
-# runs migrations on start (RUN_MIGRATIONS); the scheduler/queue containers set it to "false" so
-# they never race the app container's migration run.
+# The web app, scheduler and queue workers share one image, env and storage volumes.
+#
+# Start order (Phase 8.9, P89-OPS-005 — D8.9-022): `migrate` runs the migrations once and exits;
+# `app` starts only after it completed successfully and is "healthy" when GET /up answers (which
+# checks the database); the workers start once the app is healthy and are healthy while their
+# heartbeat is fresh (ops:heartbeat); the scheduler starts last, once the workers are healthy. No
+# container migrates on start any more, so a worker can never run new code against an old schema.
+# The image is tagged by APP_IMAGE_TAG (set it to the release, e.g. a git commit), so a rollback is
+# `APP_IMAGE_TAG=<previous> docker compose up -d` — migrations are never rolled back.
+#
+# Queue topology (Phase 8.3, revised in Phase 8.7 — D8.7-001/002/020 — and Phase 8.9 — ED-05/06;
+# runbook: docs/runbooks/queue-operations.md). Every application queue is consumed:
+# - `queue`: candidate messages (bulk, provider-latency bound);
+# - `queue-priority` (Phase 8.9): `security` first — password reset, email-change verification
+#   and notice, candidate portal links, step-up OTP codes — then `notifications` (in-app and
+#   platform alerts), so neither ever waits behind a burst of candidate messages;
+# - `queue-automation`: automation runs and ownership handoffs, so a burst of messages never
+#   starves automation (and the reverse);
+# - `queue-background`: Word offer letters converted to PDF (`documents`, Phase 8.9), slow provider
+#   calls (AI, embeddings, calendar and job-board APIs, Outcome Loop / Hiring Memory capture) and
+#   Filament exports (`exports`).
+# All four also take `default` as a fallback (it should stay empty).
+#
+# Timeouts: DB_QUEUE_RETRY_AFTER (330) must stay above the longest worker --timeout (300), or a job
+# still running is handed to a second worker. stop_grace_period (330s) lets a worker finish its
+# current job after SIGTERM before Docker kills it; the entrypoint execs the worker directly (no
+# shell in between) so the signal reaches it.
 x-app-base: &app-base
   build:
     context: .
     dockerfile: Dockerfile
-  image: recruitment-edge-app
+  image: recruitment-edge-app:${APP_IMAGE_TAG:-local}
   env_file:
     - .env
   volumes:
@@ -22,19 +46,63 @@ x-app-environment: &app-environment
   DB_DATABASE: ${DB_DATABASE:-recruitment_edge}
   DB_USERNAME: ${DB_USERNAME:-recruitment_edge}
   DB_PASSWORD: ${DB_PASSWORD:-secret}
+  DB_QUEUE_RETRY_AFTER: "330"
+  # Phase 8.9: queue health reports a silent worker or a scheduler that never reported.
+  QUEUE_EXPECT_PROCESSES: "true"
+  # SaaS-7 (C3, S7-03): cache data (rate-limit counters, permission generations, the maintenance
+  # flag) on its own connection, so it never joins a business transaction. Cache LOCKS stay on the
+  # business connection: a lock taken inside a transaction must commit, or roll back, with the work
+  # it guards (unique jobs, the applicant and daily-message locks) — on another connection it is
+  # released before that work is visible (SaaS-7 race test: duplicate applicant).
+  DB_CACHE_CONNECTION: mysql_cache
+  DB_CACHE_LOCK_CONNECTION: mysql
+  # SaaS-7 (C13): `php artisan down` is kept in the shared cache, not a container's own disk — a
+  # container recreated during a release stays down until `php artisan up`. Workers run with
+  # --force so the release drain (queue:drain-status) still empties the queues while it is down.
+  APP_MAINTENANCE_DRIVER: cache
+  APP_MAINTENANCE_STORE: database
 
 services:
+  # Runs the migrations once per deploy and exits; everything else waits for it to succeed.
+  # SaaS-7 (C13): ops:migrate waits for any other run against the same database (MySQL named
+  # lock), so two deploys started together never apply a migration twice.
+  migrate:
+    <<: *app-base
+    restart: "no"
+    command: ["php", "artisan", "ops:migrate", "--no-interaction"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+
   app:
     <<: *app-base
+    restart: unless-stopped
+    # Long requests (offer letters, Copilot) finish before the container stops.
+    stop_grace_period: 130s
     ports:
       - "${APP_PORT:-8080}:80"
     environment:
       <<: *app-environment
-      RUN_MIGRATIONS: "true"
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # SaaS-7 (C9): healthy once it can serve — database, cache and storage reachable (/health/ready
+    # answers 503 otherwise), not merely once the framework boots (/up).
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://localhost/health/ready') === false ? 1 : 0);"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
+  # The only scheduler (D8.7-011): never add a cron `schedule:run` beside it.
   scheduler:
     <<: *app-base
     restart: unless-stopped
+    stop_grace_period: 330s
     command: ["php", "artisan", "schedule:work"]
     environment:
       <<: *app-environment
@@ -42,13 +110,26 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      app:
-        condition: service_started
+      queue:
+        condition: service_healthy
+      queue-priority:
+        condition: service_healthy
+      queue-automation:
+        condition: service_healthy
+      queue-background:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "scheduler"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 15m
 
   queue:
     <<: *app-base
     restart: unless-stopped
-    command: ["php", "artisan", "queue:work", "--tries=3"]
+    stop_grace_period: 330s
+    command: ["php", "artisan", "queue:work", "--queue=communications,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
     environment:
       <<: *app-environment
       RUN_MIGRATIONS: "false"
@@ -56,7 +137,73 @@ services:
       db:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=communications,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
+
+  queue-priority:
+    <<: *app-base
+    restart: unless-stopped
+    stop_grace_period: 330s
+    command: ["php", "artisan", "queue:work", "--queue=security,billing,notifications,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=security,billing,notifications,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
+
+  queue-automation:
+    <<: *app-base
+    restart: unless-stopped
+    stop_grace_period: 330s
+    command: ["php", "artisan", "queue:work", "--queue=automation,default", "--tries=3", "--timeout=120", "--max-time=3600", "--force"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=automation,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
+
+  queue-background:
+    <<: *app-base
+    restart: unless-stopped
+    stop_grace_period: 330s
+    command: ["php", "artisan", "queue:work", "--queue=documents,intelligence,integrations,exports,default", "--tries=3", "--timeout=300", "--max-time=3600", "--force"]
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "ops:heartbeat", "worker", "--queues=documents,intelligence,integrations,exports,default"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
 
   db:
     image: mysql:8.4
@@ -65,7 +212,10 @@ services:
       MYSQL_DATABASE: ${DB_DATABASE:-recruitment_edge}
       MYSQL_USER: ${DB_USERNAME:-recruitment_edge}
       MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      # Phase 8.9 (P89-SEC-006): root never has an empty password; the image generates a random one
+      # (printed once in the container log) and the application uses its own non-root user. Set
+      # DB_PASSWORD from the secret store in production.
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
     volumes:
       - db-data:/var/lib/mysql
     healthcheck:

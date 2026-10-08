@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\TargetMetric;
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentManualActivityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentManualActivity extends Model
 {
     /** @use HasFactory<RecruitmentManualActivityFactory> */
-    use HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -35,7 +37,9 @@ class RecruitmentManualActivity extends Model
      */
     public function recruiter(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'recruiter_id');
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class, 'recruiter_id')->withTrashed();
     }
 
     /**
@@ -44,5 +48,15 @@ class RecruitmentManualActivity extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-025): free-text remarks are recorded as changed, never copied into the audit trail.
+     *
+     * @return array<int, string>
+     */
+    public function auditRedactedAttributes(): array
+    {
+        return ['remarks'];
     }
 }

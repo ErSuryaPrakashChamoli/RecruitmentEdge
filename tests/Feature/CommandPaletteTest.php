@@ -23,7 +23,7 @@ test('the command palette is rendered on the dashboard', function (): void {
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSeeLivewire(CommandPalette::class);
 });

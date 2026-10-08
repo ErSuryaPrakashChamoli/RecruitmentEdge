@@ -42,12 +42,12 @@ class RecruiterIncentiveCalculationPolicy
 
     public function approve(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
     {
-        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation);
+        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation) && ! $this->isOwn($user, $recruiterIncentiveCalculation);
     }
 
     public function markPayable(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
     {
-        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation);
+        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation) && ! $this->isOwn($user, $recruiterIncentiveCalculation);
     }
 
     public function reject(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
@@ -66,17 +66,26 @@ class RecruiterIncentiveCalculationPolicy
 
     public function adjust(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
     {
-        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation);
+        return $user->can('incentives.approve') && $this->isInScope($user, $recruiterIncentiveCalculation) && ! $this->isOwn($user, $recruiterIncentiveCalculation);
     }
 
     public function pay(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
     {
-        return $user->can('incentives.pay') && $this->isInScope($user, $recruiterIncentiveCalculation);
+        return $user->can('incentives.pay') && $this->isInScope($user, $recruiterIncentiveCalculation) && ! $this->isOwn($user, $recruiterIncentiveCalculation);
     }
 
     public function recordPayment(User $user, RecruiterIncentiveCalculation $recruiterIncentiveCalculation): bool
     {
         return $this->pay($user, $recruiterIncentiveCalculation);
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-008): the beneficiary never approves, marks payable, adjusts or pays
+     * their own incentive (IncentiveApprovalService re-checks).
+     */
+    private function isOwn(User $user, RecruiterIncentiveCalculation $calculation): bool
+    {
+        return $user->employee_id !== null && (int) $user->employee_id === (int) $calculation->employee_id;
     }
 
     private function isInScope(User $user, RecruiterIncentiveCalculation $calculation): bool

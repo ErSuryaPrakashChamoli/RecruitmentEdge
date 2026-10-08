@@ -2,11 +2,15 @@
 
 namespace App\Filament\Resources\Candidates\Schemas;
 
+use App\Filament\Resources\Candidates\Pages\CreateCandidate;
+use App\Filament\Support\ActiveMasterDataOptions;
 use App\Models\Employee;
+use App\Services\Tenancy\TenantStorage;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -78,15 +82,16 @@ class CandidateForm
                             ->label('Resume')
                             ->disk('local')
                             ->visibility('private')
-                            ->directory('resumes')
+                            ->directory(fn (): string => TenantStorage::path('resumes'))
                             ->acceptedFileTypes(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+                            ->maxSize(5120)
                             ->columnSpanFull(),
                     ]),
                 Section::make('Source')
                     ->columns(2)
                     ->schema([
                         Select::make('source_id')
-                            ->relationship('source', 'name')
+                            ->relationship('source', 'name', ActiveMasterDataOptions::scope('source_id'))
                             ->required()
                             ->searchable()
                             ->preload(),
@@ -101,6 +106,26 @@ class CandidateForm
                     ]),
                 Textarea::make('remarks')
                     ->columnSpanFull(),
+                Section::make('Possible duplicate candidate')
+                    ->description('This candidate matches an existing record. Open the existing candidate and add an application there instead of creating a second record.')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->iconColor('warning')
+                    ->columnSpanFull()
+                    ->visible(fn ($livewire): bool => $livewire instanceof CreateCandidate && $livewire->duplicateMatches !== [])
+                    ->schema([
+                        TextEntry::make('duplicate_matches')
+                            ->hiddenLabel()
+                            ->state(fn ($livewire): array => collect($livewire->duplicateMatches)
+                                ->map(fn (array $match): string => "{$match['name']} ({$match['candidate_code']}) · Mobile {$match['mobile']} · Email {$match['email']} · {$match['match']}, {$match['confidence']}% confidence")
+                                ->all())
+                            ->listWithLineBreaks()
+                            ->bulleted(),
+                        Textarea::make('duplicate_override_reason')
+                            ->label('Justification for creating a new candidate anyway')
+                            ->helperText('Recorded in the audit log.')
+                            ->visible(fn (): bool => (bool) auth()->user()?->can('candidates.override-duplicate'))
+                            ->maxLength(1000),
+                    ]),
             ]);
     }
 }

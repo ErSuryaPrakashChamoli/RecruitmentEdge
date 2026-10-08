@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Events;
+
+use App\Models\Employee;
+use App\Models\TalentPoolMembership;
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+/**
+ * Fired by TalentPoolService after the membership change commits — the hook for Phase 5/6
+ * re-engagement campaigns and Phase 7 Talent Rediscovery signals.
+ */
+class CandidateAddedToTalentPool implements ShouldDispatchAfterCommit
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(
+        public readonly TalentPoolMembership $membership,
+        public readonly ?Employee $actor = null,
+    ) {}
+}

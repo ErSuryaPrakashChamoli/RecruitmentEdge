@@ -23,7 +23,7 @@
     </style>
 </head>
 <body>
-    <h1>{{ config('app.name') }}</h1>
+    <h1>{{ \App\Services\Branding::tenantLegalName() }}</h1>
     <p class="subtitle">Offer Letter &mdash; {{ $offer->offer_code }}</p>
 
     <p>Dear {{ $application?->candidate?->full_name }},</p>

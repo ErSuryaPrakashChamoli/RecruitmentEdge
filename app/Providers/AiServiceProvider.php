@@ -15,6 +15,7 @@ use App\Services\AI\Contracts\LLMProviderInterface;
 use App\Services\AI\Contracts\WebSearchProviderInterface;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Gateway\AiProviderManager;
+use App\Services\AI\Privacy\AiSensitiveValues;
 use App\Services\AI\Providers\GeminiProvider;
 use App\Services\AI\Providers\NullProvider;
 use App\Services\AI\Providers\OpenAiProvider;
@@ -62,6 +63,7 @@ class AiServiceProvider extends ServiceProvider
 
         $this->app->singleton(NullProvider::class);
         $this->app->scoped(ToolExecutionContext::class);
+        $this->app->scoped(AiSensitiveValues::class);
         $this->app->singleton(AiProviderManager::class);
 
         $this->app->bind(LLMProviderInterface::class, fn ($app) => $app->make(AiProviderManager::class)->llm());

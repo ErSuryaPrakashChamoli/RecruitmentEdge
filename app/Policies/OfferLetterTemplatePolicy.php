@@ -32,8 +32,20 @@ class OfferLetterTemplatePolicy
         return $user->can('settings.manage');
     }
 
+    /**
+     * Phase 8.6 (D8.6-011): a template used by offers or issued letters, or with version history,
+     * is deactivated instead — deleting it would detach the letters issued from it.
+     */
     public function delete(User $user, OfferLetterTemplate $offerLetterTemplate): bool
     {
-        return $user->can('settings.manage') && ! $offerLetterTemplate->is_system;
+        return $user->can('settings.manage') && ! $offerLetterTemplate->is_system && ! $offerLetterTemplate->isReferenced();
+    }
+
+    /**
+     * No bulk delete (Phase 8.6): each template needs its own in-use check.
+     */
+    public function deleteAny(User $user): bool
+    {
+        return false;
     }
 }

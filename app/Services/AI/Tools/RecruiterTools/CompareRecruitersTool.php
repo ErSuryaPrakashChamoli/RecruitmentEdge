@@ -6,6 +6,7 @@ use App\Enums\AiRiskLevel;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\HierarchyService;
 use App\Services\PerformanceEngine;
@@ -13,6 +14,8 @@ use Carbon\CarbonImmutable;
 
 class CompareRecruitersTool implements AiTool
 {
+    use ProjectsForAi;
+
     public function __construct(
         private readonly PerformanceEngine $performance,
         private readonly HierarchyService $hierarchy,
@@ -65,7 +68,7 @@ class CompareRecruitersTool implements AiTool
 
                 return [
                     'employee_id' => $recruiter->id,
-                    'name' => $recruiter->fullName(),
+                    'employee_ref' => $this->projector()->employeeRef($recruiter),
                     'score' => $result['score'],
                 ];
             })

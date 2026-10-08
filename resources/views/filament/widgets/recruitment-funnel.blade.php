@@ -1,5 +1,5 @@
 <x-filament-widgets::widget>
-    <x-filament::section heading="Recruitment Funnel" description="Applications through to Joining, with conversion % from Sourced and drop-off between stages" collapsible collapsed>
+    <x-filament::section heading="Recruitment Funnel" description="Of the applications created in this period, how many have reached each stage so far — with drop-off between stages. Joined = joining record marked Joined." collapsible collapsed>
         @php $rows = $this->getRows(); $max = $rows->max('count') ?: 1; $total = $rows->count(); @endphp
 
         @if ($rows->isEmpty())
@@ -19,7 +19,7 @@
                             <span class="tabular-nums text-gray-500 dark:text-gray-400">
                                 <span class="font-semibold text-gray-900 dark:text-white">{{ $row['count'] }}</span>
                                 @if ($row['conversion_from_sourced'] !== null)
-                                    <span class="text-gray-400 dark:text-gray-500">({{ $row['conversion_from_sourced'] }}% of sourced)</span>
+                                    <span class="text-gray-400 dark:text-gray-500">({{ $row['conversion_from_sourced'] }}% of applications)</span>
                                 @endif
                                 @if ($row['drop_off_percent'] !== null && $row['drop_off_percent'] > 0)
                                     <span class="font-medium text-rose-600 dark:text-rose-400">-{{ $row['drop_off_percent'] }}%</span>

@@ -19,7 +19,7 @@ test('a user with no theme preference gets Executive Navy by default', function 
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSee("setAttribute('data-app-theme', 'navy')", false);
 });
@@ -29,7 +29,7 @@ test('a user\'s persisted theme is applied server-side on every page load, befor
     $user->assignRole('recruiter');
 
     actingAs($user)
-        ->get('/admin')
+        ->get('/admin/acme')
         ->assertSuccessful()
         ->assertSee("setAttribute('data-app-theme', 'teal')", false);
 });
@@ -64,7 +64,7 @@ test('the theme gallery lists all 8 themes with real descriptions and best-for t
     $user = User::factory()->create(['employee_id' => Employee::factory()->create()->id, 'theme' => 'emerald']);
     $user->assignRole('recruiter');
 
-    $html = actingAs($user)->get('/admin/theme-gallery')->assertSuccessful()->getContent();
+    $html = actingAs($user)->get('/admin/acme/theme-gallery')->assertSuccessful()->getContent();
 
     foreach (AppTheme::cases() as $theme) {
         expect($html)->toContain(e($theme->label()))
@@ -97,7 +97,7 @@ test('previewing themes in the gallery never writes to the database', function (
 
     // The gallery's light/dark toggle and per-card swatches are pure Alpine/inline-style state —
     // rendering the page (without calling applyTheme) must never touch the stored preference.
-    actingAs($user)->get('/admin/theme-gallery')->assertSuccessful();
+    actingAs($user)->get('/admin/acme/theme-gallery')->assertSuccessful();
 
     expect($user->fresh()->theme)->toBe('navy');
 });
@@ -106,5 +106,5 @@ test('the theme gallery is reachable by a plain recruiter, not just admin roles'
     $user = User::factory()->create(['employee_id' => Employee::factory()->create()->id]);
     $user->assignRole('recruiter');
 
-    actingAs($user)->get('/admin/theme-gallery')->assertSuccessful();
+    actingAs($user)->get('/admin/acme/theme-gallery')->assertSuccessful();
 });

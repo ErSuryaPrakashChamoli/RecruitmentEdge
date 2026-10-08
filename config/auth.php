@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\CandidatePortalAccount;
 use App\Models\User;
 
 return [
@@ -42,6 +43,19 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Candidate portal (Phase 4): a separate guard and provider so a candidate session can
+        // never authenticate against the staff admin panel.
+        'candidate' => [
+            'driver' => 'session',
+            'provider' => 'candidate_accounts',
+        ],
+
+        // SaaS-6: the tenant API — the member an authenticated API credential acts for
+        // (App\Http\Middleware\Api\AuthenticateApiCredential). Never a session.
+        'api' => [
+            'driver' => 'api-credential',
+        ],
     ],
 
     /*
@@ -65,6 +79,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'candidate_accounts' => [
+            'driver' => 'eloquent',
+            'model' => CandidatePortalAccount::class,
         ],
 
         // 'users' => [

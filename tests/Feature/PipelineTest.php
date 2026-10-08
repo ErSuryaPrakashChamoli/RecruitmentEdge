@@ -41,7 +41,7 @@ test('the pipeline board renders and only shows hierarchy-visible applications',
     $user->assignRole('manager');
 
     actingAs($user)
-        ->get('/admin/pipeline')
+        ->get('/admin/acme/pipeline')
         ->assertSuccessful()
         ->assertSee('Visible Candidate')
         ->assertDontSee('Hidden Candidate');

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Services\Tenancy\TenantCache;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
@@ -10,9 +12,13 @@ use Illuminate\Support\Facades\Cache;
 #[Fillable(['key', 'value', 'type', 'group', 'description'])]
 class RecruitmentSetting extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToTenant;
 
-    public const string CACHE_PREFIX = 'recruitment_setting:';
+    /**
+     * v2 (Phase 8.6): entries are ['value' => …] / ['missing' => true]; the prefix changed so a
+     * deploy never reads a pre-8.6 entry in the old shape.
+     */
+    public const string CACHE_PREFIX = 'recruitment_setting:v2:';
 
     /**
      * Allowed values for `time_to_hire_start_point` — the start points
@@ -47,6 +53,9 @@ class RecruitmentSetting extends Model
         'position_risk_max_days_open' => ['type' => 'int', 'group' => 'hiring', 'default' => 45, 'description' => 'Days open before an unfilled position is critical'],
         'position_risk_min_pipeline_ratio' => ['type' => 'float', 'group' => 'hiring', 'default' => 2.0, 'description' => 'Minimum active pipeline per remaining opening'],
         'candidate_stall_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'Days without a stage change before a candidate is stalled'],
+        'activity_backdate_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'How many days back a recruiter activity may be logged (Phase 8.5, SEC-4)'],
+        'self_scheduling_min_lead_hours' => ['type' => 'int', 'group' => 'pipeline', 'default' => 2, 'description' => 'Minimum hours of notice before a self-scheduled interview slot starts'],
+        'self_scheduling_invitation_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 7, 'description' => 'Days a self-scheduling invitation link stays valid'],
         'offer_expiry_alert_days' => ['type' => 'int', 'group' => 'pipeline', 'default' => 3, 'description' => 'Days before offer expiry to flag it in the Action Center'],
         'interviewer_daily_capacity' => ['type' => 'int', 'group' => 'pipeline', 'default' => 4, 'description' => 'Maximum interviews per interviewer per day'],
         'joining_risk_followup_days' => ['type' => 'int', 'group' => 'joining', 'default' => 3, 'description' => 'Days before DOJ an unconfirmed joining turns yellow'],
@@ -60,17 +69,22 @@ class RecruitmentSetting extends Model
 
     /**
      * Resolve a setting value by key, cast to its configured type.
+     *
+     * Phase 8.6: only the stored setting is cached (or the fact that it is missing) — never the
+     * caller's fallback, so two callers with different defaults each get their own.
      */
     public static function get(string $key, mixed $default = null): mixed
     {
-        return Cache::rememberForever(
-            self::CACHE_PREFIX.$key,
-            function () use ($key, $default) {
+        $cached = Cache::rememberForever(
+            TenantCache::key(self::CACHE_PREFIX.$key),
+            function () use ($key): array {
                 $setting = self::query()->where('key', $key)->first();
 
-                return $setting === null ? $default : $setting->castValue();
+                return $setting === null ? ['missing' => true] : ['value' => $setting->castValue()];
             },
         );
+
+        return is_array($cached) && array_key_exists('value', $cached) ? $cached['value'] : $default;
     }
 
     /**
@@ -87,18 +101,24 @@ class RecruitmentSetting extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn (self $setting) => Cache::forget(self::CACHE_PREFIX.$setting->key));
-        static::deleted(fn (self $setting) => Cache::forget(self::CACHE_PREFIX.$setting->key));
+        // SaaS-1: settings are per tenant, and so is their cache entry.
+        static::saved(fn (self $setting) => Cache::forget(TenantCache::key(self::CACHE_PREFIX.$setting->key, (int) $setting->tenant_id)));
+        static::deleted(fn (self $setting) => Cache::forget(TenantCache::key(self::CACHE_PREFIX.$setting->key, (int) $setting->tenant_id)));
     }
 
     protected function castValue(): mixed
     {
-        return match ($this->type) {
-            'int', 'integer' => (int) $this->value,
-            'float', 'decimal' => (float) $this->value,
-            'bool', 'boolean' => filter_var($this->value, FILTER_VALIDATE_BOOLEAN),
-            'json' => json_decode((string) $this->value, true),
-            default => $this->value,
+        return self::cast($this->value, (string) $this->type);
+    }
+
+    public static function cast(?string $value, string $type): mixed
+    {
+        return match ($type) {
+            'int', 'integer' => (int) $value,
+            'float', 'decimal' => (float) $value,
+            'bool', 'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            'json' => json_decode((string) $value, true),
+            default => $value,
         };
     }
 }

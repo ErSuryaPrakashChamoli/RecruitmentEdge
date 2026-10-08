@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\RecruitmentIncentiveRules\Pages;
 
+use App\Filament\Concerns\GuardsDomainExceptionsOnSave;
 use App\Filament\Resources\RecruitmentIncentiveRules\RecruitmentIncentiveRuleResource;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateRecruitmentIncentiveRule extends CreateRecord
 {
+    use GuardsDomainExceptionsOnSave;
+
     protected static string $resource = RecruitmentIncentiveRuleResource::class;
 
     /**

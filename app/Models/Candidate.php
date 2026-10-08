@@ -3,16 +3,25 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\CandidateObserver;
+use App\Services\CandidateIdentityNormalizer;
+use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Database\Factories\CandidateFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 #[Fillable([
     'candidate_code',
@@ -42,7 +51,37 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Candidate extends Model
 {
     /** @use HasFactory<CandidateFactory> */
-    use Auditable, HasFactory, SoftDeletes;
+    use Auditable, BelongsToTenant, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+
+    /**
+     * Derived duplicate-detection keys: kept out of serialisation and (via getHidden()) out of
+     * audit diffs, since they only ever change alongside the real identifier.
+     *
+     * @var array<int, string>
+     */
+    protected $hidden = ['mobile_normalized', 'alternate_mobile_normalized', 'email_normalized', 'name_normalized'];
+
+    /**
+     * The duplicate-detection keys are recomputed from audited fields, so their changes are noise.
+     *
+     * @return array<int, string>
+     */
+    public function auditDerivedAttributes(): array
+    {
+        return $this->hidden;
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Candidate $candidate): void {
+            $candidate->forceFill([
+                'mobile_normalized' => CandidateIdentityNormalizer::mobile($candidate->mobile),
+                'alternate_mobile_normalized' => CandidateIdentityNormalizer::mobile($candidate->alternate_mobile),
+                'email_normalized' => CandidateIdentityNormalizer::email($candidate->email),
+                'name_normalized' => CandidateIdentityNormalizer::name($candidate->full_name),
+            ]);
+        });
+    }
 
     protected function casts(): array
     {
@@ -56,11 +95,43 @@ class Candidate extends Model
     }
 
     /**
+     * Candidates a user may see: all with hierarchy.view-all; otherwise those with an application
+     * owned by someone in the user's hierarchy, or created by the user. The one definition of
+     * candidate visibility — the Filament resource and EDGE Intelligence both use it.
+     *
+     * @param  Builder<Candidate>  $query
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        $visibleIds = app(HierarchyService::class)->visibleEmployeeIdsFor($user);
+
+        if ($visibleIds === null) {
+            return;
+        }
+
+        // Phase 8.9 (P89-PERF-002): one IN over a derived table holding the union of both rules —
+        // MySQL materialises it once and semi-joins, where the previous OR + EXISTS scanned every
+        // candidate with a dependent subquery per row (7 s for a 30-person team at 1M candidates).
+        // Same candidates: an application (not deleted) owned in the hierarchy, or created by the user.
+        $visible = CandidateApplication::query()
+            ->whereIn('recruiter_id', $visibleIds)
+            ->select('candidate_id')
+            ->toBase();
+
+        if ($user->employee_id !== null) {
+            $visible->union(DB::table('candidates')->where('tenant_id', TenantContext::current()->requireId())->where('created_by', $user->employee_id)->select('id'));
+        }
+
+        $query->whereIn($query->qualifyColumn('id'), fn ($ids) => $ids->select('visible_candidates.candidate_id')->fromSub($visible, 'visible_candidates'));
+    }
+
+    /**
      * @return BelongsTo<CandidateSource, $this>
      */
     public function source(): BelongsTo
     {
-        return $this->belongsTo(CandidateSource::class, 'source_id');
+        return $this->belongsTo(CandidateSource::class, 'source_id')->withTrashed();
     }
 
     /**
@@ -99,6 +170,58 @@ class Candidate extends Model
     }
 
     /**
+     * @return HasMany<CandidateCommunication, $this>
+     */
+    public function communications(): HasMany
+    {
+        return $this->hasMany(CandidateCommunication::class)->latest();
+    }
+
+    /**
+     * @return HasMany<CandidateCommunicationPreference, $this>
+     */
+    public function communicationPreferences(): HasMany
+    {
+        return $this->hasMany(CandidateCommunicationPreference::class);
+    }
+
+    /**
+     * The candidate's portal login, when invited (Phase 4).
+     *
+     * @return HasOne<CandidatePortalAccount, $this>
+     */
+    public function portalAccount(): HasOne
+    {
+        return $this->hasOne(CandidatePortalAccount::class);
+    }
+
+    /**
+     * @return HasMany<TalentPoolMembership, $this>
+     */
+    public function talentPoolMemberships(): HasMany
+    {
+        return $this->hasMany(TalentPoolMembership::class);
+    }
+
+    /**
+     * Talent pools the candidate currently belongs to.
+     *
+     * @return BelongsToMany<TalentPool, $this>
+     */
+    public function talentPools(): BelongsToMany
+    {
+        return $this->belongsToMany(TalentPool::class, 'talent_pool_memberships')->using(TenantPivot::class)->wherePivotNull('removed_at');
+    }
+
+    /**
+     * @return HasMany<CandidateTimelineEvent, $this>
+     */
+    public function timelineEvents(): HasMany
+    {
+        return $this->hasMany(CandidateTimelineEvent::class)->latest('occurred_at');
+    }
+
+    /**
      * @return HasMany<CandidateDuplicateMatch, $this>
      */
     public function duplicateMatches(): HasMany
@@ -114,5 +237,17 @@ class Candidate extends Model
     public function employee(): HasOne
     {
         return $this->hasOne(Employee::class);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'source_id' => CandidateSource::class,
+        ];
     }
 }

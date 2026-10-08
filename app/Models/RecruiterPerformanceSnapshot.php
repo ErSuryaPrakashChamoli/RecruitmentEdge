@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\MetricAccountability;
 use App\Enums\TargetMetric;
+use App\Models\Concerns\BelongsToTenant;
 use App\Services\PerformanceEngine;
 use Database\Factories\RecruiterPerformanceSnapshotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -14,13 +15,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A computed, recomputable cache of a performance calculation for one recruiter/period — never a
  * source of truth itself. Always recreated via PerformanceEngine::snapshotFor(), never edited by
- * hand.
+ * hand. Phase 8.5 (D48): once its month is finalised it is frozen (frozen_at) and only an audited,
+ * forced recompute can change it.
  */
-#[Fillable(['employee_id', 'period_start', 'period_end', 'score', 'breakdown', 'computed_at'])]
+#[Fillable(['employee_id', 'period_start', 'period_end', 'score', 'breakdown', 'computed_at', 'frozen_at'])]
 class RecruiterPerformanceSnapshot extends Model
 {
     /** @use HasFactory<RecruiterPerformanceSnapshotFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -30,6 +32,7 @@ class RecruiterPerformanceSnapshot extends Model
             'score' => 'decimal:2',
             'breakdown' => 'array',
             'computed_at' => 'datetime',
+            'frozen_at' => 'datetime',
         ];
     }
 
@@ -38,7 +41,9 @@ class RecruiterPerformanceSnapshot extends Model
      */
     public function employee(): BelongsTo
     {
-        return $this->belongsTo(Employee::class);
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class)->withTrashed();
     }
 
     /**

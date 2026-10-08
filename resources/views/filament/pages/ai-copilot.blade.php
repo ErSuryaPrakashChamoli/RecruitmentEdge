@@ -43,10 +43,10 @@
                     <div class="flex {{ $message['role'] === 'user' ? 'justify-end' : 'justify-start' }}" wire:key="ai-message-{{ $message['id'] }}">
                         <div class="max-w-2xl rounded-2xl px-4 py-2.5 text-sm {{ $message['role'] === 'user' ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-950 dark:bg-white/5 dark:text-gray-100' }}">
                             @if (filled($message['content']))
-                                {{-- html_input 'strip' + allow_unsafe_links false: AI-generated/retrieved
-                                     content is never trusted as raw HTML (prompt-injection defence). --}}
+                                {{-- AiMarkdown: no raw HTML, no unsafe links, no auto-loading images —
+                                     AI-generated/retrieved content is never trusted (prompt-injection defence). --}}
                                 <div class="prose prose-sm dark:prose-invert max-w-none">
-                                    {!! \Illuminate\Support\Str::markdown($message['content'], ['html_input' => 'strip', 'allow_unsafe_links' => false]) !!}
+                                    {!! \App\Services\AI\Privacy\AiMarkdown::render($message['content']) !!}
                                 </div>
                             @endif
 
@@ -57,13 +57,22 @@
                                         <span @class([
                                             'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                                             'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' => $call['status'] === 'executed',
-                                            'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400' => in_array($call['status'], ['failed', 'rejected']),
+                                            'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400' => in_array($call['status'], ['failed', 'rejected', 'expired', 'invalidated']),
                                             'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400' => $call['status'] === 'pending',
                                         ])>{{ $call['status_label'] }} · {{ $call['risk_level'] }}</span>
                                     </div>
 
                                     @if ($call['status'] === 'pending')
                                         <p class="mt-1 text-gray-600 dark:text-gray-400">This action needs your approval before it runs.</p>
+
+                                        @if ($call['preview'] !== [])
+                                            {{-- Resolved for you only; the AI never receives these names or addresses. --}}
+                                            <ul class="mt-1 list-disc ps-4 text-gray-700 dark:text-gray-300" data-approval-preview>
+                                                @foreach ($call['preview'] as $line)
+                                                    <li class="whitespace-pre-line break-words">{{ $line }}</li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
 
                                         @if ($this->canApproveActions())
                                             <div class="mt-2 flex gap-2">
@@ -117,6 +126,11 @@
                 </div>
             @endif
 
+            @if ($this->isLegacyConversation())
+                <div class="border-t border-gray-200 p-3 text-sm text-gray-600 dark:border-white/10 dark:text-gray-400" role="status">
+                    {{ \App\Services\AI\Orchestrator\AiOrchestrator::LEGACY_CONVERSATION_MESSAGE }}
+                </div>
+            @else
             <form wire:submit="ask" class="flex items-end gap-2 border-t border-gray-200 p-3 dark:border-white/10">
                 <textarea
                     wire:model="question"
@@ -132,6 +146,10 @@
                     class="fi-btn rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
                 >Send</button>
             </form>
+            <p class="px-3 pb-3 text-xs text-gray-500 dark:text-gray-400">
+                The AI works with reference codes (e.g. CAND-2026-000123); names are shown here only for records you can see.
+            </p>
+            @endif
         </div>
     </div>
 </x-filament-panels::page>

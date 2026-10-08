@@ -6,9 +6,10 @@ use App\Enums\AiRiskLevel;
 use App\Enums\InterviewMode;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
+use App\Models\Interviewer;
 use App\Models\User;
-use App\Services\AI\Calendar\Contracts\CalendarProviderInterface;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use App\Services\InterviewService;
@@ -18,18 +19,16 @@ use Illuminate\Support\Carbon;
 use Throwable;
 
 /**
- * EXTERNAL risk: scheduling an interview commits interviewer time and (once a real
- * CalendarProviderInterface implementation exists) may send external calendar invites. Creation
- * goes through InterviewService::schedule() — the same path as every Filament surface, so the
- * stage sync and notifications match — then best-effort syncs to CalendarProviderInterface, which
- * is a no-op NullCalendarProvider until a real calendar credential is configured.
+ * EXTERNAL risk: scheduling an interview commits interviewer time and may send external calendar
+ * invites and candidate messages. Creation goes through InterviewService::schedule() — the same
+ * path as every Filament surface — whose InterviewScheduled event drives calendar sync and
+ * candidate communications (Phase 5), so the AI path never calls a provider directly.
  */
 class ScheduleInterviewTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(
-        private readonly CalendarProviderInterface $calendar,
         private readonly InterviewService $interviews,
     ) {}
 
@@ -90,10 +89,17 @@ class ScheduleInterviewTool implements AiTool
             return ToolResult::fail('Application not found, or not visible to you.');
         }
 
-        $interviewer = Employee::query()->find($arguments['interviewer_employee_id'] ?? null);
+        // Same rule as the interview form: an interviewer is someone on the active interviewer
+        // list — or, for the caller's own team, anyone in their hierarchy. An id the model makes
+        // up for anyone else is rejected without revealing whether that employee exists.
+        $interviewer = Employee::query()
+            ->where(fn (Builder $q) => $q
+                ->whereIn('id', Interviewer::query()->where('is_active', true)->select('employee_id'))
+                ->when($visibleIds !== null, fn (Builder $scoped) => $scoped->orWhereIn('id', $visibleIds), fn (Builder $all) => $all->orWhereNotNull('id')))
+            ->find($arguments['interviewer_employee_id'] ?? null);
 
         if ($interviewer === null) {
-            return ToolResult::fail('Interviewer not found.');
+            return ToolResult::fail('Interviewer not found, or not available to you.');
         }
 
         try {
@@ -118,16 +124,9 @@ class ScheduleInterviewTool implements AiTool
 
         $roundLabel = $interview->round_name ?? "Round {$interview->round_number}";
 
-        $this->calendar->createEvent(
-            title: "Interview: {$application->candidate?->full_name} - {$roundLabel}",
-            start: $scheduledAt,
-            end: $scheduledAt->copy()->addHour(),
-            attendeeEmails: array_filter([$interviewer->email]),
-        );
-
         return ToolResult::ok(
             data: ['entity_type' => 'Interview', 'entity_ids' => [$interview->id]],
-            summary: "Scheduled {$roundLabel} for {$application->candidate?->full_name} on {$scheduledAt->toDayDateTimeString()}.",
+            summary: "Scheduled {$roundLabel} for {$this->projector()->candidateRef($application->candidate)} on {$scheduledAt->toDayDateTimeString()}.",
             type: 'action_result',
         );
     }

@@ -3,17 +3,36 @@
 namespace App\Models;
 
 use App\Enums\FeedbackRecommendation;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\GuardsLifecycleAttributes;
 use Database\Factories\InterviewFeedbackFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['interview_id', 'interviewer_id', 'score', 'ratings', 'recommendation', 'feedback'])]
+#[Fillable(['interview_id', 'interviewer_id', 'score', 'ratings', 'recommendation', 'feedback', 'submitted_by', 'version', 'is_current', 'supersedes_id', 'correction_reason', 'locked_at'])]
 class InterviewFeedback extends Model
 {
     /** @use HasFactory<InterviewFeedbackFactory> */
-    use HasFactory;
+    use BelongsToTenant, GuardsLifecycleAttributes, HasFactory;
+
+    /**
+     * Phase 8.3: feedback is written only by InterviewFeedbackService — submitted by the assigned
+     * interviewer (or an authorised hiring/HR user on their behalf), locked by the interview
+     * decision, and corrected only as a new version with a reason.
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['interview_id', 'interviewer_id', 'score', 'ratings', 'recommendation', 'feedback', 'submitted_by', 'version', 'is_current', 'supersedes_id', 'correction_reason', 'locked_at'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'InterviewFeedbackService';
+    }
 
     /**
      * Criteria rated 1–5 on every feedback entry, keyed by the JSON key stored in `ratings`.
@@ -52,6 +71,8 @@ class InterviewFeedback extends Model
             'recommendation' => FeedbackRecommendation::class,
             'score' => 'decimal:1',
             'ratings' => 'array',
+            'is_current' => 'boolean',
+            'locked_at' => 'datetime',
         ];
     }
 
@@ -101,6 +122,27 @@ class InterviewFeedback extends Model
     public function interview(): BelongsTo
     {
         return $this->belongsTo(Interview::class);
+    }
+
+    public function isLocked(): bool
+    {
+        return $this->locked_at !== null;
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function submitter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    /**
+     * @return BelongsTo<InterviewFeedback, $this>
+     */
+    public function supersedes(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'supersedes_id');
     }
 
     /**

@@ -13,15 +13,18 @@ use App\Filament\Resources\CandidateApplications\CandidateApplicationResource;
 use App\Filament\Resources\CandidateJoinings\CandidateJoiningResource;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Filament\Resources\Offers\OfferResource;
+use App\Filament\Resources\RecruiterActions\RecruiterActionResource;
 use App\Filament\Resources\RecruitmentFollowups\RecruitmentFollowupResource;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\CandidateApplication;
 use App\Models\CandidateJoining;
 use App\Models\Interview;
 use App\Models\Offer;
+use App\Models\RecruiterAction;
 use App\Models\RecruitmentFollowup;
 use App\Models\RecruitmentSetting;
 use App\Models\User;
+use App\Services\Metrics\MetricPeriod;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -51,6 +54,7 @@ class RecruitmentActionCenterService
         $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
 
         $items = collect([
+            $this->overdueRecruiterActions($visibleIds),
             $this->overdueFollowups($visibleIds),
             $this->interviewsMissingFeedback($visibleIds),
             $this->unconfirmedInterviews($visibleIds),
@@ -78,8 +82,12 @@ class RecruitmentActionCenterService
         $visibleIds = $user !== null ? $this->hierarchy->visibleEmployeeIdsFor($user) : null;
         $alerts = collect();
 
-        $thisWeek = app(RecruitmentAnalyticsService::class)->turnUpAnalysis(now()->subDays(6), now(), $user);
-        $lastWeek = app(RecruitmentAnalyticsService::class)->turnUpAnalysis(now()->subDays(13), now()->subDays(7), $user);
+        // Phase 8.5 (DF-14): two consecutive seven-day windows of whole business-timezone days —
+        // the last seven days including today, and the seven before — with no gap between them.
+        $thisWeek = MetricPeriod::lastDays(7);
+        $lastWeek = $thisWeek->previous();
+        $thisWeek = app(RecruitmentAnalyticsService::class)->turnUpAnalysis($thisWeek->from, $thisWeek->lastInstant(), $user);
+        $lastWeek = app(RecruitmentAnalyticsService::class)->turnUpAnalysis($lastWeek->from, $lastWeek->lastInstant(), $user);
 
         if ($thisWeek['turnup_percent'] !== null && $lastWeek['turnup_percent'] !== null
             && $thisWeek['turnup_percent'] < $lastWeek['turnup_percent'] - 5) {
@@ -130,6 +138,30 @@ class RecruitmentActionCenterService
         }
 
         return $alerts;
+    }
+
+    /**
+     * Phase 6: overdue Action Center items (automation, escalation or manager-assigned) — counted
+     * here so the dashboard queue links into the Action Center rather than duplicating it.
+     *
+     * @param  Collection<int, int>|null  $visibleIds
+     * @return array{key: string, label: string, priority: string, count: int, url: string|null}
+     */
+    private function overdueRecruiterActions(?Collection $visibleIds): array
+    {
+        $count = RecruiterAction::query()
+            ->open()
+            ->where('due_at', '<', now())
+            ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('owner_id', $visibleIds))
+            ->count();
+
+        return [
+            'key' => 'overdue_actions',
+            'label' => 'Action Center items overdue',
+            'priority' => 'critical',
+            'count' => $count,
+            'url' => RecruiterActionResource::getUrl('index', ['activeTab' => 'overdue']),
+        ];
     }
 
     /**
@@ -371,7 +403,9 @@ class RecruitmentActionCenterService
             ->where('status', ApplicationStatus::Active)
             ->where('current_stage', '!=', CandidateStage::Joined)
             ->where('created_at', '<', $threshold)
-            ->whereDoesntHave('stageHistory', fn (Builder $q) => $q->where('created_at', '>=', $threshold))
+            // Phase 8.5 (DF-9): only a genuine stage move counts as movement — a hold or reactivation
+            // does not un-stall an application.
+            ->whereDoesntHave('stageHistory', fn (Builder $q) => $q->pipelineStageEntries()->where('candidate_stage_histories.created_at', '>=', $threshold))
             ->when($visibleIds !== null, fn (Builder $q) => $q->whereIn('recruiter_id', $visibleIds))
             ->count();
 

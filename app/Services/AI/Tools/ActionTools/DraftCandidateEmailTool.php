@@ -9,6 +9,7 @@ use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\Concerns\CallsLanguageModel;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -19,7 +20,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class DraftCandidateEmailTool implements AiTool
 {
-    use CallsLanguageModel, ScopesToHierarchy;
+    use CallsLanguageModel, ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly AiGateway $gateway) {}
 
@@ -72,13 +73,17 @@ class DraftCandidateEmailTool implements AiTool
             return ToolResult::fail('Candidate not found, or not visible to you.');
         }
 
+        $candidateRef = $this->projector()->candidateRef($candidate);
+
         if (blank($candidate->email)) {
-            return ToolResult::fail("{$candidate->full_name} has no email address on file.");
+            return ToolResult::fail("{$candidateRef} has no email address on file.");
         }
 
+        // Phase 8.1: the model never sees the candidate's name or address. It writes the
+        // {{candidate.first_name}} placeholder, which CommunicationService renders at send time.
         $messages = [
-            LlmMessage::system('You draft short, professional, warm recruitment emails. Output plain text with a clear subject line on the first line prefixed "Subject: ", then a blank line, then the body. Never invent specific dates/times/salary figures not given to you.'),
-            LlmMessage::user("Candidate: {$candidate->full_name}\nPurpose: {$arguments['purpose']}\nKey points: ".($arguments['key_points'] ?? 'none given')),
+            LlmMessage::system('You draft short, professional, warm recruitment emails. Output plain text with a clear subject line on the first line prefixed "Subject: ", then a blank line, then the body. Address the candidate exactly as {{candidate.first_name}} (a placeholder the system fills in); never invent a name. Never invent specific dates/times/salary figures not given to you.'),
+            LlmMessage::user("Candidate: {$candidateRef}\nPurpose: {$arguments['purpose']}\nKey points: ".($arguments['key_points'] ?? 'none given')),
         ];
 
         $text = $this->generateText($this->gateway, $messages, 'generation', $user);
@@ -90,8 +95,8 @@ class DraftCandidateEmailTool implements AiTool
         [$subject, $body] = $this->splitSubjectAndBody($text);
 
         return ToolResult::ok(
-            data: ['candidate_id' => $candidate->id, 'candidate_email' => $candidate->email, 'subject' => $subject, 'body' => $body],
-            summary: "Drafted a {$arguments['purpose']} email for {$candidate->full_name}. Review it, then use send_candidate_email to send.",
+            data: ['candidate_id' => $candidate->id, 'candidate_ref' => $candidateRef, 'subject' => $subject, 'body' => $body],
+            summary: "Drafted a {$arguments['purpose']} email for {$candidateRef}. Review it, then use send_candidate_email to send.",
             type: 'email_draft',
         );
     }

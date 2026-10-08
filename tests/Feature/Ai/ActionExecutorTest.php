@@ -8,12 +8,29 @@ use App\Models\CandidateApplication;
 use App\Models\RecruitmentRejectionReason;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Actions\ApprovalAuthority;
 use Database\Seeders\RolePermissionSeeder;
 
 beforeEach(function (): void {
     $this->seed(RolePermissionSeeder::class);
     $this->executor = app(ActionExecutor::class);
 });
+
+/**
+ * Phase 8.4: only the person who asked may approve, so a test's approver is made the requester —
+ * the conversation owner, with the approval window and authority a real proposal records.
+ */
+function proposedBy(AiToolCall $toolCall, User $user): AiToolCall
+{
+    $toolCall->message->conversation->forceFill(['user_id' => $user->id])->save();
+    $toolCall->forceFill([
+        'requested_by' => $user->id,
+        'expires_at' => now()->addMinutes(30),
+        'authority_fingerprint' => app(ApprovalAuthority::class)->fingerprint($user),
+    ])->save();
+
+    return $toolCall->refresh();
+}
 
 function makePendingToolCall(string $toolName, array $arguments, string $riskLevel = 'high_impact'): AiToolCall
 {
@@ -41,6 +58,7 @@ test('a user without ai.actions.execute cannot approve a pending high-impact too
 
     $user = User::factory()->create();
     $user->assignRole('recruiter'); // recruiter role has no ai.actions.execute by default
+    $toolCall = proposedBy($toolCall, $user);
 
     expect(fn () => $this->executor->approve($toolCall, $user))->toThrow(DomainException::class);
 
@@ -58,6 +76,7 @@ test('approving a pending reject_candidates tool call actually rejects the appli
 
     $approver = User::factory()->create();
     $approver->assignRole('chro');
+    $toolCall = proposedBy($toolCall, $approver);
 
     $result = $this->executor->approve($toolCall, $approver);
 
@@ -81,6 +100,7 @@ test('approving an already-decided tool call is rejected', function (): void {
 
     $approver = User::factory()->create();
     $approver->assignRole('chro');
+    $toolCall = proposedBy($toolCall, $approver);
 
     $this->executor->approve($toolCall, $approver);
 
@@ -98,6 +118,7 @@ test('rejecting a pending tool call marks it rejected and never touches the unde
 
     $approver = User::factory()->create();
     $approver->assignRole('chro');
+    $toolCall = proposedBy($toolCall, $approver);
 
     $this->executor->reject($toolCall, $approver, 'Not needed after all');
 
@@ -117,6 +138,7 @@ test('approval is refused when AI actions have been disabled since the action wa
 
     $approver = User::factory()->create();
     $approver->assignRole('chro');
+    $toolCall = proposedBy($toolCall, $approver);
 
     config(['ai.features.actions_enabled' => false]);
 
@@ -137,6 +159,7 @@ test('approval re-checks the tool\'s own permission, not only ai.actions.execute
 
     $approver = User::factory()->create();
     $approver->givePermissionTo(['ai.query', 'ai.actions.execute']); // no pipeline.transition
+    $toolCall = proposedBy($toolCall, $approver);
 
     expect(fn () => $this->executor->approve($toolCall, $approver))->toThrow(DomainException::class, 'pipeline.transition');
 
@@ -154,6 +177,7 @@ test('the action audit log stores the full tool result, not just a summary', fun
 
     $approver = User::factory()->create();
     $approver->assignRole('chro');
+    $toolCall = proposedBy($toolCall, $approver);
 
     $this->executor->approve($toolCall, $approver);
 

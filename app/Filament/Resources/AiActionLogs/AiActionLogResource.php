@@ -6,11 +6,14 @@ use App\Filament\Resources\AiActionLogs\Pages\ListAiActionLogs;
 use App\Filament\Resources\AiActionLogs\Schemas\AiActionLogInfolist;
 use App\Filament\Resources\AiActionLogs\Tables\AiActionLogsTable;
 use App\Models\AiActionLog;
+use App\Models\User;
+use App\Services\AI\Privacy\AiConversationVisibility;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class AiActionLogResource extends Resource
@@ -26,6 +29,15 @@ class AiActionLogResource extends Resource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $viewer = auth()->user();
+
+        return $viewer instanceof User
+            ? app(AiConversationVisibility::class)->scope(parent::getEloquentQuery(), $viewer)
+            : parent::getEloquentQuery()->whereRaw('1 = 0');
     }
 
     public static function infolist(Schema $schema): Schema

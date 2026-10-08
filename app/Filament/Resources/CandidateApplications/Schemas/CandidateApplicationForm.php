@@ -6,6 +6,8 @@ use App\Enums\Priority;
 use App\Filament\Resources\Candidates\Schemas\CandidatePicker;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
+use App\Services\RecruitmentActivityService;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -31,7 +33,8 @@ class CandidateApplicationForm
                             ->default(now())
                             ->required(),
                         CandidatePicker::make()
-                            ->required(),
+                            ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create'),
                         Select::make('requisition_id')
                             ->relationship(
                                 'requisition',
@@ -40,19 +43,23 @@ class CandidateApplicationForm
                                     ? RecruitmentRequisitionResource::applicationTargetQuery($query)
                                     : $query,
                             )
-                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : null)
+                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : 'Use "Move to requisition" to change it.')
                             ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create')
                             ->searchable()
                             ->preload(),
                     ]),
                 Section::make('Assignment & Priority')
                     ->columns(2)
                     ->schema([
+                        // Phase 8.10 (P810-SEC-004): yourself or your team; CreateCandidateApplication re-checks.
                         Select::make('recruiter_id')
                             ->label('Recruiter')
-                            ->relationship('recruiter', 'first_name')
+                            ->relationship('recruiter', 'first_name', modifyQueryUsing: fn (Builder $query): Builder => $query->whereIn('employees.id', app(RecruitmentActivityService::class)->recruitersFor(Filament::auth()->user())->select('id')))
                             ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName())
                             ->required()
+                            ->disabled(fn (string $operation): bool => $operation !== 'create')
+                            ->helperText(fn (string $operation): ?string => $operation === 'create' ? null : 'Use "Reassign recruiter" to change it.')
                             ->searchable()
                             ->preload(),
                         Select::make('priority')

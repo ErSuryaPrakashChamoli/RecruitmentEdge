@@ -7,9 +7,11 @@ use App\Enums\IncentiveCalculationStatus;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
 use App\Models\Employee;
 use App\Models\RecruiterIncentiveCalculation;
+use App\Services\Lifecycle\RowLock;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * The only code path allowed to change an incentive calculation's status, record a payment, or
@@ -19,6 +21,11 @@ use Illuminate\Support\Facades\DB;
  *
  * Paid is reachable only through pay() (which records a RecruiterIncentivePayment) and Reversed
  * only through reverse() (which records the zeroing Reversal adjustment); moveTo() refuses both.
+ *
+ * Phase 8.9 (P89-DQ-001): every write locks the calculation row and decides on the locked, latest
+ * committed status (RowLock), so a double click, two approvers or the matured-release command racing
+ * a manual decision can never record two payments, two reversals or a transition from a status the
+ * calculation has already left. Staff alerts are sent only after the transaction commits.
  */
 class IncentiveApprovalService
 {
@@ -65,11 +72,15 @@ class IncentiveApprovalService
 
     public function approve(RecruiterIncentiveCalculation $calculation, ?Employee $actor = null, ?string $remarks = null): RecruiterIncentiveCalculation
     {
+        $this->guardNotBeneficiary($calculation, $actor, 'approve');
+
         return $this->moveTo($calculation, IncentiveCalculationStatus::Approved, $actor, $remarks);
     }
 
     public function markPayable(RecruiterIncentiveCalculation $calculation, ?Employee $actor = null, ?string $remarks = null): RecruiterIncentiveCalculation
     {
+        $this->guardNotBeneficiary($calculation, $actor, 'mark payable');
+
         return $this->moveTo($calculation, IncentiveCalculationStatus::Payable, $actor, $remarks);
     }
 
@@ -80,6 +91,19 @@ class IncentiveApprovalService
         }
 
         return $this->moveTo($calculation, IncentiveCalculationStatus::Rejected, $actor, $remarks);
+    }
+
+    /**
+     * Phase 8.10 (P810-SEC-008): separation of duties. Whoever earns an incentive (the recruiter or
+     * the referring employee) never approves, marks payable, adjusts or pays it. Rejecting or
+     * reversing one's own incentive only lowers it and stays allowed. System runs (no actor) are
+     * unaffected. RecruiterIncentiveCalculationPolicy hides the same actions.
+     */
+    private function guardNotBeneficiary(RecruiterIncentiveCalculation $calculation, ?Employee $actor, string $action): void
+    {
+        if ($actor !== null && (int) $actor->id === (int) $calculation->employee_id) {
+            throw new DomainException("You cannot {$action} your own incentive; another approver must.");
+        }
     }
 
     /**
@@ -109,18 +133,20 @@ class IncentiveApprovalService
         IncentiveCalculationStatus $to,
         ?Employee $actor = null,
     ): RecruiterIncentiveCalculation {
-        $from = $calculation->status;
         $recalculable = [IncentiveCalculationStatus::Calculated, IncentiveCalculationStatus::PendingVerification];
 
-        if (! in_array($from, $recalculable, true) || ! in_array($to, $recalculable, true)) {
-            throw new DomainException("A recalculation cannot move an incentive from {$from->label()} to {$to->label()}.");
-        }
+        return DB::transaction(function () use ($calculation, $to, $actor, $recalculable): RecruiterIncentiveCalculation {
+            RowLock::fresh($calculation);
+            $from = $calculation->status;
 
-        if ($from === $to) {
-            return $calculation;
-        }
+            if (! in_array($from, $recalculable, true) || ! in_array($to, $recalculable, true)) {
+                throw new DomainException("A recalculation cannot move an incentive from {$from->label()} to {$to->label()}.");
+            }
 
-        return DB::transaction(function () use ($calculation, $from, $to, $actor): RecruiterIncentiveCalculation {
+            if ($from === $to) {
+                return $calculation;
+            }
+
             $calculation->forceFill(['status' => $to])->save();
 
             $calculation->approvals()->create([
@@ -132,7 +158,7 @@ class IncentiveApprovalService
                     : 'Recalculated: retention hold no longer applies',
             ]);
 
-            $this->notifyStatusChange($calculation, $to);
+            DB::afterCommit(fn () => $this->notifyStatusChange($calculation, $to));
 
             return $calculation;
         });
@@ -144,17 +170,18 @@ class IncentiveApprovalService
         ?Employee $actor,
         ?string $remarks,
     ): RecruiterIncentiveCalculation {
-        $from = $calculation->status;
+        return DB::transaction(function () use ($calculation, $to, $actor, $remarks): RecruiterIncentiveCalculation {
+            RowLock::fresh($calculation);
+            $from = $calculation->status;
 
-        if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
-            throw new DomainException("Cannot move an incentive calculation from {$from->label()} to {$to->label()}.");
-        }
+            if (! in_array($to->value, self::ALLOWED_TRANSITIONS[$from->value], true)) {
+                throw new DomainException("Cannot move an incentive calculation from {$from->label()} to {$to->label()}.");
+            }
 
-        if ($to === IncentiveCalculationStatus::PendingVerification && $calculation->retention_due_at?->isFuture()) {
-            throw new DomainException("This incentive is on a retention hold until {$calculation->retention_due_at->format('d M Y')}.");
-        }
+            if ($to === IncentiveCalculationStatus::PendingVerification && $calculation->retention_due_at?->isFuture()) {
+                throw new DomainException("This incentive is on a retention hold until {$calculation->retention_due_at->format('d M Y')}.");
+            }
 
-        return DB::transaction(function () use ($calculation, $from, $to, $actor, $remarks): RecruiterIncentiveCalculation {
             $calculation->forceFill(['status' => $to])->save();
 
             $calculation->approvals()->create([
@@ -164,7 +191,7 @@ class IncentiveApprovalService
                 'remarks' => $remarks,
             ]);
 
-            $this->notifyStatusChange($calculation, $to);
+            DB::afterCommit(fn () => $this->notifyStatusChange($calculation, $to));
 
             return $calculation;
         });
@@ -231,10 +258,6 @@ class IncentiveApprovalService
         ?Employee $actor = null,
         ?string $remarks = null,
     ): RecruiterIncentiveCalculation {
-        if ($calculation->status !== IncentiveCalculationStatus::Payable) {
-            throw new DomainException('Only a Payable incentive can be paid.');
-        }
-
         if ($amount <= 0) {
             throw new DomainException('The payment amount must be greater than zero.');
         }
@@ -243,7 +266,16 @@ class IncentiveApprovalService
             throw new DomainException('A payment reference is required to record a payment.');
         }
 
+        $this->guardNotBeneficiary($calculation, $actor, 'pay');
+
         return DB::transaction(function () use ($calculation, $amount, $paymentDate, $reference, $actor, $remarks): RecruiterIncentiveCalculation {
+            // A second "Record payment" (double click, two payers) waits here and then finds Paid.
+            RowLock::fresh($calculation);
+
+            if ($calculation->status !== IncentiveCalculationStatus::Payable) {
+                throw new DomainException('Only a Payable incentive can be paid.');
+            }
+
             $calculation->payments()->create([
                 'amount' => $amount,
                 'payment_date' => $paymentDate->toDateString(),
@@ -262,14 +294,21 @@ class IncentiveApprovalService
      */
     public function adjust(RecruiterIncentiveCalculation $calculation, float $amountDelta, string $reason, ?Employee $actor = null): RecruiterIncentiveCalculation
     {
-        $calculation->adjustments()->create([
-            'adjustment_type' => IncentiveAdjustmentType::Correction,
-            'amount_delta' => $amountDelta,
-            'reason' => $reason,
-            'created_by' => $actor?->id,
-        ]);
+        $this->guardNotBeneficiary($calculation, $actor, 'adjust');
 
-        return $calculation;
+        return DB::transaction(function () use ($calculation, $amountDelta, $reason, $actor): RecruiterIncentiveCalculation {
+            // Serialised with reverse(): a reversal always zeroes every adjustment committed before it.
+            RowLock::fresh($calculation);
+
+            $calculation->adjustments()->create([
+                'adjustment_type' => IncentiveAdjustmentType::Correction,
+                'amount_delta' => $amountDelta,
+                'reason' => $reason,
+                'created_by' => $actor?->id,
+            ]);
+
+            return $calculation;
+        });
     }
 
     /**
@@ -284,14 +323,22 @@ class IncentiveApprovalService
             throw new DomainException('Remarks are required to reverse an incentive.');
         }
 
-        if (! in_array(IncentiveCalculationStatus::Reversed->value, self::ALLOWED_TRANSITIONS[$calculation->status->value], true)) {
-            throw new DomainException("Cannot reverse an incentive that is {$calculation->status->label()}.");
-        }
-
         return DB::transaction(function () use ($calculation, $reason, $actor): RecruiterIncentiveCalculation {
+            // A second reversal waits here and then finds Reversed, so it never writes a second
+            // zeroing adjustment.
+            RowLock::fresh($calculation);
+
+            if (! in_array(IncentiveCalculationStatus::Reversed->value, self::ALLOWED_TRANSITIONS[$calculation->status->value], true)) {
+                throw new DomainException("Cannot reverse an incentive that is {$calculation->status->label()}.");
+            }
+
+            // Locking read: the latest committed adjustments, whatever snapshot an outer
+            // transaction holds (the same figure as effectiveAmount()).
+            $effective = (float) $calculation->amount + (float) $calculation->adjustments()->sharedLock()->sum('amount_delta');
+
             $calculation->adjustments()->create([
                 'adjustment_type' => IncentiveAdjustmentType::Reversal,
-                'amount_delta' => -$calculation->effectiveAmount(),
+                'amount_delta' => -$effective,
                 'reason' => $reason,
                 'created_by' => $actor?->id,
             ]);
@@ -313,12 +360,18 @@ class IncentiveApprovalService
             ->whereDate('retention_due_at', '<=', now())
             ->get();
 
-        $due->each(fn (RecruiterIncentiveCalculation $calculation) => $this->moveTo(
-            $calculation,
-            IncentiveCalculationStatus::PendingVerification,
-            remarks: 'Retention period completed',
-        ));
+        // Phase 8.7 (D8.7-011): one calculation that cannot move never stops the others.
+        $released = 0;
 
-        return $due->count();
+        foreach ($due as $calculation) {
+            try {
+                $this->moveTo($calculation, IncentiveCalculationStatus::PendingVerification, remarks: 'Retention period completed');
+                $released++;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+
+        return $released;
     }
 }

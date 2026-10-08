@@ -8,9 +8,11 @@ use App\Enums\Priority;
 use App\Filament\Resources\CandidateApplications\Pages\CreateCandidateApplication;
 use App\Filament\Resources\RecruitmentRequisitions\RecruitmentRequisitionResource;
 use App\Models\Employee;
+use App\Services\RecruitmentActivityService;
 use App\Services\SequenceCodeGenerator;
 use Filament\Actions\CreateAction;
 use Filament\Actions\EditAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -34,14 +36,17 @@ class ApplicationsRelationManager extends RelationManager
                             ? RecruitmentRequisitionResource::applicationTargetQuery($query)
                             : $query,
                     )
-                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : null)
+                    ->helperText(fn (string $operation): ?string => $operation === 'create' ? RecruitmentRequisitionResource::applicationTargetHelperText() : 'Use "Move to requisition" on the application to change it.')
                     ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
                     ->searchable()
                     ->preload(),
+                // Phase 8.10 (P810-SEC-004): yourself or your team; the create action re-checks.
                 Select::make('recruiter_id')
-                    ->relationship('recruiter', 'first_name')
+                    ->relationship('recruiter', 'first_name', modifyQueryUsing: fn (Builder $query): Builder => $query->whereIn('employees.id', app(RecruitmentActivityService::class)->recruitersFor(Filament::auth()->user())->select('id')))
                     ->getOptionLabelFromRecordUsing(fn (Employee $record) => $record->fullName())
                     ->required()
+                    ->disabled(fn (string $operation): bool => $operation !== 'create')
                     ->searchable()
                     ->preload(),
                 Select::make('priority')
@@ -74,6 +79,7 @@ class ApplicationsRelationManager extends RelationManager
                 CreateAction::make()
                     ->mutateFormDataUsing(function (array $data): array {
                         CreateCandidateApplication::ensureRequisitionAcceptsApplications($data['requisition_id'] ?? null);
+                        CreateCandidateApplication::ensureCandidateAndRecruiterInScope($this->getOwnerRecord()->getKey(), $data['recruiter_id'] ?? null);
 
                         $data['application_code'] = app(SequenceCodeGenerator::class)->next('APP');
                         $data['current_stage'] = CandidateStage::Sourced;

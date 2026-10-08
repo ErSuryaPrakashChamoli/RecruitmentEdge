@@ -21,7 +21,7 @@ test('the candidate 360 view renders with applications and duplicate matches tab
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get("/admin/candidates/{$candidate->id}")
+        ->get("/admin/acme/candidates/{$candidate->id}")
         ->assertSuccessful()
         ->assertSee($candidate->full_name)
         ->assertSee($candidate->candidate_code);

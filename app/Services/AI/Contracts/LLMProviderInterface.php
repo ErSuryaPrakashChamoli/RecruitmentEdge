@@ -29,7 +29,9 @@ interface LLMProviderInterface
 
     /**
      * Structured-output call constrained to $jsonSchema (json_schema mode). Returns the decoded
-     * payload, or an empty array when the provider is unconfigured.
+     * payload, or an empty array when the provider is unconfigured (NullProvider). A configured
+     * provider throws AiProviderUnavailableException on an HTTP error or unparseable output, so a
+     * failure is never mistaken for an empty answer.
      *
      * @param  array<int, LlmMessage>  $messages
      * @param  array<string, mixed>  $jsonSchema

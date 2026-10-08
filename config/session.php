@@ -134,6 +134,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Candidate Portal Session Cookie (Phase 8.8, D8.8-001)
+    |--------------------------------------------------------------------------
+    |
+    | Candidate portal requests (portal/*) use their own session cookie, so a staff session and a
+    | candidate session in the same browser never share state: staff identity is never read on a
+    | portal request, and candidate identity is never read on a staff request. Every other cookie
+    | attribute (secure, http_only, same_site, lifetime) follows the settings in this file.
+    |
+    */
+
+    'candidate_cookie' => env(
+        'SESSION_CANDIDATE_COOKIE',
+        Str::slug((string) env('APP_NAME', 'laravel')).'-candidate-session'
+    ),
+
+    /*
+    |--------------------------------------------------------------------------
     | Session Cookie Path
     |--------------------------------------------------------------------------
     |

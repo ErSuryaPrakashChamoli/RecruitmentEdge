@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\IncentivePayoutType;
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentIncentiveSlabFactory;
 use DomainException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -20,15 +22,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * exceed `min`, and only the highest band may be open-ended. That keeps
  * RecruiterIncentiveCalculator's "first matching slab" pick deterministic. bandViolation() is the
  * single check, used by the Slabs relation manager's form rules and enforced again on every save.
+ *
+ * Phase 8.6: audited, and locked once the owning rule has priced an incentive (D8.6-015).
  */
 #[Fillable(['incentive_rule_id', 'achievement_min', 'achievement_max', 'amount'])]
 class RecruitmentIncentiveSlab extends Model
 {
     /** @use HasFactory<RecruitmentIncentiveSlabFactory> */
-    use HasFactory;
+    use Auditable, BelongsToTenant, HasFactory;
 
     protected static function booted(): void
     {
+        // Phase 8.6 (D8.6-015): a rule that has priced incentives keeps its bands exactly as they
+        // were — no band is added, changed or removed (a new rule carries new bands).
+        $lockedWhenUsed = function (RecruitmentIncentiveSlab $slab): void {
+            if (RecruitmentIncentiveRule::query()->find($slab->incentive_rule_id)?->isUsed()) {
+                throw new DomainException('This rule has already priced incentives, so its slabs are locked. End the rule and create a new one with the new slabs.');
+            }
+        };
+
+        static::saving($lockedWhenUsed);
+        static::deleting($lockedWhenUsed);
+
         static::saving(function (RecruitmentIncentiveSlab $slab): void {
             $violation = self::bandViolation(
                 (int) $slab->incentive_rule_id,

@@ -66,9 +66,16 @@
     @endif
 
     @php $isActiveBoard = $this->isActiveBoard(); @endphp
-    <div class="mt-4 flex gap-4 overflow-x-auto pb-4">
+    <p class="mt-4 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <x-filament::icon icon="heroicon-o-information-circle" class="h-4 w-4 shrink-0" />
+        {{ $this->boardDescription() }}
+    </p>
+    <div class="mt-2 flex gap-4 overflow-x-auto pb-4">
         @foreach ($this->getColumns() as $column)
-            @php $data = $this->getCardsFor($column['stages']); @endphp
+            @php
+                $data = $this->getCardsFor($column);
+                $droppable = ($column['dragStage'] !== null || ($column['pipelineStageId'] ?? null) !== null) && $isActiveBoard;
+            @endphp
             <div class="flex w-72 shrink-0 flex-col rounded-xl border border-gray-200 bg-gray-50 dark:border-white/10 dark:bg-white/5">
                 <div class="border-b border-gray-200 px-3 py-2 dark:border-white/10">
                     <div class="flex items-center justify-between">
@@ -82,7 +89,7 @@
                     @endif
                 </div>
 
-                @if ($column['dragStage'] !== null && $isActiveBoard)
+                @if ($droppable)
                     <div wire:sort="handleSort" wire:sort:group="pipeline-cards" wire:sort:group-id="{{ $column['key'] }}" class="flex flex-col gap-2 p-2">
                         @forelse ($data['applications'] as $application)
                             <div wire:key="card-{{ $application->id }}" wire:sort:item="{{ $application->id }}">

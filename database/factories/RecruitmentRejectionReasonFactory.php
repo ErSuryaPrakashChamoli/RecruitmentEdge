@@ -25,7 +25,7 @@ class RecruitmentRejectionReasonFactory extends Factory
                 'Interview Rejected', 'Offer Rejected', 'Did Not Join', 'Background Verification',
                 'Candidate Withdrew', 'Other',
             ]),
-            'code' => strtoupper(fake()->unique()->lexify('RSN-???')),
+            'code' => strtoupper(fake()->unique()->bothify('RSN-???###')),
             'category' => fake()->randomElement(RejectionCategory::cases()),
             'is_active' => true,
         ];

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\OfferLetterTemplate;
+use App\Services\Tenancy\TenantStorage;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpWord\IOFactory;
@@ -15,13 +16,16 @@ use PhpOffice\PhpWord\PhpWord;
  */
 class StandardOfferLetterDocument
 {
-    public const PATH = OfferLetterTemplate::FILE_DIRECTORY.'/standard-offer-letter.docx';
+    public const FILE_NAME = 'standard-offer-letter.docx';
 
     /**
-     * Writes the document to the local disk and returns its path on that disk.
+     * Writes the document to the local disk and returns its path on that disk — by default the
+     * current tenant's copy (SaaS-1: each tenant's system template has its own file).
      */
-    public function store(string $path = self::PATH): string
+    public function store(?string $path = null): string
     {
+        $path ??= TenantStorage::path(OfferLetterTemplate::FILE_DIRECTORY).'/'.self::FILE_NAME;
+
         $temporaryPath = sys_get_temp_dir().'/standard-offer-letter-'.uniqid().'.docx';
 
         try {

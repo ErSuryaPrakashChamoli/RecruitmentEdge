@@ -2,10 +2,8 @@
 
 namespace App\Filament\Resources\RecruitmentRejectionReasons\Pages;
 
+use App\Filament\Actions\MasterDataLifecycleActions;
 use App\Filament\Resources\RecruitmentRejectionReasons\RecruitmentRejectionReasonResource;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\ForceDeleteAction;
-use Filament\Actions\RestoreAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditRecruitmentRejectionReason extends EditRecord
@@ -15,9 +13,7 @@ class EditRecruitmentRejectionReason extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make(),
-            ForceDeleteAction::make(),
-            RestoreAction::make(),
+            ...MasterDataLifecycleActions::all(),
         ];
     }
 }

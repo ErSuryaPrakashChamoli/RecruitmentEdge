@@ -1,0 +1,96 @@
+<?php
+
+namespace App\Providers;
+
+use App\Filament\Tenancy\StaffFilamentManager;
+use App\Filament\Tenancy\StaffRedirectToTenantController;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Export;
+use App\Models\FailedImportRow;
+use App\Models\Import;
+use App\Models\Role;
+use App\Models\Tenant;
+use App\Services\Entitlements\EntitlementService;
+use App\Services\Tenancy\TenantContext;
+use App\Services\Tenancy\TenantQueueGuard;
+use Filament\Actions\Exports\Models\Export as FilamentExport;
+use Filament\Actions\Imports\Models\FailedImportRow as FilamentFailedImportRow;
+use Filament\Actions\Imports\Models\Import as FilamentImport;
+use Filament\Events\TenantSet;
+use Filament\Http\Controllers\RedirectToTenantController;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\ServiceProvider;
+
+/**
+ * SaaS-1: tenant isolation wiring (docs/saas-1-tenant-foundation.md).
+ */
+class TenancyServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        // One context per request and per queued job (the worker forgets scoped instances).
+        $this->app->scoped(TenantContext::class);
+
+        // SaaS-3: entitlement decisions are memoised per request or job, never across them.
+        $this->app->scoped(EntitlementService::class);
+
+        // Filament builds its export / import records through the container: use the
+        // tenant-owned models.
+        $this->app->bind(FilamentExport::class, Export::class);
+        $this->app->bind(FilamentImport::class, Import::class);
+        $this->app->bind(FilamentFailedImportRow::class, FailedImportRow::class);
+
+        // SaaS-2: a person's default tenant is never "the first tenant in the list"; with no
+        // default, /admin asks them to choose (docs/saas-2-identity-access.md §5).
+        $this->app->scoped('filament', fn (): StaffFilamentManager => new StaffFilamentManager);
+        $this->app->bind(RedirectToTenantController::class, StaffRedirectToTenantController::class);
+    }
+
+    public function boot(): void
+    {
+        // Filament's tenant selection (IdentifyTenant, or Filament::setTenant() in tests) becomes
+        // the TenantContext; SetTenantContextFromPanel re-checks access on every panel request.
+        Event::listen(TenantSet::class, function (TenantSet $event): void {
+            $tenant = $event->getTenant();
+
+            if ($tenant instanceof Tenant) {
+                TenantContext::current()->setTenant($tenant);
+            }
+        });
+
+        // No ability is ever granted on another tenant's record (or role), whatever a policy says —
+        // a policy written as "view-all ⇒ allowed" cannot approve a foreign row.
+        Gate::before(fn (mixed $user, string $ability, array $arguments = []): ?bool => self::crossesTenant($arguments) ? false : null);
+
+        // Every queued payload declares its tenant; Context (which carries it) is restored by the
+        // framework before JobProcessing listeners registered here run.
+        Queue::createPayloadUsing(fn (): array => app(TenantQueueGuard::class)->payload());
+        Event::listen(JobProcessing::class, fn (JobProcessing $event) => app(TenantQueueGuard::class)->check($event->job));
+    }
+
+    /**
+     * @param  array<int, mixed>  $arguments
+     */
+    public static function crossesTenant(array $arguments): bool
+    {
+        $current = TenantContext::current()->id();
+
+        foreach ($arguments as $argument) {
+            if (! $argument instanceof Model || ! ($argument instanceof Role || in_array(BelongsToTenant::class, class_uses_recursive($argument), true))) {
+                continue;
+            }
+
+            $owner = $argument->getAttribute('tenant_id');
+
+            if ($owner !== null && ($current === null || (int) $owner !== $current)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

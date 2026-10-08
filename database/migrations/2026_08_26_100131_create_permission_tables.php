@@ -11,7 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $teams = config('permission.teams');
+        // SaaS-1: pinned to the shape this migration created when it first ran (teams off). Teams
+        // (tenant_id as the team key) are added by 2026_10_04_025113 / 025116 for every database —
+        // a fresh install and an upgraded one follow the same path.
+        $teams = false;
         $tableNames = config('permission.table_names');
         $columnNames = config('permission.column_names');
         $pivotRole = $columnNames['role_pivot_key'] ?? 'role_id';

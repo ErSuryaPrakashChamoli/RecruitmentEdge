@@ -2,26 +2,77 @@
 
 namespace App\Jobs\AI;
 
+use App\Enums\Entitlement;
 use App\Models\AiKnowledgeArticle;
 use App\Services\AI\Rag\DocumentIngestionService;
+use App\Services\Entitlements\SkipWithoutEntitlement;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
-class ReindexKnowledgeArticleJob implements ShouldQueue
+/**
+ * Phase 8.7 (SEC-87-09, DQ-87-18): unique only until it starts processing, so a save made while a
+ * reindex is running queues another (the old lock dropped it, leaving the index stale); an article
+ * unpublished by the time the job runs is not embedded.
+ */
+class ReindexKnowledgeArticleJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(private readonly int $articleId) {}
+    /**
+     * Phase 8.1: retried once more on failure, never runs twice at once for the same record, and
+     * the uniqueness lock expires so a lost job cannot block re-indexing forever.
+     */
+    public int $tries = 3;
+
+    public int $uniqueFor = 3600;
+
+    public function __construct(private readonly int $articleId)
+    {
+        // Phase 8.3: embedding calls are slow provider work — the background (intelligence)
+        // worker, never the one delivering candidate messages and notifications.
+        $this->onQueue(config('intelligence.queue', 'intelligence'));
+    }
+
+    public function uniqueId(): string
+    {
+        return (string) $this->articleId;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        return [60, 300];
+    }
+
+    /**
+     * SaaS-3: AI work runs only while the tenant's plan includes the AI assistant.
+     *
+     * @return array<int, object>
+     */
+    public function middleware(): array
+    {
+        return [new SkipWithoutEntitlement(Entitlement::AiAssistant)];
+    }
 
     public function handle(DocumentIngestionService $ingestion): void
     {
         $article = AiKnowledgeArticle::query()->find($this->articleId);
 
-        if ($article !== null) {
+        if ($article !== null && $article->is_published) {
             $ingestion->ingestKnowledgeArticle($article);
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::warning('Knowledge article re-indexing failed on every attempt', ['article_id' => $this->articleId, 'exception' => $exception !== null ? $exception::class : null]);
     }
 }

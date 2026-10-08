@@ -3,8 +3,13 @@
 namespace App\Models;
 
 use App\Enums\EmployeeStatus;
+use App\Http\Controllers\PrivateFileController;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use App\Observers\EmployeeObserver;
+use Carbon\CarbonInterface;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -14,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 
@@ -38,7 +44,23 @@ use Illuminate\Support\Facades\Storage;
 class Employee extends Model
 {
     /** @use HasFactory<EmployeeFactory> */
-    use Auditable, HasFactory, SoftDeletes;
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes, HasFactory, ReferencesActiveMasterData, SoftDeletes;
+
+    /**
+     * Phase 8.4: employment state changes only through EmployeeLifecycleService, and the reporting
+     * line (the access boundary) only through HierarchyIntegrityService.
+     *
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        return ['status', 'reports_to_id'];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'EmployeeLifecycleService / HierarchyIntegrityService';
+    }
 
     protected function casts(): array
     {
@@ -53,9 +75,25 @@ class Employee extends Model
         return trim("{$this->first_name} {$this->last_name}");
     }
 
+    /**
+     * SaaS-5 (S1-06): photos are private — on the local disk, opened through a short-lived signed
+     * link (PrivateFileController) by members of the tenant. A photo not yet moved there
+     * (files:privatize-employee-photos) is still read from the public disk, so nothing is lost.
+     */
+    public static function photoDisk(?string $path): string
+    {
+        return filled($path) && ! Storage::disk('local')->exists($path) && Storage::disk('public')->exists($path) ? 'public' : 'local';
+    }
+
     public function photoUrl(): ?string
     {
-        return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
+        if (blank($this->photo_path)) {
+            return null;
+        }
+
+        return self::photoDisk($this->photo_path) === 'public'
+            ? Storage::disk('public')->url($this->photo_path)
+            : Storage::disk('local')->temporaryUrl($this->photo_path, now()->addMinutes(PrivateFileController::URL_TTL_MINUTES));
     }
 
     /**
@@ -63,7 +101,7 @@ class Employee extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
     }
 
     /**
@@ -71,7 +109,7 @@ class Employee extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -79,7 +117,7 @@ class Employee extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -99,11 +137,14 @@ class Employee extends Model
     }
 
     /**
-     * @return HasOne<User, $this>
+     * SaaS-2: the login linked to this employee record, through its tenant membership (at most one:
+     * tenant_memberships.employee_id is unique). The membership — not the identity — holds the link.
+     *
+     * @return HasOneThrough<User, TenantMembership, $this>
      */
-    public function user(): HasOne
+    public function user(): HasOneThrough
     {
-        return $this->hasOne(User::class);
+        return $this->hasOneThrough(User::class, TenantMembership::class, 'employee_id', 'id', 'id', 'user_id');
     }
 
     /**
@@ -115,6 +156,40 @@ class Employee extends Model
     public function candidate(): BelongsTo
     {
         return $this->belongsTo(Candidate::class);
+    }
+
+    /**
+     * Phase 8.2: the minimal separation record, if the employee has left. Phase 8.4: the latest
+     * one that was not cancelled — an employee rehired after a separation can separate again.
+     *
+     * @return HasOne<EmployeeSeparation, $this>
+     */
+    public function separation(): HasOne
+    {
+        return $this->hasOne(EmployeeSeparation::class)->ofMany(['id' => 'max'], fn ($query) => $query->whereNull('cancelled_at'));
+    }
+
+    /**
+     * Phase 8.4: every separation, cancelled ones included (history).
+     *
+     * @return HasMany<EmployeeSeparation, $this>
+     */
+    public function separations(): HasMany
+    {
+        return $this->hasMany(EmployeeSeparation::class);
+    }
+
+    /**
+     * Phase 8.4: the separation that ended the employment which started on $joinedOn — the
+     * earliest non-cancelled separation dated on or after it. A separation from an earlier
+     * employment (before a rehire) never counts against a later one.
+     */
+    public function separationForEmploymentFrom(CarbonInterface $joinedOn): ?EmployeeSeparation
+    {
+        return $this->separations
+            ->filter(fn (EmployeeSeparation $separation) => $separation->cancelled_at === null && $separation->separation_date->copy()->startOfDay()->gte($joinedOn->copy()->startOfDay()))
+            ->sortBy(fn (EmployeeSeparation $separation) => $separation->separation_date->toDateString())
+            ->first();
     }
 
     /**
@@ -139,5 +214,29 @@ class Employee extends Model
         return $this->belongsToMany(Employee::class, 'employee_hierarchy', 'ancestor_id', 'descendant_id')
             ->withPivot('depth')
             ->wherePivot('depth', '>', 0);
+    }
+
+    /**
+     * Referrals this employee has submitted (Phase 4).
+     *
+     * @return HasMany<EmployeeReferral, $this>
+     */
+    public function referrals(): HasMany
+    {
+        return $this->hasMany(EmployeeReferral::class, 'referrer_id');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

@@ -9,11 +9,14 @@ use App\Filament\Resources\RecruitmentDailyTargets\Pages\ViewRecruitmentDailyTar
 use App\Filament\Resources\RecruitmentDailyTargets\Schemas\RecruitmentDailyTargetForm;
 use App\Filament\Resources\RecruitmentDailyTargets\Tables\RecruitmentDailyTargetsTable;
 use App\Models\RecruitmentDailyTarget;
+use App\Models\User;
 use BackedEnum;
+use Filament\Facades\Filament;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class RecruitmentDailyTargetResource extends Resource
@@ -34,6 +37,19 @@ class RecruitmentDailyTargetResource extends Resource
     public static function table(Table $table): Table
     {
         return RecruitmentDailyTargetsTable::configure($table);
+    }
+
+    /**
+     * Phase 8.9 (P89-SEC-001): the list holds only the targets the user may see — RecruitmentDailyTarget::visibleTo.
+     *
+     * @return Builder<RecruitmentDailyTarget>
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        /** @var User $user */
+        $user = Filament::auth()->user();
+
+        return parent::getEloquentQuery()->visibleTo($user);
     }
 
     public static function getRelations(): array

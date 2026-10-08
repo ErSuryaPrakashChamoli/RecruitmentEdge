@@ -7,6 +7,7 @@ use App\Enums\JoiningStatus;
 use App\Models\CandidateJoining;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,7 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class FindJoiningRisksTool implements AiTool
 {
-    use ScopesToHierarchy;
+    use ProjectsForAi, ScopesToHierarchy;
 
     public function name(): string
     {
@@ -54,16 +55,14 @@ class FindJoiningRisksTool implements AiTool
                 'candidateApplication',
                 fn (Builder $a) => $a->whereIn('recruiter_id', $visibleIds),
             ))
-            ->with(['candidateApplication.candidate:id,full_name'])
+            ->with(['candidateApplication.candidate'])
             ->get();
 
-        $rows = $joinings->map(fn (CandidateJoining $j) => [
-            'joining_id' => $j->id,
-            'candidate' => $j->candidateApplication?->candidate?->full_name,
-            'status' => $j->status->label(),
-            'expected_doj' => $j->expected_doj?->toDateString(),
-            'risk' => $j->riskLevel(),
-        ])->filter(fn (array $row) => in_array($row['risk'], ['yellow', 'red'], true))->values();
+        $rows = $joinings
+            ->filter(fn (CandidateJoining $j) => in_array($j->riskLevel(), ['yellow', 'red'], true))
+            ->take(50)
+            ->map(fn (CandidateJoining $j) => $this->projector()->joining($j))
+            ->values();
 
         return ToolResult::ok(
             data: ['at_risk_joinings' => $rows->toArray()],

@@ -4,18 +4,17 @@ namespace App\Policies;
 
 use App\Models\RecruitmentDailyTarget;
 use App\Models\User;
-use App\Services\HierarchyService;
 
 /**
  * An employee-scoped target may be set by anyone with `targets.configure` whose hierarchy
  * includes that employee (e.g. a Manager setting targets for their own recruiters). A
  * department- or designation-scoped target affects people outside any one setter's team by
- * definition, so it requires `hierarchy.view-all` (CHRO).
+ * definition, so it requires `hierarchy.view-all` (CHRO). The scope rule itself is
+ * RecruitmentDailyTarget::visibleTo()/isVisibleTo() (Phase 8.9, P89-SEC-001), shared with the
+ * resource query and RecruitmentTargetService.
  */
 class RecruitmentDailyTargetPolicy
 {
-    public function __construct(private readonly HierarchyService $hierarchy) {}
-
     public function viewAny(User $user): bool
     {
         return $user->can('performance.view') || $user->can('targets.configure');
@@ -23,7 +22,7 @@ class RecruitmentDailyTargetPolicy
 
     public function view(User $user, RecruitmentDailyTarget $recruitmentDailyTarget): bool
     {
-        return $this->viewAny($user) && $this->isInScope($user, $recruitmentDailyTarget);
+        return $this->viewAny($user) && $recruitmentDailyTarget->isVisibleTo($user);
     }
 
     public function create(User $user): bool
@@ -33,24 +32,23 @@ class RecruitmentDailyTargetPolicy
 
     public function update(User $user, RecruitmentDailyTarget $recruitmentDailyTarget): bool
     {
-        return $user->can('targets.configure') && $this->isInScope($user, $recruitmentDailyTarget);
+        return $user->can('targets.configure') && $recruitmentDailyTarget->isVisibleTo($user);
     }
 
     public function delete(User $user, RecruitmentDailyTarget $recruitmentDailyTarget): bool
     {
-        return $user->can('targets.configure') && $this->isInScope($user, $recruitmentDailyTarget);
+        return $user->can('targets.configure') && $recruitmentDailyTarget->isVisibleTo($user);
     }
 
-    private function isInScope(User $user, RecruitmentDailyTarget $target): bool
+    /**
+     * Bulk actions (Phase 8.6 discovery security guard): explicit, never Filament's missing-method
+     * fallback. Phase 8.9 (P89-SEC-001): Filament checks only this ability for a bulk action unless
+     * the action authorizes each record, so the table's DeleteBulkAction calls
+     * authorizeIndividualRecords('delete') and deletes through RecruitmentTargetService, which
+     * checks delete() again.
+     */
+    public function deleteAny(User $user): bool
     {
-        if ($user->can('hierarchy.view-all')) {
-            return true;
-        }
-
-        if ($target->department_id !== null || $target->designation_id !== null) {
-            return false;
-        }
-
-        return $target->employee !== null && $this->hierarchy->canView($user, $target->employee);
+        return $user->can('targets.configure');
     }
 }

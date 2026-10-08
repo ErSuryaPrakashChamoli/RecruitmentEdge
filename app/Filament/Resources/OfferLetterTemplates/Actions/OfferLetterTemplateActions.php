@@ -5,6 +5,7 @@ namespace App\Filament\Resources\OfferLetterTemplates\Actions;
 use App\Models\OfferLetterTemplate;
 use App\Services\OfferLetterRenderer;
 use App\Services\StandardOfferLetterDocument;
+use App\Services\Tenancy\TenantStorage;
 use DomainException;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
@@ -79,7 +80,7 @@ class OfferLetterTemplateActions
                 && (bool) auth()->user()?->can('update', $record))
             ->action(function (OfferLetterTemplate $record): void {
                 $path = app(StandardOfferLetterDocument::class)
-                    ->store(OfferLetterTemplate::FILE_DIRECTORY.'/standard-offer-letter-'.Str::uuid().'.docx');
+                    ->store(TenantStorage::path(OfferLetterTemplate::FILE_DIRECTORY).'/standard-offer-letter-'.Str::uuid().'.docx');
 
                 $record->update(['file_path' => $path]);
 
@@ -95,7 +96,7 @@ class OfferLetterTemplateActions
         return FileUpload::make($name)
             ->label('Word file (.docx)')
             ->disk('local')
-            ->directory(OfferLetterTemplate::FILE_DIRECTORY)
+            ->directory(fn (): string => TenantStorage::path(OfferLetterTemplate::FILE_DIRECTORY))
             ->visibility('private')
             ->acceptedFileTypes(self::WORD_MIME_TYPES)
             ->maxSize(10240);

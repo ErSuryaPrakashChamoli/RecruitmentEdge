@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ActivityOutcome;
 use App\Enums\ActivityType;
+use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\RecruitmentDailyActivityFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RecruitmentDailyActivity extends Model
 {
     /** @use HasFactory<RecruitmentDailyActivityFactory> */
-    use HasFactory;
+    use BelongsToTenant, HasFactory;
 
     protected function casts(): array
     {
@@ -44,7 +45,9 @@ class RecruitmentDailyActivity extends Model
      */
     public function recruiter(): BelongsTo
     {
-        return $this->belongsTo(Employee::class, 'recruiter_id');
+        // Phase 8.4: a deleted employee's records keep their attribution (and stay visible to the
+        // managers above them) — historical ownership is never silently dropped.
+        return $this->belongsTo(Employee::class, 'recruiter_id')->withTrashed();
     }
 
     /**

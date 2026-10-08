@@ -2,6 +2,9 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\AiCopilot;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\User;
 use App\Services\AI\Gateway\AiGateway;
@@ -20,11 +23,7 @@ use Filament\Widgets\Widget;
  */
 class SmartRecommendationsWidget extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected string $view = 'filament.widgets.smart-recommendations';
 
@@ -37,7 +36,7 @@ class SmartRecommendationsWidget extends Widget
 
     public function canNarrate(): bool
     {
-        return (bool) Filament::auth()->user()?->can('ai.query') && app(AiGateway::class)->isConfigured();
+        return AiCopilot::canAccess() && app(AiGateway::class)->isConfigured();
     }
 
     public function generate(): void
@@ -54,7 +53,7 @@ class SmartRecommendationsWidget extends Widget
             start: $start,
             end: $end,
             scope: $scopeUser,
-            narrate: (bool) $viewer->can('ai.query'),
+            narrate: AiCopilot::canAccess(),
         );
     }
 }

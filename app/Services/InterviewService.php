@@ -7,18 +7,28 @@ use App\Enums\CandidateStage;
 use App\Enums\InterviewMode;
 use App\Enums\InterviewResult;
 use App\Enums\InterviewStatus;
+use App\Events\InterviewCancelled;
+use App\Events\InterviewCompleted;
+use App\Events\InterviewConfirmed;
+use App\Events\InterviewMarkedNoShow;
+use App\Events\InterviewRescheduled;
+use App\Events\InterviewScheduled;
 use App\Filament\Resources\Interviews\InterviewResource;
 use App\Models\CandidateApplication;
 use App\Models\Employee;
 use App\Models\Interview;
+use App\Models\Interviewer;
 use App\Models\RecruitmentRejectionReason;
+use App\Services\Lifecycle\LifecycleGuard;
+use App\Services\Lifecycle\RowLock;
 use Carbon\CarbonInterface;
 use DomainException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The only code path allowed to schedule, reschedule, hold, confirm or complete an interview.
+ * The only code path allowed to schedule, reschedule, hold, confirm, cancel, mark a no-show or
+ * complete an interview (Phase 8.3: the model refuses any other write).
  * Section 15: "Interview feedback must be mandatory before completing the interview" — enforced
  * here, not just as a UI validation, so it can't be bypassed by any other write path. Scheduling
  * also keeps the application's pipeline stage in sync (forward-only) inside the same transaction.
@@ -36,7 +46,7 @@ class InterviewService
      * e.g. scheduling round 2 after Interview 1 — keeps its stage), then notifies the interviewer
      * and the application's recruiter.
      *
-     * @param  array{interviewer_id: int|string, scheduled_at: CarbonInterface|string, mode: InterviewMode|string, round_number?: int|string|null, round_name?: string|null, location?: string|null, meeting_link?: string|null, remarks?: string|null}  $data
+     * @param  array{interviewer_id: int|string, scheduled_at: CarbonInterface|string, mode: InterviewMode|string, round_number?: int|string|null, round_name?: string|null, location?: string|null, meeting_link?: string|null, meeting_provider?: string|null, remarks?: string|null}  $data
      */
     public function schedule(CandidateApplication $application, array $data, ?Employee $actor = null): Interview
     {
@@ -54,6 +64,11 @@ class InterviewService
             throw new DomainException('An interviewer and a scheduled date/time are required to schedule an interview.');
         }
 
+        // Phase 8.6 (D8.6-009): a new interview goes to someone on the active interviewer list.
+        if (! Interviewer::isActiveInterviewer((int) $data['interviewer_id'])) {
+            throw new DomainException('The interviewer must be on the active interviewer list (Administration → Interviewers).');
+        }
+
         $interview = DB::transaction(function () use ($application, $data, $mode, $actor): Interview {
             $roundNumber = filled($data['round_number'] ?? null)
                 ? (int) $data['round_number']
@@ -67,6 +82,7 @@ class InterviewService
                 'mode' => $mode,
                 'location' => $data['location'] ?? null,
                 'meeting_link' => $data['meeting_link'] ?? null,
+                'meeting_provider' => filled($data['meeting_provider'] ?? null) ? $data['meeting_provider'] : null,
                 'remarks' => $data['remarks'] ?? null,
                 'status' => InterviewStatus::Scheduled,
                 'created_by' => $actor?->id,
@@ -79,6 +95,8 @@ class InterviewService
             return $interview;
         });
 
+        InterviewScheduled::dispatch($interview, $actor);
+
         $this->notifyParticipants(
             $interview,
             'Interview scheduled',
@@ -89,21 +107,66 @@ class InterviewService
         return $interview;
     }
 
-    public function reschedule(Interview $interview, CarbonInterface $scheduledAt, ?string $remarks = null, ?Employee $actor = null): Interview
+    /**
+     * @param  array{interviewer_id?: int|null, mode?: InterviewMode|null, location?: string|null, meeting_link?: string|null}  $changes  optional slot details that move with the new time (e.g. a self-scheduled slot with another interviewer)
+     */
+    public function reschedule(Interview $interview, CarbonInterface $scheduledAt, ?string $remarks = null, ?Employee $actor = null, array $changes = []): Interview
     {
-        $this->ensureNotTerminal($interview, 'reschedule');
+        DB::transaction(function () use ($interview, $scheduledAt, $remarks, $actor, $changes): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'reschedule');
 
-        $interview->forceFill([
-            'scheduled_at' => $scheduledAt,
-            'status' => InterviewStatus::Rescheduled,
-            'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
-        ])->save();
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                ...array_filter(array_intersect_key($changes, array_flip(['interviewer_id', 'mode', 'location', 'meeting_link'])), fn ($value) => $value !== null),
+                'scheduled_at' => $scheduledAt,
+                'status' => InterviewStatus::Rescheduled,
+                'remarks' => $this->appendRemarks($interview, 'Rescheduled', $remarks, $actor),
+            ])->save());
+
+            InterviewRescheduled::dispatch($interview, $actor, now()->getTimestamp());
+        });
 
         $this->notifyParticipants(
             $interview,
             'Interview rescheduled',
             "The interview for {$interview->candidateApplication->candidate->full_name} has been rescheduled to {$interview->scheduled_at->format('d M Y, h:i A')}.",
             'warning',
+            "interview-rescheduled-{$interview->id}-{$interview->scheduled_at->getTimestamp()}",
+        );
+
+        return $interview;
+    }
+
+    /**
+     * Cancels a not-yet-finished interview (e.g. the candidate cancelled a self-scheduled slot).
+     * The application's stage is left as-is — cancelling a meeting is not a pipeline decision.
+     * $cause is set when the cancellation is a consequence of the application closing (Phase 8.3
+     * cascade); listeners use it so the candidate isn't sent a separate cancellation message.
+     */
+    public function cancel(Interview $interview, string $remarks, ?Employee $actor = null, ?string $cause = null): Interview
+    {
+        if (blank($remarks)) {
+            throw new DomainException('Remarks are required to cancel an interview.');
+        }
+
+        DB::transaction(function () use ($interview, $remarks, $actor, $cause): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'cancel');
+
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::Cancelled,
+                'remarks' => $this->appendRemarks($interview, 'Cancelled', $remarks, $actor),
+            ])->save());
+
+            InterviewCancelled::dispatch($interview, $actor, $cause);
+        });
+
+        $this->notifyParticipants(
+            $interview,
+            'Interview cancelled',
+            "The interview for {$interview->candidateApplication->candidate->full_name} on {$interview->scheduled_at->format('d M Y, h:i A')} was cancelled.",
+            'danger',
+            "interview-cancelled-{$interview->id}",
         );
 
         return $interview;
@@ -111,27 +174,70 @@ class InterviewService
 
     public function hold(Interview $interview, string $remarks, ?Employee $actor = null): Interview
     {
-        $this->ensureNotTerminal($interview, 'put on hold');
-
         if (blank($remarks)) {
             throw new DomainException('Remarks are required to put an interview on hold.');
         }
 
-        $interview->forceFill([
-            'status' => InterviewStatus::Hold,
-            'remarks' => $this->appendRemarks($interview, 'On hold', $remarks, $actor),
-        ])->save();
+        DB::transaction(function () use ($interview, $remarks, $actor): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'put on hold');
+
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::Hold,
+                'remarks' => $this->appendRemarks($interview, 'On hold', $remarks, $actor),
+            ])->save());
+        });
+
+        return $interview;
+    }
+
+    /**
+     * Phase 8.3: the candidate did not attend. Recorded once (a finished interview cannot become a
+     * no-show), announced after commit and the recruiter is alerted. The application's stage is
+     * left as-is — a no-show is a fact about the meeting, not a hiring decision.
+     */
+    public function markNoShow(Interview $interview, ?Employee $actor = null, ?string $remarks = null): Interview
+    {
+        DB::transaction(function () use ($interview, $actor, $remarks): void {
+            $this->lockFresh($interview);
+            $this->ensureNotTerminal($interview, 'mark as a no-show');
+
+            LifecycleGuard::allow(fn () => $interview->forceFill([
+                'status' => InterviewStatus::NoShow,
+                'remarks' => $this->appendRemarks($interview, 'No-show', $remarks ?? 'Candidate did not attend', $actor),
+            ])->save());
+
+            InterviewMarkedNoShow::dispatch($interview->id, $interview->candidate_application_id, $actor?->id);
+        });
+
+        $application = $interview->candidateApplication;
+
+        $this->notifications->alert(
+            $application->recruiter?->user,
+            'Interviews',
+            'Candidate no-show',
+            "{$application->candidate->full_name} did not show up for their interview.",
+            'danger',
+            InterviewResource::getUrl('edit', ['record' => $interview]),
+            "interview-no-show-{$interview->id}",
+        );
 
         return $interview;
     }
 
     public function confirm(Interview $interview): Interview
     {
-        if (! $interview->status->awaitsConfirmation()) {
-            throw new DomainException("Only a scheduled or rescheduled interview can be confirmed (current status: {$interview->status->label()}).");
-        }
+        DB::transaction(function () use ($interview): void {
+            $this->lockFresh($interview);
 
-        $interview->forceFill(['status' => InterviewStatus::Confirmed])->save();
+            if (! $interview->status->awaitsConfirmation()) {
+                throw new DomainException("Only a scheduled or rescheduled interview can be confirmed (current status: {$interview->status->label()}).");
+            }
+
+            LifecycleGuard::allow(fn () => $interview->forceFill(['status' => InterviewStatus::Confirmed])->save());
+
+            InterviewConfirmed::dispatch($interview);
+        });
 
         return $interview;
     }
@@ -155,11 +261,20 @@ class InterviewService
         }
 
         return DB::transaction(function () use ($interview, $result, $actor, $rejectionReason): Interview {
-            $interview->forceFill([
+            $this->lockFresh($interview);
+
+            if ($interview->status->isTerminal()) {
+                throw new DomainException("Cannot complete an interview that is already {$interview->status->label()}.");
+            }
+
+            LifecycleGuard::allow(fn () => $interview->forceFill([
                 'status' => InterviewStatus::Completed,
                 'result' => $result,
                 'rejection_reason_id' => $result === InterviewResult::Rejected ? $rejectionReason->id : null,
-            ])->save();
+            ])->save());
+
+            // Phase 8.3: the round's decision locks its feedback; later changes are corrections.
+            app(InterviewFeedbackService::class)->lock($interview);
 
             $application = $interview->candidateApplication;
 
@@ -168,6 +283,8 @@ class InterviewService
             } else {
                 $this->stageTransitions->transitionTo($application, $this->stageForRound($interview->round_number), $actor);
             }
+
+            InterviewCompleted::dispatch($interview, $actor);
 
             return $interview;
         });
@@ -192,6 +309,22 @@ class InterviewService
             && $interview->result !== InterviewResult::Rejected;
     }
 
+    /**
+     * Phase 8.7 (D8.7-005): a transition takes the interview's row lock and re-reads it inside its
+     * transaction, so two concurrent requests (a double click, the candidate portal and a recruiter)
+     * decide on the current status — the second sees the first one's result and is refused.
+     *
+     * Phase 8.9: the application is locked first — the same order as the closure cascade
+     * (application → interviews → offers → joining), so completing an interview while the
+     * application is rejected waits instead of deadlocking (P89-PERF-021) — and the interview is
+     * rebuilt from its locking read, never from a REPEATABLE READ snapshot (RowLock, P89-DQ-013).
+     */
+    private function lockFresh(Interview $interview): void
+    {
+        RowLock::key(CandidateApplication::class, $interview->candidate_application_id);
+        RowLock::fresh($interview);
+    }
+
     private function ensureNotTerminal(Interview $interview, string $verb): void
     {
         if ($interview->status->isTerminal()) {
@@ -214,7 +347,7 @@ class InterviewService
      * Interviewer and recruiter are often the same person (a recruiter interviewing their own
      * candidate) — de-duplicated so nobody gets the same alert twice.
      */
-    private function notifyParticipants(Interview $interview, string $title, string $body, string $color): void
+    private function notifyParticipants(Interview $interview, string $title, string $body, string $color, ?string $dedupeKey = null): void
     {
         $url = InterviewResource::getUrl('edit', ['record' => $interview]);
 
@@ -224,7 +357,7 @@ class InterviewService
         ])
             ->filter()
             ->unique('id')
-            ->each(fn ($recipient) => $this->notifications->alert($recipient, 'Interviews', $title, $body, $color, $url));
+            ->each(fn ($recipient) => $this->notifications->alert($recipient, 'Interviews', $title, $body, $color, $url, $dedupeKey));
     }
 
     private function stageForRound(int $roundNumber): CandidateStage

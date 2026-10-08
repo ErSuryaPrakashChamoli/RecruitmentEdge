@@ -3,6 +3,8 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\AppTheme;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\User;
 use App\Services\RecruitmentAnalyticsService;
@@ -17,9 +19,7 @@ use Filament\Widgets\Concerns\InteractsWithPageFilters;
  */
 class JoiningTrendChart extends ChartWidget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
-
-    protected static bool $isLazy = false;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
     protected ?string $heading = 'Expected vs Actual Joinings';
 

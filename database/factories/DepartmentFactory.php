@@ -21,7 +21,7 @@ class DepartmentFactory extends Factory
             'name' => fake()->randomElement([
                 'Talent Acquisition', 'Engineering', 'Sales', 'Operations', 'Finance', 'Customer Support',
             ]),
-            'code' => strtoupper(fake()->unique()->lexify('DEPT-???')),
+            'code' => strtoupper(fake()->unique()->bothify('DEPT-???###')),
             'is_active' => true,
         ];
     }

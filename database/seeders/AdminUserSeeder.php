@@ -2,12 +2,15 @@
 
 namespace Database\Seeders;
 
+use App\Enums\AccessState;
 use App\Enums\EmployeeStatus;
 use App\Models\Department;
 use App\Models\Designation;
 use App\Models\Employee;
 use App\Models\Location;
+use App\Models\TenantMembership;
 use App\Models\User;
+use App\Services\Tenancy\TenantContext;
 use Illuminate\Database\Seeder;
 
 /**
@@ -42,8 +45,14 @@ class AdminUserSeeder extends Seeder
             [
                 'name' => 'Fynn Edge',
                 'password' => 'password',
-                'employee_id' => $employee->id,
             ],
+        );
+
+        // SaaS-2: the identity is global; its access to this tenant and its employee record here
+        // are its membership (without one the seeded CHRO could reach no tenant at all).
+        TenantMembership::query()->firstOrCreate(
+            ['tenant_id' => TenantContext::current()->requireId(), 'user_id' => $user->id],
+            ['employee_id' => $employee->id, 'status' => AccessState::Active, 'is_default' => true, 'joined_at' => now()],
         );
 
         $user->assignRole('chro');

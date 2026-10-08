@@ -5,6 +5,8 @@ namespace App\Models;
 use App\Enums\RecruitmentCostStatus;
 use App\Enums\RecruitmentCostType;
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\RecruitmentCostFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,10 +19,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * none (org-wide overhead) — nothing is enforced at the DB level since org-wide costs are
  * legitimate too.
  */
-#[Fillable(['requisition_id', 'department_id', 'source_id', 'location_id', 'cost_type', 'campaign', 'amount', 'status', 'incurred_on', 'remarks', 'created_by'])]
+#[Fillable(['requisition_id', 'department_id', 'source_id', 'location_id', 'cost_type', 'campaign', 'campaign_id', 'amount', 'status', 'incurred_on', 'remarks', 'created_by'])]
 class RecruitmentCost extends Model
 {
-    use Auditable;
+    use Auditable, BelongsToTenant, ReferencesActiveMasterData;
 
     /** @use HasFactory<RecruitmentCostFactory> */
     use HasFactory;
@@ -48,7 +50,17 @@ class RecruitmentCost extends Model
      */
     public function department(): BelongsTo
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsTo(Department::class)->withTrashed();
+    }
+
+    /**
+     * The Phase 5 campaign this cost belongs to (the free-text `campaign` column predates it).
+     *
+     * @return BelongsTo<RecruitmentCampaign, $this>
+     */
+    public function recruitmentCampaign(): BelongsTo
+    {
+        return $this->belongsTo(RecruitmentCampaign::class, 'campaign_id');
     }
 
     /**
@@ -56,7 +68,7 @@ class RecruitmentCost extends Model
      */
     public function source(): BelongsTo
     {
-        return $this->belongsTo(CandidateSource::class, 'source_id');
+        return $this->belongsTo(CandidateSource::class, 'source_id')->withTrashed();
     }
 
     /**
@@ -64,7 +76,7 @@ class RecruitmentCost extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -73,5 +85,19 @@ class RecruitmentCost extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'department_id' => Department::class,
+            'source_id' => CandidateSource::class,
+            'location_id' => Location::class,
+        ];
     }
 }

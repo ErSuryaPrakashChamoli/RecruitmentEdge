@@ -8,8 +8,13 @@ use App\Models\AiMessage;
 use App\Models\Candidate;
 use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
+use App\Models\User;
 use App\Services\AI\DTO\LlmMessage;
+use App\Services\AI\Privacy\AiPayloadSanitizer;
+use App\Services\AI\Privacy\AiProjector;
 use App\Services\AI\Rag\VectorSearch;
+use App\Services\HierarchyService;
+use App\Services\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
 
 /**
@@ -22,7 +27,12 @@ class ConversationContextBuilder
 {
     private const int HISTORY_LIMIT = 20;
 
-    public function __construct(private readonly VectorSearch $vectorSearch) {}
+    public function __construct(
+        private readonly VectorSearch $vectorSearch,
+        private readonly AiPayloadSanitizer $sanitizer,
+        private readonly AiProjector $projector,
+        private readonly HierarchyService $hierarchy,
+    ) {}
 
     /**
      * @return array<int, LlmMessage>
@@ -65,13 +75,20 @@ class ConversationContextBuilder
             ->all();
     }
 
+    /**
+     * Phase 8.1: history is re-sanitized on every replay. Rows written before the privacy boundary
+     * existed (or by any path that missed it) can never be re-sent to the provider as stored —
+     * tool output loses prohibited keys, and all text loses registered names and PII patterns.
+     */
     private function toLlmMessage(AiMessage $message): LlmMessage
     {
+        $content = (string) $message->content;
+
         return match ($message->role) {
-            AiMessageRole::Tool => LlmMessage::tool((string) $message->tool_call_id, (string) $message->content, $message->tool_name),
-            AiMessageRole::Assistant => LlmMessage::assistant($message->content, $this->toolCallsFor($message)),
-            AiMessageRole::User => LlmMessage::user((string) $message->content),
-            AiMessageRole::System => LlmMessage::system((string) $message->content),
+            AiMessageRole::Tool => LlmMessage::tool((string) $message->tool_call_id, $this->sanitizer->sanitizeJson($content)['text'], $message->tool_name),
+            AiMessageRole::Assistant => LlmMessage::assistant($message->content !== null ? $this->sanitizer->sanitizeText($content)['text'] : null, $this->toolCallsFor($message)),
+            AiMessageRole::User => LlmMessage::user($this->sanitizer->sanitizeText($content)['text']),
+            AiMessageRole::System => LlmMessage::system($this->sanitizer->sanitizeText($content)['text']),
         };
     }
 
@@ -89,7 +106,7 @@ class ConversationContextBuilder
         return $calls->map(fn ($call) => [
             'id' => $call->provider_call_id,
             'name' => $call->tool_name,
-            'arguments' => $call->arguments ?? [],
+            'arguments' => $this->sanitizer->sanitizeStrings($call->arguments ?? [])['payload'],
             'metadata' => $call->provider_metadata,
         ])->all();
     }
@@ -100,10 +117,14 @@ class ConversationContextBuilder
         $roles = $user->roles->pluck('name')->implode(', ') ?: 'no role assigned';
 
         $lines = [
-            'You are the AI Recruitment Copilot embedded in '.config('app.name').', a recruitment SaaS. '
+            'You are the AI Recruitment Copilot embedded in '.config('app.name').', a recruitment SaaS, '
+                .'working for '.TenantContext::current()->requireTenant()->name.'. '
                 .'You help with recruiting, hiring, and HR questions using the tools provided to you.',
             'Today is '.CarbonImmutable::now()->toDateString().'.',
-            "The current user is {$user->name} (roles: {$roles}).",
+            "The current user's roles: {$roles}.",
+            'People are identified by reference codes (e.g. CAND-2026-000123, APP-2026-000456, EMP-000789). '
+                .'Always refer to candidates, applications and staff by these codes; the application shows the '
+                .'matching names to the user. You never receive names, contact details or pay figures.',
             'Always prefer calling a tool over guessing internal numbers — never fabricate candidate '
                 .'names, counts, or metrics. If a tool is not available for what is being asked, say so.',
             'Clearly distinguish facts from internal data, facts from external research, and your own '
@@ -123,30 +144,32 @@ class ConversationContextBuilder
 
     private function pageContext(AiConversation $conversation): ?string
     {
+        // Phase 8.1: the page context is re-authorized against the conversation owner every time
+        // — a tampered context_id for a record they cannot see adds nothing to the prompt.
         return match ($conversation->context_type) {
-            'candidate' => $this->describeCandidate($conversation->context_id),
-            'requisition' => $this->describeRequisition($conversation->context_id),
-            'employee' => $this->describeEmployee($conversation->context_id),
+            'candidate' => $this->describeCandidate($conversation->context_id, $conversation->user),
+            'requisition' => $this->describeRequisition($conversation->context_id, $conversation->user),
+            'employee' => $this->describeEmployee($conversation->context_id, $conversation->user),
             default => null,
         };
     }
 
-    private function describeCandidate(?int $id): ?string
+    private function describeCandidate(?int $id, User $user): ?string
     {
-        $candidate = $id !== null ? Candidate::query()->find($id) : null;
+        $candidate = $id !== null ? Candidate::query()->visibleTo($user)->find($id) : null;
 
         if ($candidate === null) {
             return null;
         }
 
-        return "The user is currently viewing candidate #{$candidate->id}: {$candidate->full_name}. "
+        return "The user is currently viewing candidate {$this->projector->candidateRef($candidate)} (candidate_id {$candidate->id}). "
             .'When they say "this candidate", they mean this one.';
     }
 
-    private function describeRequisition(?int $id): ?string
+    private function describeRequisition(?int $id, User $user): ?string
     {
         $requisition = $id !== null
-            ? RecruitmentRequisition::query()->with(['designation', 'department'])->find($id)
+            ? RecruitmentRequisition::query()->visibleTo($user)->with(['designation', 'department'])->find($id)
             : null;
 
         if ($requisition === null) {
@@ -159,15 +182,15 @@ class ConversationContextBuilder
             .'When they say "this requisition" or "this role", they mean this one.';
     }
 
-    private function describeEmployee(?int $id): ?string
+    private function describeEmployee(?int $id, User $user): ?string
     {
         $employee = $id !== null ? Employee::query()->find($id) : null;
 
-        if ($employee === null) {
+        if ($employee === null || ! $this->hierarchy->canView($user, $employee)) {
             return null;
         }
 
-        return "The user is currently viewing recruiter/employee #{$employee->id}: {$employee->fullName()}. "
+        return "The user is currently viewing recruiter/employee {$this->projector->employeeRef($employee)} (employee_id {$employee->id}). "
             .'When they say "this recruiter", they mean this one.';
     }
 
@@ -180,7 +203,9 @@ class ConversationContextBuilder
         }
 
         $blocks = $hits->map(function (array $hit) {
-            return "<retrieved_document source=\"{$hit['source_type']}#{$hit['source_id']}\">\n{$hit['content']}\n</retrieved_document>";
+            $content = $this->sanitizer->sanitizeText((string) $hit['content'])['text'];
+
+            return "<retrieved_document source=\"{$hit['source_type']}#{$hit['source_id']}\">\n{$content}\n</retrieved_document>";
         })->implode("\n\n");
 
         return "The following internal knowledge base excerpts may be relevant to the user's question. "

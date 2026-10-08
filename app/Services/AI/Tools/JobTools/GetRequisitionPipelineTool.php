@@ -7,6 +7,7 @@ use App\Enums\ApplicationStatus;
 use App\Enums\CandidateStage;
 use App\Models\CandidateApplication;
 use App\Models\RecruitmentRequisition;
+use App\Models\RequisitionPipelineStage;
 use App\Models\User;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
@@ -64,7 +65,7 @@ class GetRequisitionPipelineTool implements AiTool
 
         $applications = $this->scopeRecruiterOwnedTo(CandidateApplication::query(), $user)
             ->where('requisition_id', $requisition->id)
-            ->get(['id', 'current_stage', 'status']);
+            ->get(['id', 'current_stage', 'pipeline_stage_id', 'status']);
 
         $stageCounts = $applications->countBy(fn (CandidateApplication $application) => $application->current_stage->value);
         $activeStageCounts = $applications
@@ -76,6 +77,14 @@ class GetRequisitionPipelineTool implements AiTool
             'stage' => $stage->label(),
             'total' => (int) ($stageCounts[$stage->value] ?? 0),
             'active' => (int) ($activeStageCounts[$stage->value] ?? 0),
+        ])->values()->all();
+
+        // Phase 4: the requisition's own configured pipeline (custom stages, SLA, rules) as
+        // structured context, with counts from the same hierarchy-scoped applications.
+        $configuredCounts = $applications->where('status', ApplicationStatus::Active)->countBy('pipeline_stage_id');
+        $configuredPipeline = $requisition->pipelineStages()->get()->map(fn (RequisitionPipelineStage $stage) => [
+            ...$stage->toStageContext(),
+            'active' => (int) ($configuredCounts[$stage->id] ?? 0),
         ])->values()->all();
 
         $byStatus = collect(ApplicationStatus::cases())
@@ -94,6 +103,9 @@ class GetRequisitionPipelineTool implements AiTool
                 'total_applications' => $applications->count(),
                 'by_stage' => $byStage,
                 'by_status' => $byStatus,
+                'pipeline_template' => $requisition->pipelineTemplate?->name,
+                'pipeline_template_version' => $requisition->pipeline_template_version,
+                'configured_pipeline' => $configuredPipeline,
             ],
             summary: "{$requisition->code}: {$applications->count()} application(s), ".($statusCounts[ApplicationStatus::Active->value] ?? 0).' active, '.$requisition->remainingOpenings().' opening(s) remaining.',
             type: 'pipeline',

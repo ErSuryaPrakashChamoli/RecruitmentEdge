@@ -76,7 +76,7 @@ test('costPerHire scoped to a source only counts joins sourced from it', functio
         ->and($this->service->costPerHire($this->start, $this->end, sourceId: $referral->id))->toBe(5000.0);
 });
 
-test('costPerHire scoped to a user counts only joins and requisition costs within their hierarchy', function (): void {
+test('costPerHire scoped to a user counts costs and joins of the requisitions their team is involved in', function (): void {
     $this->seed(RolePermissionSeeder::class);
 
     $manager = Employee::factory()->create();
@@ -89,13 +89,14 @@ test('costPerHire scoped to a user counts only joins and requisition costs withi
     RecruitmentCost::factory()->create(['amount' => 9000, 'incurred_on' => now(), 'requisition_id' => $teamRequisition->id]);
     RecruitmentCost::factory()->create(['amount' => 50000, 'incurred_on' => now(), 'requisition_id' => $otherRequisition->id]);
 
+    // Phase 8.5: both sides use the same scope — the requisitions the team is involved in.
     CandidateJoining::factory()->create([
-        'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id])->id,
+        'candidate_application_id' => CandidateApplication::factory()->create(['recruiter_id' => $recruiter->id, 'requisition_id' => $teamRequisition->id])->id,
         'status' => JoiningStatus::Joined,
         'actual_doj' => now(),
     ]);
     CandidateJoining::factory()->count(2)->create([
-        'candidate_application_id' => fn () => CandidateApplication::factory()->create(['recruiter_id' => $outsider->id])->id,
+        'candidate_application_id' => fn () => CandidateApplication::factory()->create(['recruiter_id' => $outsider->id, 'requisition_id' => $otherRequisition->id])->id,
         'status' => JoiningStatus::Joined,
         'actual_doj' => now(),
     ]);
@@ -104,5 +105,6 @@ test('costPerHire scoped to a user counts only joins and requisition costs withi
     $user->assignRole('manager');
 
     expect($this->service->costPerHire($this->start, $this->end, user: $user))->toBe(9000.0)
+        ->and($this->service->successfulJoins($this->start, $this->end, user: $user))->toBe(1)
         ->and($this->service->costPerHire($this->start, $this->end))->toBe(round(59000 / 3, 2));
 });

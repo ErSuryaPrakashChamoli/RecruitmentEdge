@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RecruiterIncentiveCalculations\Pages;
 
 use App\Filament\Resources\RecruiterIncentiveCalculations\Actions\IncentiveLifecycleActions;
 use App\Filament\Resources\RecruiterIncentiveCalculations\RecruiterIncentiveCalculationResource;
+use App\Models\AuditLog;
 use App\Models\RecruiterIncentiveCalculation;
 use App\Services\Export\ReportExportService;
 use Filament\Actions\Action;
@@ -31,11 +32,15 @@ class ViewRecruiterIncentiveCalculation extends ViewRecord
             ->label('Download Statement')
             ->icon('heroicon-o-document-arrow-down')
             ->color('gray')
-            ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export'))
+            // Phase 8.8 (SEC-88-15): another person's pay needs compensation.view; your own does not.
+            ->visible(fn (): bool => (bool) auth()->user()?->can('reports.export') && $this->canSeePayOnStatement())
             ->action(function (): mixed {
                 /** @var RecruiterIncentiveCalculation $calculation */
                 $calculation = $this->record;
                 $calculation->loadMissing('employee', 'candidate', 'incentiveRule', 'incentiveSlab', 'adjustments', 'payments');
+
+                // Phase 8.8 (SEC-88-13): who took a copy of the statement.
+                AuditLog::record($calculation, 'incentive_statement_downloaded', null, ['statement' => 'calculation']);
 
                 return app(ReportExportService::class)->streamPdf(
                     "incentive-statement-{$calculation->id}.pdf",
@@ -43,5 +48,14 @@ class ViewRecruiterIncentiveCalculation extends ViewRecord
                     ['calculation' => $calculation],
                 );
             });
+    }
+
+    private function canSeePayOnStatement(): bool
+    {
+        /** @var RecruiterIncentiveCalculation $calculation */
+        $calculation = $this->record;
+        $user = auth()->user();
+
+        return $user !== null && (($user->employee_id !== null && $user->employee_id === $calculation->employee_id) || $user->can('compensation.view'));
     }
 }

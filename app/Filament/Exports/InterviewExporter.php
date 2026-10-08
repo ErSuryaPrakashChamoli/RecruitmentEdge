@@ -2,6 +2,7 @@
 
 namespace App\Filament\Exports;
 
+use App\Filament\Exports\Concerns\RunsOnExportQueue;
 use App\Models\Interview;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
@@ -10,6 +11,8 @@ use Illuminate\Support\Str;
 
 class InterviewExporter extends Exporter
 {
+    use RunsOnExportQueue;
+
     protected static ?string $model = Interview::class;
 
     public static function getColumns(): array

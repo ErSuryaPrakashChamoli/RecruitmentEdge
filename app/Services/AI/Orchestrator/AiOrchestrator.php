@@ -9,9 +9,11 @@ use App\Models\AiMessage;
 use App\Models\AiToolCall;
 use App\Models\User;
 use App\Services\AI\Actions\ActionExecutor;
+use App\Services\AI\Actions\ApprovalAuthority;
 use App\Services\AI\Exceptions\AiRateLimitExceededException;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\ToolRegistry;
+use DomainException;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
@@ -29,12 +31,15 @@ class AiOrchestrator
 {
     public const string DEFAULT_TITLE = 'New conversation';
 
+    public const string LEGACY_CONVERSATION_MESSAGE = 'This conversation was recorded before the AI privacy boundary and is kept read-only. Start a new conversation to continue.';
+
     public function __construct(
         private readonly AiGateway $gateway,
         private readonly ToolRegistry $registry,
         private readonly ConversationContextBuilder $contextBuilder,
         private readonly ActionExecutor $executor,
         private readonly KnowledgeBaseFallback $knowledgeBaseFallback,
+        private readonly ApprovalAuthority $approvalAuthority,
     ) {}
 
     public static function rateLimitKey(User $user): string
@@ -49,6 +54,7 @@ class AiOrchestrator
      */
     public function ask(AiConversation $conversation, string $userMessage, User $user, ?callable $onDelta = null): array
     {
+        $this->assertNotLegacy($conversation);
         $this->assertNotRateLimited($user);
         $this->titleFromFirstMessage($conversation, $userMessage);
 
@@ -68,6 +74,8 @@ class AiOrchestrator
      */
     public function continueTurn(AiConversation $conversation, User $user, ?callable $onDelta = null): array
     {
+        $this->assertNotLegacy($conversation);
+
         return $this->runTurn($conversation, $user, $onDelta);
     }
 
@@ -159,6 +167,7 @@ class AiOrchestrator
                     'risk_level' => 'read',
                     'status' => AiToolCallStatus::Failed,
                     'requires_confirmation' => false,
+                    'requested_by' => $user->id,
                 ]);
 
                 $toolCallRow->result()->create([
@@ -187,6 +196,10 @@ class AiOrchestrator
                 'risk_level' => $tool->riskLevel(),
                 'status' => AiToolCallStatus::Pending,
                 'requires_confirmation' => $requiresConfirmation,
+                // Phase 8.4: who asked, until when it may be approved, and with what authority.
+                'requested_by' => $user->id,
+                'expires_at' => $requiresConfirmation ? now()->addMinutes((int) config('ai.actions.pending_ttl_minutes', 30)) : null,
+                'authority_fingerprint' => $requiresConfirmation ? $this->approvalAuthority->fingerprint($user) : null,
             ]);
 
             if ($requiresConfirmation) {
@@ -225,6 +238,17 @@ class AiOrchestrator
             ->reorder()
             ->orderByDesc('id')
             ->value('content');
+    }
+
+    /**
+     * Phase 8.1: conversations recorded before the AI privacy boundary are read-only historical
+     * records — they are never continued (and so never replayed to a provider) or rewritten.
+     */
+    private function assertNotLegacy(AiConversation $conversation): void
+    {
+        if ($conversation->isLegacy()) {
+            throw new DomainException(self::LEGACY_CONVERSATION_MESSAGE);
+        }
     }
 
     private function assertNotRateLimited(User $user): void

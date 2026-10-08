@@ -104,7 +104,7 @@ test('the edit interview page and its feedback ratings render', function (): voi
     $interview = Interview::factory()->create();
     InterviewFeedback::factory()->create(['interview_id' => $interview->id, 'ratings' => ['technical' => 5]]);
 
-    $this->get("/admin/interviews/{$interview->id}/edit")
+    $this->get("/admin/acme/interviews/{$interview->id}/edit")
         ->assertSuccessful()
         ->assertSee('Meeting Link');
 
@@ -159,7 +159,7 @@ test('feedback criteria ratings are captured from the table and default the over
 
     $feedback = InterviewFeedback::query()->where('interview_id', $interview->id)->sole();
 
-    expect($feedback->ratings)->toBe(['technical' => 4, 'communication' => 4, 'problem_solving' => 2, 'culture_fit' => 2])
+    expect($feedback->ratings)->toBeJsonEquivalent(['technical' => 4, 'communication' => 4, 'problem_solving' => 2, 'culture_fit' => 2])
         ->and($feedback->score)->toBe('6.0');
 });
 

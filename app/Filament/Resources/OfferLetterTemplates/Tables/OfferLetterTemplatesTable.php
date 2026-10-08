@@ -5,8 +5,6 @@ namespace App\Filament\Resources\OfferLetterTemplates\Tables;
 use App\Enums\OfferLetterTemplateFormat;
 use App\Filament\Resources\OfferLetterTemplates\Actions\OfferLetterTemplateActions;
 use App\Models\OfferLetterTemplate;
-use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -46,12 +44,7 @@ class OfferLetterTemplatesTable
                 OfferLetterTemplateActions::uploadWordFile(),
                 EditAction::make(),
             ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ])
-            ->checkIfRecordIsSelectableUsing(fn (OfferLetterTemplate $record): bool => ! $record->is_system)
+            ->toolbarActions([])
             ->emptyStateHeading('No offer letter templates yet')
             ->emptyStateDescription('Offers use the built-in letter until a template exists.')
             ->emptyStateIcon('heroicon-o-document-text');

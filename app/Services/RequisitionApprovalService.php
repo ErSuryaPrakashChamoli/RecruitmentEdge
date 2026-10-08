@@ -3,9 +3,12 @@
 namespace App\Services;
 
 use App\Enums\RequisitionStatus;
+use App\Events\RequisitionStatusChanged;
+use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\RecruitmentRequisition;
 use App\Models\User;
+use App\Services\Lifecycle\LifecycleGuard;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 
@@ -16,7 +19,9 @@ use Illuminate\Support\Facades\DB;
  * current status.
  *
  * Approval decisions (approving, or sending a pending requisition back to draft) are enforced
- * here — not just in the UI — so every write path requires the `requisitions.approve` permission.
+ * here — not just in the UI — so every write path requires the `requisitions.approve` permission,
+ * and the requester can never approve their own requisition (Phase 8.3). The status column is
+ * guarded on the model: this service is its only writer.
  */
 class RequisitionApprovalService
 {
@@ -119,12 +124,22 @@ class RequisitionApprovalService
             throw new DomainException("You do not have permission to move a requisition from {$from->label()} to {$to->label()}.");
         }
 
+        if ($to === RequisitionStatus::Approved && $this->isRequester($requisition, $actor)) {
+            AuditLog::record($requisition, 'requisition_self_approval_blocked', ['status' => $from->value], ['attempted_status' => $to->value, 'by_employee_id' => $this->actingEmployeeId($actor)]);
+
+            throw new DomainException('You raised this requisition, so someone else must approve it.');
+        }
+
         if ($this->requiresRemarks($from, $to) && blank($remarks)) {
             throw new DomainException("A reason is required to move a requisition to {$to->label()}.");
         }
 
-        return DB::transaction(function () use ($requisition, $from, $to, $actor, $remarks): RecruitmentRequisition {
-            $requisition->forceFill(['status' => $to])->save();
+        return DB::transaction(fn (): RecruitmentRequisition => LifecycleGuard::allow(function () use ($requisition, $from, $to, $actor, $remarks): RecruitmentRequisition {
+            $requisition->forceFill([
+                'status' => $to,
+                // Phase 8.5: closed and cancelled are terminal, so the requisition's age stops here.
+                ...(in_array($to, [RequisitionStatus::Closed, RequisitionStatus::Cancelled], true) ? ['closed_at' => now()] : []),
+            ])->save();
 
             $requisition->statusHistory()->create([
                 'from_status' => $from,
@@ -133,8 +148,26 @@ class RequisitionApprovalService
                 'remarks' => $remarks,
             ]);
 
+            RequisitionStatusChanged::dispatch($requisition, $from, $to, $actor);
+
             return $requisition;
-        });
+        }));
+    }
+
+    /**
+     * Phase 8.3: whoever raised a requisition may not approve it — enforced here so every path
+     * (Filament, Copilot, automation, a future API) is covered, not only the button.
+     */
+    public function isRequester(RecruitmentRequisition $requisition, ?Employee $actor): bool
+    {
+        $employeeId = $this->actingEmployeeId($actor);
+
+        return $employeeId !== null && $requisition->created_by !== null && (int) $requisition->created_by === $employeeId;
+    }
+
+    private function actingEmployeeId(?Employee $actor): ?int
+    {
+        return $actor?->id ?? auth()->user()?->employee_id;
     }
 
     /**

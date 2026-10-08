@@ -3,6 +3,10 @@
 namespace App\Models;
 
 use App\Enums\OfferStatus;
+use App\Models\Concerns\Auditable;
+use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\GuardsLifecycleAttributes;
+use App\Models\Concerns\ReferencesActiveMasterData;
 use Database\Factories\OfferFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -32,8 +36,58 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 ])]
 class Offer extends Model
 {
+    use Auditable, BelongsToTenant, GuardsLifecycleAttributes, ReferencesActiveMasterData;
+
     /** @use HasFactory<OfferFactory> */
     use HasFactory;
+
+    /**
+     * The commercial terms of an offer. Editable while the offer is a Draft or Initiated; from
+     * release onward they change only through an offer revision (Phase 8.3).
+     *
+     * @var array<int, string>
+     */
+    public const array TERMS = ['designation_id', 'location_id', 'offered_ctc', 'fixed_salary', 'variable_salary', 'joining_bonus', 'offer_date', 'offer_expiry', 'expected_joining_date', 'offer_letter_template_id', 'offer_letter_body'];
+
+    /**
+     * Compensation figures — recorded as changed in the audit log, never copied into it.
+     *
+     * @var array<int, string>
+     */
+    public const array COMPENSATION = ['offered_ctc', 'fixed_salary', 'variable_salary', 'joining_bonus'];
+
+    /**
+     * @return array<int, string>
+     */
+    public function lifecycleAttributes(): array
+    {
+        $base = ['status', 'accepted_at', 'candidate_application_id', 'offer_code'];
+
+        return $this->termsAreEditable() ? $base : [...$base, ...self::TERMS];
+    }
+
+    public function lifecycleOwner(): string
+    {
+        return 'OfferService';
+    }
+
+    /**
+     * Whether the offer's terms may still be edited directly (before release).
+     */
+    public function termsAreEditable(): bool
+    {
+        $status = $this->getOriginal('status') ?? $this->status;
+
+        return in_array($status instanceof OfferStatus ? $status : OfferStatus::tryFrom((string) $status), [OfferStatus::Draft, OfferStatus::Initiated, null], true);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function auditRedactedAttributes(): array
+    {
+        return [...self::COMPENSATION, 'offer_letter_body'];
+    }
 
     protected function casts(): array
     {
@@ -51,6 +105,16 @@ class Offer extends Model
     }
 
     /**
+     * Every set of terms released or proposed for this offer (Phase 8.3).
+     *
+     * @return HasMany<OfferRevision, $this>
+     */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(OfferRevision::class)->orderBy('revision');
+    }
+
+    /**
      * @return BelongsTo<CandidateApplication, $this>
      */
     public function candidateApplication(): BelongsTo
@@ -63,7 +127,7 @@ class Offer extends Model
      */
     public function designation(): BelongsTo
     {
-        return $this->belongsTo(Designation::class);
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     /**
@@ -71,7 +135,7 @@ class Offer extends Model
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
@@ -107,5 +171,18 @@ class Offer extends Model
     public function joining(): HasOne
     {
         return $this->hasOne(CandidateJoining::class);
+    }
+
+    /**
+     * Phase 8.6 (D8.6-005): master data taken up by this record must be in service.
+     *
+     * @return array<string, class-string<Model>>
+     */
+    public function activeMasterDataReferences(): array
+    {
+        return [
+            'designation_id' => Designation::class,
+            'location_id' => Location::class,
+        ];
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Candidates\Schemas;
 
+use App\Filament\Support\MasterDataLabel;
 use App\Models\Candidate;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -24,6 +25,7 @@ class CandidateInfolist
                         ->label('Code'),
                     TextEntry::make('full_name'),
                     TextEntry::make('source.name')
+                        ->formatStateUsing(MasterDataLabel::for('source'))
                         ->label('Source'),
                 ]),
             Section::make('Contact')

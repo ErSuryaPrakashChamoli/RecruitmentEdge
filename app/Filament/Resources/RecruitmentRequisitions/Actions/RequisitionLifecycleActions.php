@@ -68,7 +68,8 @@ class RequisitionLifecycleActions
             ->color($color)
             ->visible(fn (RecruitmentRequisition $record): bool => in_array($record->status, $fromStatuses, true)
                 && ! $record->trashed()
-                && (bool) auth()->user()?->can($ability, $record))
+                && (bool) auth()->user()?->can($ability, $record)
+                && ! ($to === RequisitionStatus::Approved && app(RequisitionApprovalService::class)->isRequester($record, auth()->user()?->employee)))
             ->modalHeading("{$label}: requisition")
             ->modalSubmitActionLabel($label)
             ->schema([

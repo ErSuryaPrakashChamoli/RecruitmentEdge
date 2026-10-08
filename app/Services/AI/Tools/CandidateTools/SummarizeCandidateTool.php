@@ -9,6 +9,7 @@ use App\Services\AI\DTO\LlmMessage;
 use App\Services\AI\DTO\ToolResult;
 use App\Services\AI\Gateway\AiGateway;
 use App\Services\AI\Tools\Concerns\CallsLanguageModel;
+use App\Services\AI\Tools\Concerns\ProjectsForAi;
 use App\Services\AI\Tools\Concerns\ScopesToHierarchy;
 use App\Services\AI\Tools\Contracts\AiTool;
 
@@ -19,7 +20,7 @@ use App\Services\AI\Tools\Contracts\AiTool;
  */
 class SummarizeCandidateTool implements AiTool
 {
-    use CallsLanguageModel, ScopesToHierarchy;
+    use CallsLanguageModel, ProjectsForAi, ScopesToHierarchy;
 
     public function __construct(private readonly AiGateway $gateway) {}
 
@@ -66,7 +67,9 @@ class SummarizeCandidateTool implements AiTool
             return ToolResult::fail('Candidate not found, or not visible to you.');
         }
 
-        $facts = $candidate->toArray();
+        $visibleIds = $this->visibleEmployeeIds($user);
+        $applications = $candidate->applications->filter(fn ($application) => $visibleIds === null || $visibleIds->contains($application->recruiter_id));
+        $facts = $this->projector()->candidateSummaryFacts($candidate, $applications);
 
         $narrative = $this->generateText($this->gateway, [
             LlmMessage::system('You write concise, factual recruiter-facing candidate summaries as 4-6 bullet points (profile, current stage, interview signal, risks, sensible next step). Use only the facts provided; never invent details.'),
@@ -74,8 +77,8 @@ class SummarizeCandidateTool implements AiTool
         ], 'summarization', $user);
 
         return ToolResult::ok(
-            data: ['candidate' => $facts, 'narrative' => $narrative],
-            summary: $narrative ?? "Gathered facts for {$candidate->full_name} to summarize.",
+            data: ['candidate_ref' => $facts['candidate_ref'], 'narrative' => $narrative],
+            summary: $narrative ?? "Gathered facts for {$facts['candidate_ref']} to summarize.",
             type: 'candidate_card',
         );
     }

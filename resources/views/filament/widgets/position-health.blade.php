@@ -35,7 +35,7 @@
                                 <td class="py-2 pr-3 text-right">{{ $row['required'] }}</td>
                                 <td class="py-2 pr-3 text-right">{{ $row['filled'] }}</td>
                                 <td class="py-2 pr-3 text-right">{{ $row['remaining'] }}</td>
-                                <td class="py-2 pr-3 text-right">{{ $row['fulfilment_percent'] }}%</td>
+                                <td class="py-2 pr-3 text-right">{{ $row['fulfilment_percent'] !== null ? $row['fulfilment_percent'].'%' : '—' }}</td>
                                 <td class="py-2 pr-3 text-right">{{ $row['pipeline'] }}</td>
                                 <td class="py-2 pr-3 text-right">{{ $row['ageing_days'] }}</td>
                                 <td class="py-2 text-right">

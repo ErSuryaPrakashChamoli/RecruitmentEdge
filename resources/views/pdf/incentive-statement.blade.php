@@ -16,19 +16,19 @@
     </style>
 </head>
 <body>
-    <h1>{{ config('app.name') }}</h1>
+    <h1>{{ \App\Services\Branding::tenantName() }}</h1>
     <p class="subtitle">Incentive Statement &mdash; {{ $calculation->period_start->format('F Y') }}</p>
 
     <table>
         <tr><th>Recruiter</th><td>{{ $calculation->employee?->fullName() }}</td></tr>
         <tr><th>Candidate</th><td>{{ $calculation->candidate?->full_name }}</td></tr>
-        <tr><th>Incentive Rule</th><td>{{ $calculation->incentiveRule?->name }}</td></tr>
+        <tr><th>Incentive Rule</th><td>{{ $calculation->pricedRuleName() }}</td></tr>
         <tr><th>Period</th><td>{{ $calculation->period_start->format('d M Y') }} &ndash; {{ $calculation->period_end->format('d M Y') }}</td></tr>
-        <tr><th>Payout Type</th><td>{{ $calculation->incentiveRule?->payout_type?->label() ?? '—' }}</td></tr>
+        <tr><th>Payout Type</th><td>{{ $calculation->pricedPayoutLabel() }}</td></tr>
         <tr><th>Slab Matched On</th><td>{{ $calculation->slabBasis() !== null ? $calculation->incentiveRule->formatSlabBasis($calculation->slabBasis()) : '—' }}</td></tr>
         <tr>
             <th>Applicable Slab</th>
-            <td>{{ $calculation->incentiveSlab?->bandLabel($calculation->incentiveRule) ?? '—' }}</td>
+            <td>{{ $calculation->pricedBandLabel() ?? '—' }}</td>
         </tr>
         <tr><th>Base Amount</th><td>&#8377;{{ number_format((float) $calculation->amount, 2) }}</td></tr>
         <tr><th>Status</th><td>{{ $calculation->status->label() }}</td></tr>

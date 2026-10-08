@@ -3,6 +3,8 @@
 namespace App\Observers;
 
 use App\Models\Employee;
+use App\Services\HierarchyMemo;
+use DomainException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -12,13 +14,39 @@ use Illuminate\Support\Facades\DB;
  * The closure table stores one row per (ancestor, descendant) pair at any depth — including a
  * depth-0 self-reference — so "everyone under me" / "everyone above me" queries are a single
  * indexed lookup instead of a recursive walk, at any org depth.
+ *
+ * SaaS-1: the closure table is tenant-owned. Every read and write names the employee's tenant, and
+ * composite foreign keys (tenant_id, ancestor_id / descendant_id) → employees (tenant_id, id) make
+ * a cross-tenant reporting edge impossible in the database itself.
  */
 class EmployeeObserver
 {
+    /**
+     * Phase 8.3: the reporting hierarchy is the access boundary, so it must stay a tree. An employee
+     * can never report to themselves or to anyone in their own subtree. Phase 8.4: every write goes
+     * through HierarchyIntegrityService (reports_to_id is guarded), which checks under row locks;
+     * this remains the model-level backstop. A soft delete leaves the closure rows in place on
+     * purpose — the deleted person's history stays visible to the managers above them.
+     */
+    public function updating(Employee $employee): void
+    {
+        if (! $employee->isDirty('reports_to_id') || $employee->reports_to_id === null) {
+            return;
+        }
+
+        $cycle = (int) $employee->reports_to_id === $employee->id
+            || DB::table('employee_hierarchy')->where('tenant_id', $employee->tenant_id)->where('ancestor_id', $employee->id)->where('descendant_id', $employee->reports_to_id)->exists();
+
+        if ($cycle) {
+            throw new DomainException("{$employee->fullName()} cannot report to someone in their own reporting line.");
+        }
+    }
+
     public function created(Employee $employee): void
     {
         DB::transaction(function () use ($employee): void {
             DB::table('employee_hierarchy')->insert([
+                'tenant_id' => $employee->tenant_id,
                 'ancestor_id' => $employee->id,
                 'descendant_id' => $employee->id,
                 'depth' => 0,
@@ -27,6 +55,8 @@ class EmployeeObserver
 
             $this->attachToParent($employee);
         });
+
+        app(HierarchyMemo::class)->flush();
     }
 
     public function updated(Employee $employee): void
@@ -37,6 +67,7 @@ class EmployeeObserver
 
         DB::transaction(function () use ($employee): void {
             $subtree = DB::table('employee_hierarchy')
+                ->where('tenant_id', $employee->tenant_id)
                 ->where('ancestor_id', $employee->id)
                 ->get(['descendant_id', 'depth']);
 
@@ -44,12 +75,16 @@ class EmployeeObserver
 
             // Detach the moved subtree from every one of its old ancestors (outside the subtree itself).
             DB::table('employee_hierarchy')
+                ->where('tenant_id', $employee->tenant_id)
                 ->whereIn('descendant_id', $subtreeIds)
                 ->whereNotIn('ancestor_id', $subtreeIds)
                 ->delete();
 
             $this->attachToParent($employee, $subtree);
         });
+
+        // Phase 8.9: visibility follows the new reporting line at once (HierarchyMemo).
+        app(HierarchyMemo::class)->flush();
     }
 
     /**
@@ -67,6 +102,7 @@ class EmployeeObserver
         $subtree ??= collect([(object) ['descendant_id' => $employee->id, 'depth' => 0]]);
 
         $newAncestors = DB::table('employee_hierarchy')
+            ->where('tenant_id', $employee->tenant_id)
             ->where('descendant_id', $employee->reports_to_id)
             ->get(['ancestor_id', 'depth']);
 
@@ -75,6 +111,7 @@ class EmployeeObserver
         foreach ($newAncestors as $ancestor) {
             foreach ($subtree as $descendant) {
                 $rows[] = [
+                    'tenant_id' => $employee->tenant_id,
                     'ancestor_id' => $ancestor->ancestor_id,
                     'descendant_id' => $descendant->descendant_id,
                     'depth' => $ancestor->depth + $descendant->depth + 1,

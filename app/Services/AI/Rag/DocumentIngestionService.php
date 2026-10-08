@@ -9,6 +9,7 @@ use App\Models\AiKnowledgeArticle;
 use App\Services\AI\Contracts\DocumentParserInterface;
 use App\Services\AI\Exceptions\AiProviderUnavailableException;
 use App\Services\AI\Gateway\AiGateway;
+use App\Services\AI\Privacy\PiiPatternScrubber;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -26,6 +27,7 @@ class DocumentIngestionService
     public function __construct(
         private readonly AiGateway $gateway,
         private readonly iterable $parsers,
+        private readonly PiiPatternScrubber $scrubber = new PiiPatternScrubber,
     ) {}
 
     public function ingestDocument(AiDocument $document): void
@@ -47,9 +49,9 @@ class DocumentIngestionService
                 throw new \RuntimeException('No extractable text was found in this document.');
             }
 
-            $this->replaceChunks('document', $document->id, $text);
+            $redactions = $this->replaceChunks('document', $document->id, $text);
 
-            $document->forceFill(['status' => AiDocumentStatus::Indexed])->save();
+            $document->forceFill(['status' => AiDocumentStatus::Indexed, 'pii_redactions' => $redactions])->save();
         } catch (Throwable $e) {
             $document->forceFill(['status' => AiDocumentStatus::Failed, 'error' => $e->getMessage()])->save();
         }
@@ -69,9 +71,21 @@ class DocumentIngestionService
         }
     }
 
-    private function replaceChunks(string $sourceType, int $sourceId, string $text): void
+    /**
+     * Phase 8.1: chunks are scrubbed of contact details, IDs and amounts before they are embedded
+     * or stored, so neither the embedding provider nor a later chat prompt ever receives them.
+     *
+     * @return int the number of values removed
+     */
+    private function replaceChunks(string $sourceType, int $sourceId, string $text): int
     {
-        $chunks = $this->chunk($text);
+        $redactions = 0;
+        $chunks = array_map(function (string $chunk) use (&$redactions): string {
+            $scrubbed = $this->scrubber->scrub($chunk);
+            $redactions += array_sum($scrubbed['counts']);
+
+            return $scrubbed['text'];
+        }, $this->chunk($text));
         $vectors = $this->gateway->embed($chunks);
 
         AiDocumentChunk::query()->where('source_type', $sourceType)->where('source_id', $sourceId)->delete();
@@ -86,6 +100,8 @@ class DocumentIngestionService
                 'token_count' => str_word_count($content),
             ]);
         }
+
+        return $redactions;
     }
 
     /**

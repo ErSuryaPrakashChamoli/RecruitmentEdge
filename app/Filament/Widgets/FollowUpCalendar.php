@@ -3,6 +3,8 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\FollowupStatus;
+use App\Filament\Widgets\Concerns\AuthorizesWidget;
+use App\Filament\Widgets\Concerns\LoadsAfterFirstPaint;
 use App\Filament\Widgets\Concerns\ResolvesDashboardPeriod;
 use App\Models\CandidateJoining;
 use App\Models\Interview;
@@ -23,11 +25,12 @@ use Illuminate\Support\Collection;
  */
 class FollowUpCalendar extends Widget
 {
-    use InteractsWithPageFilters, ResolvesDashboardPeriod;
+    use AuthorizesWidget, InteractsWithPageFilters, LoadsAfterFirstPaint, ResolvesDashboardPeriod;
 
-    // Command Center widgets render eagerly (not lazy) so the dashboard shows real data in one
-    // pass instead of a cascade of empty placeholder boxes each firing its own AJAX request.
-    protected static bool $isLazy = false;
+    protected static function requiredPermission(): string
+    {
+        return 'followups.manage';
+    }
 
     protected string $view = 'filament.widgets.follow-up-calendar';
 

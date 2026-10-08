@@ -2,10 +2,8 @@
 
 namespace App\Filament\Resources\CandidateSources\Pages;
 
+use App\Filament\Actions\MasterDataLifecycleActions;
 use App\Filament\Resources\CandidateSources\CandidateSourceResource;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\ForceDeleteAction;
-use Filament\Actions\RestoreAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditCandidateSource extends EditRecord
@@ -15,9 +13,7 @@ class EditCandidateSource extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make(),
-            ForceDeleteAction::make(),
-            RestoreAction::make(),
+            ...MasterDataLifecycleActions::all(),
         ];
     }
 }

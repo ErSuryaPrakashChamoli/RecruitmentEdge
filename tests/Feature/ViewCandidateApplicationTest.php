@@ -28,7 +28,7 @@ test('the candidate application 360 view renders with interviews, offers, and st
     $user->assignRole('chro');
 
     actingAs($user)
-        ->get("/admin/candidate-applications/{$application->id}")
+        ->get("/admin/acme/candidate-applications/{$application->id}")
         ->assertSuccessful()
         ->assertSee($application->application_code)
         ->assertSee($application->candidate->full_name)
@@ -101,5 +101,5 @@ test('a recruiter outside the hierarchy cannot view an application that is not t
     $user = User::factory()->create(['employee_id' => $outsider->id]);
     $user->assignRole('recruiter');
 
-    actingAs($user)->get("/admin/candidate-applications/{$application->id}")->assertNotFound();
+    actingAs($user)->get("/admin/acme/candidate-applications/{$application->id}")->assertNotFound();
 });

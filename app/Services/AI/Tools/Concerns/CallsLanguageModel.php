@@ -29,7 +29,7 @@ trait CallsLanguageModel
         try {
             $response = $gateway->generate($messages, [], $category, $user);
         } catch (Throwable $e) {
-            Log::warning('AI tool model call failed', ['tool' => static::class, 'exception' => $e->getMessage()]);
+            Log::warning('AI tool model call failed', ['tool' => static::class, 'exception' => $e::class]);
 
             return null;
         }
