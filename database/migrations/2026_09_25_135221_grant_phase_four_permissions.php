@@ -24,8 +24,10 @@ return new class extends Migration
         foreach (RolePermissionSeeder::PHASE_4_ROLE_PERMISSIONS as $roleName => $permissions) {
             $role = Role::query()->where('name', $roleName)->first();
 
+            // Not Role::findOrCreate(): with spatie teams on it filters by roles.tenant_id, which an
+            // upgraded database only gains later, in 2026_10_04_025113.
             if ($role === null && $roleName === 'employee' && Role::query()->exists()) {
-                $role = Role::findOrCreate('employee');
+                $role = Role::query()->firstOrCreate(['name' => 'employee', 'guard_name' => 'web']);
             }
 
             $role?->givePermissionTo($permissions);
