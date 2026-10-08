@@ -2,6 +2,7 @@
 
 use App\Services\Tenancy\TenantContext;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Permission\Models\Permission;
@@ -50,18 +51,25 @@ test('the phase 6 permission migration grants automation permissions without rem
 
 test('the phase 4 permission migration upgrades roles that have no tenant_id yet', function (): void {
     // An upgraded database reaches this migration before 2026_10_04_025113 adds roles.tenant_id,
-    // while spatie teams are already on; `migrate` runs outside any tenant.
+    // while spatie teams are already on; `migrate` runs outside any tenant. MySQL rejects a query
+    // naming the missing column, but SQLite reads an unknown "tenant_id" as a string literal, so
+    // the queries are checked instead.
     $defaultConnection = DB::getDefaultConnection();
     config(['database.connections.pre_tenancy' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true]]);
     DB::setDefaultConnection('pre_tenancy');
+    $queries = [];
 
     try {
         (require database_path('migrations/2026_08_26_100131_create_permission_tables.php'))->up();
         DB::table('roles')->insert([['name' => 'chro', 'guard_name' => 'web'], ['name' => 'recruiter', 'guard_name' => 'web']]);
+        DB::listen(function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
 
         TenantContext::current()->runWithoutTenant(fn () => (require database_path('migrations/2026_09_25_135221_grant_phase_four_permissions.php'))->up());
 
         expect(Schema::hasColumn('roles', 'tenant_id'))->toBeFalse()
+            ->and(array_values(array_filter($queries, fn (string $sql): bool => str_contains($sql, 'tenant_id'))))->toBe([])
             ->and(Role::query()->where('name', 'employee')->sole()->permissions()->pluck('name')->all())
             ->toBe(RolePermissionSeeder::PHASE_4_ROLE_PERMISSIONS['employee'])
             ->and(Role::query()->where('name', 'recruiter')->sole()->permissions()->pluck('name')->sort()->values()->all())
