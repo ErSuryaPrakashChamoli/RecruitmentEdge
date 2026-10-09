@@ -57,7 +57,7 @@ class PlatformPanelProvider extends PanelProvider
                 'danger' => Color::Rose,
                 'info' => Color::Blue,
             ])
-            ->navigationGroups(['Tenants', 'Support', 'Compliance', 'Operations'])
+            ->navigationGroups(['Tenants', 'Commercial', 'Support', 'Compliance', 'Operations'])
             ->discoverPages(in: app_path('Filament/Platform/Pages'), for: 'App\Filament\Platform\Pages')
             ->pages([Dashboard::class])
             ->discoverWidgets(in: app_path('Filament/Platform/Widgets'), for: 'App\Filament\Platform\Widgets')

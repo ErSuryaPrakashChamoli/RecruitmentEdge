@@ -80,7 +80,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/AiAssistantService.php,app/Filament/Pages/AiCopilot.php | .ai/rules/pages.md |
 | resources/views/careers/**,resources/views/mail/candidate-*.blade.php,resources/views/components/portal/**,resources/views/pdf/**,app/Mail/Candidate*.php | .ai/rules/pdf-mail.md |
 | app/Services/OfferLetterRenderer.php,app/Models/OfferLetterTemplate.php,app/Filament/Resources/OfferLetterTemplates/**,app/Filament/Resources/Offers/**,resources/views/pdf/offer-letter*.blade.php | .ai/rules/pdf.md |
-| app/Services/Platform/** | .ai/rules/platform.md |
+| app/Services/Platform/**, app/Services/Platform/PlatformDirectory.php | .ai/rules/platform.md |
 | app/Filament/Resources/RecruitmentRequisitions/**,app/Filament/Resources/Candidates/**,app/Filament/Resources/CandidateApplications/**,app/Policies/RecruitmentRequisitionPolicy.php,app/Policies/CandidatePolicy.php | .ai/rules/policies-policies.md |
 | app/Filament/Resources/**,app/Policies/** | .ai/rules/policies.md |
 | app/Models/AuditLog.php,app/Services/CandidatePortalService.php,app/Http/Controllers/Portal/**,routes/portal.php | .ai/rules/portal.md |

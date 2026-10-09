@@ -18,6 +18,12 @@ enum PlatformCapability: string
     case DeletionManage = 'platform.deletion.manage';
 
     /**
+     * Commercial V1: plan catalog, subscriptions, invoices and payments, and the billing actions on
+     * them. Administrators only, for now — not the final commercial RBAC (docs/platform-commercial-ui.md).
+     */
+    case CommercialManage = 'platform.commercial.manage';
+
+    /**
      * The smallest safe mapping of the SaaS-2 roles (docs/saas-5-decision-register.md D-S5-01).
      *
      * @return list<PlatformRole>
@@ -32,6 +38,7 @@ enum PlatformCapability: string
             self::AuditView => [PlatformRole::Administrator, PlatformRole::Compliance],
             self::OperationsView => [PlatformRole::Administrator, PlatformRole::Support],
             self::DeletionManage => [PlatformRole::Administrator, PlatformRole::Compliance],
+            self::CommercialManage => [PlatformRole::Administrator],
         };
     }
 
@@ -45,6 +52,7 @@ enum PlatformCapability: string
             self::AuditView => 'View the platform audit',
             self::OperationsView => 'View operations',
             self::DeletionManage => 'Request, approve and cancel tenant deletion',
+            self::CommercialManage => 'View and manage subscriptions, invoices and payments',
         };
     }
 }

@@ -60,7 +60,7 @@ test('capabilities follow the operator\'s roles, and each page follows its capab
         ->and(collect(PlatformCapability::cases())->filter(fn (PlatformCapability $capability) => $authorization->can($this->world->compliance, $capability))->values()->all())
         ->toBe([PlatformCapability::TenantsView, PlatformCapability::ComplianceManage, PlatformCapability::AuditView, PlatformCapability::DeletionManage])
         ->and(collect(PlatformCapability::cases())->filter(fn (PlatformCapability $capability) => $authorization->can($this->world->administrator, $capability))->values()->all())
-        ->toBe([PlatformCapability::TenantsView, PlatformCapability::TenantsManage, PlatformCapability::AuditView, PlatformCapability::OperationsView, PlatformCapability::DeletionManage]);
+        ->toBe([PlatformCapability::TenantsView, PlatformCapability::TenantsManage, PlatformCapability::AuditView, PlatformCapability::OperationsView, PlatformCapability::DeletionManage, PlatformCapability::CommercialManage]);
 
     $this->actingAs($this->world->support);
     $this->get(Tenants::getUrl(panel: 'platform'))->assertOk();

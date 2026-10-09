@@ -95,7 +95,7 @@ test('crossing tenants happens only in reviewed places', function (): void {
         'app/Console/Commands/BillingPayment.php' => 'platform console: an invoice by its globally unique number, a payment by its reference, then works inside its tenant (SaaS-4)',
         'app/Services/Billing/BillingReferenceResolver.php' => 'finds a verified provider event\'s payment by the provider\'s own reference, then works inside its tenant (SaaS-4)',
         'app/Services/Platform/SupportAccessService.php' => 'a platform operator\'s own grants (by operator), and the expiry sweep; every use is then checked against the grant\'s tenant (SaaS-5)',
-        'app/Services/Platform/PlatformDirectory.php' => 'the platform panel\'s operational metadata across tenants: platform audit, support grants (SaaS-5)',
+        'app/Services/Platform/PlatformDirectory.php' => 'the platform panel\'s operational metadata across tenants: platform audit, support grants (SaaS-5); the platform\'s own commercial records with each tenant — subscriptions, invoices, payments — and per-tenant counts (platform commercial UI)',
         'app/Services/Platform/SupportWorkspace.php' => 'one grant\'s tenant, after SupportAccessService::usableGrant (SaaS-5)',
         'app/Services/Api/ApiCredentialAuthenticator.php' => 'finds an API credential by its opaque key id, then enters the credential\'s own tenant (SaaS-6)',
         'app/Services/Webhooks/InboundWebhookReceiver.php' => 'finds an inbound connection by its opaque public key, then enters the connection\'s own tenant (SaaS-6)',

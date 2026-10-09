@@ -31,8 +31,9 @@ test('only the platform reaches the commercial control plane — no page, route,
             continue;
         }
 
-        // SaaS-5: the platform's own services, each authorising its operator's capability first.
-        if (in_array($path, ['app/Services/Platform/TenantAdministrationService.php', 'app/Services/Platform/TenantDeletionService.php', 'app/Services/Platform/TenantPurgeService.php'], true)) {
+        // SaaS-5: the platform's own services, each authorising its operator's capability first
+        // (TenantCommercialService: the platform commercial UI's adapter onto these services).
+        if (in_array($path, ['app/Services/Platform/TenantAdministrationService.php', 'app/Services/Platform/TenantDeletionService.php', 'app/Services/Platform/TenantPurgeService.php', 'app/Services/Platform/TenantCommercialService.php'], true)) {
             continue;
         }
 

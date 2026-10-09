@@ -16,9 +16,25 @@ use Filament\Support\Exceptions\Halt;
  */
 trait InteractsWithPlatform
 {
+    /**
+     * This request's answers, so a page asks once per capability rather than once per row or
+     * action. Never carried to the next request: Livewire keeps only public properties.
+     *
+     * @var array<string, bool>
+     */
+    private array $platformPermits = [];
+
     protected static function allows(PlatformCapability $capability): bool
     {
         return app(PlatformAuthorization::class)->can(self::signedIn(), $capability);
+    }
+
+    /**
+     * allows(), asked once per request on this page or widget.
+     */
+    protected function permits(PlatformCapability $capability): bool
+    {
+        return $this->platformPermits[$capability->value] ??= self::allows($capability);
     }
 
     protected static function signedIn(): ?User
@@ -40,9 +56,10 @@ trait InteractsWithPlatform
      * @template T
      *
      * @param  callable(User): T  $work
+     * @param  string|callable(T): Notification  $done  the success title, or the notification to send for the result
      * @return T
      */
-    protected static function perform(callable $work, string $done): mixed
+    protected static function perform(callable $work, string|callable $done): mixed
     {
         try {
             $result = $work(self::operator());
@@ -52,7 +69,7 @@ trait InteractsWithPlatform
             throw new Halt;
         }
 
-        Notification::make()->title($done)->success()->send();
+        (is_string($done) ? Notification::make()->title($done)->success() : $done($result))->send();
 
         return $result;
     }
